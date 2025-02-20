@@ -19,10 +19,54 @@ function handleCommandError(error) {
 }
 const program = new commander_1.Command();
 program
-    .name("alkanes")
-    .description("CLI for deploying Alkanes contracts")
+    .name("alkali")
+    .description("Smart contract development toolkit for Bitcoin Alkanes")
     .version("0.1.0");
 program
+    .command("init")
+    .description("Initialize a new Alkali project")
+    .option("-t, --template <name>", "Template to use", "default")
+    .action(async (options) => {
+    try {
+        console.log("🔥 Initializing Alkali project...");
+        // Create project structure
+        await promises_1.default.mkdir("contracts", { recursive: true });
+        await promises_1.default.mkdir("build", { recursive: true });
+        await promises_1.default.mkdir("scripts", { recursive: true });
+        // Get template path
+        const templatePath = path_1.default.join(__dirname, "..", "templates", options.template);
+        // Check if template exists
+        try {
+            await promises_1.default.access(templatePath);
+        }
+        catch (err) {
+            console.error(`Template "${options.template}" not found`);
+            process.exit(1);
+        }
+        // Copy contract template
+        const contractTemplatePath = path_1.default.join(templatePath, "contracts", "Example.rs");
+        const contractDest = path_1.default.join("contracts", "Example.rs");
+        await promises_1.default.copyFile(contractTemplatePath, contractDest);
+        // Create config file
+        const configContent = {
+            name: path_1.default.basename(process.cwd()),
+            compiler: {
+                target: "wasm32-unknown-unknown",
+                optimizeLevel: 3,
+            },
+        };
+        await promises_1.default.writeFile("alkali.config.json", JSON.stringify(configContent, null, 2));
+        console.log("✅ Project initialized successfully");
+        console.log("\nNext steps:");
+        console.log("  1. npx alkali compile            # Compile contracts");
+        console.log("  2. npx alkali test               # Run tests");
+        console.log("  3. npx alkali deploy             # Deploy contracts");
+    }
+    catch (error) {
+        console.error("❌ Failed to initialize project", error);
+        process.exit(1);
+    }
+})
     .command("compile <file>")
     .description("Compile a Rust contract to WASM")
     .option("-o, --output <dir>", "Output directory", "./build")
