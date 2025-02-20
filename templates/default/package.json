@@ -1,0 +1,12 @@
+{
+  "name": "alkali-project",
+  "version": "0.1.0",
+  "scripts": {
+    "compile": "alkali compile",
+    "test": "alkali test",
+    "deploy": "alkali deploy"
+  },
+  "devDependencies": {
+    "alkali": "^0.1.0"
+  }
+}

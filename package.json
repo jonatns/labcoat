@@ -1,0 +1,36 @@
+{
+  "name": "alkali",
+  "version": "0.1.0",
+  "description": "Smart contract development toolkit for Bitcoin",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "alkali": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "keywords": [
+    "bitcoin",
+    "alkanes",
+    "smart-contracts",
+    "wasm",
+    "rust",
+    "blockchain"
+  ],
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.13.4",
+    "commander": "^13.1.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.3"
+  }
+}
