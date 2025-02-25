@@ -66,7 +66,8 @@ program
         console.error("❌ Failed to initialize project", error);
         process.exit(1);
     }
-})
+});
+program
     .command("compile <file>")
     .description("Compile a Rust contract to WASM")
     .option("-o, --output <dir>", "Output directory", "./build")
