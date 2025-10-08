@@ -59,6 +59,19 @@ program
       const contractDest = path.join("contracts", "Example.rs");
       await fs.copyFile(contractTemplatePath, contractDest);
 
+      // ✅ Copy package.json if exists in the template
+      const packageJsonTemplatePath = path.join(templatePath, "package.json");
+      try {
+        await fs.access(packageJsonTemplatePath);
+        await fs.copyFile(
+          packageJsonTemplatePath,
+          path.join(process.cwd(), "package.json")
+        );
+        console.log("📦 Copied package.json from template");
+      } catch {
+        console.warn("⚠️ No package.json found in template — skipping");
+      }
+
       // Create config file
       const configContent = {
         name: path.basename(process.cwd()),
@@ -84,34 +97,68 @@ program
   });
 
 program
-  .command("compile <file>")
-  .description("Compile a Rust contract to WASM")
+  .command("compile [file]")
+  .description("Compile one or all Rust contracts in the contracts directory")
   .option("-o, --output <dir>", "Output directory", "./build")
-  .action(async (file: string, options) => {
+  .action(async (file: string | undefined, options) => {
     try {
-      const sourceCode = await fs.readFile(file, "utf8");
-      const compiler = new AlkanesCompiler("http://localhost:3000");
-
-      const result = await compiler.compile(sourceCode);
-      if (!result) {
-        throw new Error("Compilation failed, no result returned");
-      }
-      const { bytecode, abi } = result;
+      const compiler = new AlkanesCompiler();
+      const outputDir = options.output;
 
       // Create output directory
-      await fs.mkdir(options.output, { recursive: true });
+      await fs.mkdir(outputDir, { recursive: true });
 
-      // Save bytecode
-      const wasmPath = path.join(options.output, "contract.wasm");
-      await fs.writeFile(wasmPath, Buffer.from(bytecode, "base64"));
+      let filesToCompile: string[] = [];
 
-      // Save ABI
-      const abiPath = path.join(options.output, "abi.json");
-      await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+      if (file) {
+        // Specific file provided
+        filesToCompile = [file];
+      } else {
+        // No file -> compile all .rs in contracts directory
+        const contractsDir = path.join(process.cwd(), "contracts");
+        try {
+          const entries = await fs.readdir(contractsDir, {
+            withFileTypes: true,
+          });
+          filesToCompile = entries
+            .filter((e) => e.isFile() && e.name.endsWith(".rs"))
+            .map((e) => path.join(contractsDir, e.name));
 
-      console.log(`✅ Contract compiled successfully:
+          if (filesToCompile.length === 0) {
+            console.error("❌ No .rs files found in ./contracts");
+            process.exit(1);
+          }
+        } catch {
+          console.error("❌ Could not find a ./contracts directory");
+          process.exit(1);
+        }
+      }
+
+      console.log(`🦾 Compiling ${filesToCompile.length} contract(s)...`);
+
+      for (const filePath of filesToCompile) {
+        const fileName = path.basename(filePath, ".rs");
+        console.log(`🔨 Compiling ${fileName}.rs...`);
+
+        const sourceCode = await fs.readFile(filePath, "utf8");
+        const result = await compiler.compile(sourceCode);
+        if (!result) throw new Error(`Compilation failed for ${fileName}`);
+
+        const { bytecode, abi } = result;
+
+        // Write compiled output
+        const wasmPath = path.join(outputDir, `${fileName}.wasm`);
+        const abiPath = path.join(outputDir, `${fileName}.abi.json`);
+
+        await fs.writeFile(wasmPath, Buffer.from(bytecode, "base64"));
+        await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+
+        console.log(`✅ ${fileName}.rs compiled successfully:
 - Bytecode: ${wasmPath}
-- ABI: ${abiPath}`);
+- ABI: ${abiPath}\n`);
+      }
+
+      console.log("🎉 All contracts compiled successfully!");
     } catch (error) {
       handleCommandError(error);
     }

@@ -26,9 +26,8 @@ export class AlkanesCompiler {
       // Create temporary project
       await this.createProject(sourceCode);
 
-      // Run wasm-pack build
       const { stdout, stderr } = await execAsync(
-        "wasm-pack build --target web",
+        "cargo build --release --target wasm32-unknown-unknown",
         { cwd: this.tempDir }
       );
 
@@ -39,8 +38,10 @@ export class AlkanesCompiler {
       // Read the WASM file
       const wasmPath = path.join(
         this.tempDir,
-        "pkg",
-        "alkanes_contract_bg.wasm"
+        "target",
+        "wasm32-unknown-unknown",
+        "release",
+        "alkanes_contract.wasm"
       );
       const wasmBuffer = await fs.readFile(wasmPath);
 
@@ -74,14 +75,13 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs" }
 alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs" }
-metashrew-support = { git = "https://github.com/kungfuflex/alkanes-rs" }
+metashrew-support = { git = "https://github.com/sandshrewmetaprotocols/metashrew" }
 anyhow = "1.0"
-hex-lit = "0.1.1"
     `;
 
     await fs.writeFile(path.join(this.tempDir, "Cargo.toml"), cargoToml);

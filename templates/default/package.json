@@ -7,6 +7,7 @@
     "deploy": "alkali deploy"
   },
   "devDependencies": {
-    "alkali": "^0.1.0"
+    "alkali": "^0.1.0",
+    "oyl-sdk": "git@github.com:Oyl-Wallet/oyl-sdk.git"
   }
 }
