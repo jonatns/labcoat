@@ -142,12 +142,13 @@ program
     .action((script) => {
     const scriptPath = path_1.default.resolve(script);
     console.log(`🧩 Running script: ${scriptPath}`);
-    const child = (0, child_process_1.spawn)("node", ["--loader", "ts-node/esm", scriptPath], {
+    const isTs = scriptPath.endsWith(".ts");
+    const args = isTs ? ["ts-node", scriptPath] : ["node", scriptPath];
+    const child = (0, child_process_1.spawn)("npx", args, {
         stdio: "inherit",
+        shell: true, // important for cross-platform npx
     });
-    child.on("exit", (code) => {
-        process.exit(code ?? 0);
-    });
+    child.on("exit", (code) => process.exit(code ?? 0));
 });
 program.parse();
 //# sourceMappingURL=cli.js.map
