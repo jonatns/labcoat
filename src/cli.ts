@@ -156,7 +156,7 @@ Address: ${address}`);
 
 program
   .command("run <script>")
-  .description("Run a custom Alkali script")
+  .description("Run a custom Alkali script (.ts or .js)")
   .action(async (script) => {
     try {
       register({
@@ -165,7 +165,14 @@ program
       });
 
       const scriptPath = path.resolve(script);
-      const { default: run } = await import(`file://${scriptPath}`);
+
+      const imported = await import(`file://${scriptPath}`);
+      const run = imported.default;
+
+      if (typeof run !== "function") {
+        throw new Error("Script must export a default async function");
+      }
+
       await run();
     } catch (err) {
       handleCommandError(err);

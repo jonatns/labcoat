@@ -171,7 +171,7 @@ Address: ${address}`);
 });
 program
     .command("run <script>")
-    .description("Run a custom Alkali script")
+    .description("Run a custom Alkali script (.ts or .js)")
     .action(async (script) => {
     try {
         (0, ts_node_1.register)({
@@ -179,7 +179,11 @@ program
             esm: true,
         });
         const scriptPath = path_1.default.resolve(script);
-        const { default: run } = await Promise.resolve(`${`file://${scriptPath}`}`).then(s => __importStar(require(s)));
+        const imported = await Promise.resolve(`${`file://${scriptPath}`}`).then(s => __importStar(require(s)));
+        const run = imported.default;
+        if (typeof run !== "function") {
+            throw new Error("Script must export a default async function");
+        }
         await run();
     }
     catch (err) {
