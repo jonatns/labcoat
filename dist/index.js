@@ -21,5 +21,6 @@ var compiler_1 = require("./compiler");
 Object.defineProperty(exports, "AlkanesCompiler", { enumerable: true, get: function () { return compiler_1.AlkanesCompiler; } });
 var config_1 = require("./config");
 Object.defineProperty(exports, "loadAlkaliConfig", { enumerable: true, get: function () { return config_1.loadAlkaliConfig; } });
+__exportStar(require("./runtime"), exports);
 __exportStar(require("./types"), exports);
 //# sourceMappingURL=index.js.map

@@ -9,9 +9,6 @@
   "devDependencies": {
     "@types/node": "^22.13.4",
     "alkali": "git@github.com:jonatns/alkali.git",
-    "alkanes": "git+https://github.com/kungfuflex/alkanes.git",
-    "dotenv": "^17.2.3",
-    "oyl-sdk": "git@github.com:Oyl-Wallet/oyl-sdk.git",
     "typescript": "^5.9.3"
   }
 }
