@@ -1,6 +1,6 @@
 export interface AlkaliCompilerConfig {
-    target: string;
-    optimizeLevel: number;
+    network: "oylnet" | "mainnet";
+    mnemonic?: string;
 }
 export interface AlkaliConfig {
     name: string;
