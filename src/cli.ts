@@ -4,8 +4,8 @@ import { Command } from "commander";
 import { AlkanesCompiler, AlkanesContract } from "./index";
 import fs from "fs/promises";
 import path from "path";
-import { register } from "ts-node";
 import { loadAlkaliConfig } from "./config";
+import { spawn } from "child_process";
 
 function handleCommandError(error: any) {
   if (error instanceof Error) {
@@ -157,26 +157,18 @@ Address: ${address}`);
 program
   .command("run <script>")
   .description("Run a custom Alkali script (.ts or .js)")
-  .action(async (script) => {
-    try {
-      register({
-        transpileOnly: true,
-        esm: true,
-      });
+  .action((script) => {
+    const scriptPath = path.resolve(script);
 
-      const scriptPath = path.resolve(script);
+    console.log(`🧩 Running script: ${scriptPath}`);
 
-      const imported = await import(`file://${scriptPath}`);
-      const run = imported.default;
+    const child = spawn("node", ["--loader", "ts-node/esm", scriptPath], {
+      stdio: "inherit",
+    });
 
-      if (typeof run !== "function") {
-        throw new Error("Script must export a default async function");
-      }
-
-      await run();
-    } catch (err) {
-      handleCommandError(err);
-    }
+    child.on("exit", (code) => {
+      process.exit(code ?? 0);
+    });
   });
 
 program.parse();
