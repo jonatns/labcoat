@@ -10,7 +10,7 @@
     "dotenv": "^17.2.3",
     "@types/node": "^22.13.4",
     "typescript": "^5.7.3",
-    "alkali": "../",
+    "alkali": "git@github.com:jonatns/alkali.git",
     "oyl-sdk": "git@github.com:Oyl-Wallet/oyl-sdk.git"
   }
 }
