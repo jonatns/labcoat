@@ -57,7 +57,7 @@ program
     .option("-o, --output <dir>", "Output directory", "./build")
     .action(async (file, options) => {
     try {
-        const config = (0, config_1.loadAlkaliConfig)();
+        const config = await (0, config_1.loadAlkaliConfig)();
         const compiler = new index_1.AlkanesCompiler(config);
         const outputDir = options.output;
         // Create output directory

@@ -14,10 +14,12 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AlkanesCompiler = exports.AlkanesContract = void 0;
+exports.loadAlkaliConfig = exports.AlkanesCompiler = exports.AlkanesContract = void 0;
 var contract_1 = require("./contract");
 Object.defineProperty(exports, "AlkanesContract", { enumerable: true, get: function () { return contract_1.AlkanesContract; } });
 var compiler_1 = require("./compiler");
 Object.defineProperty(exports, "AlkanesCompiler", { enumerable: true, get: function () { return compiler_1.AlkanesCompiler; } });
+var config_1 = require("./config");
+Object.defineProperty(exports, "loadAlkaliConfig", { enumerable: true, get: function () { return config_1.loadAlkaliConfig; } });
 __exportStar(require("./types"), exports);
 //# sourceMappingURL=index.js.map
