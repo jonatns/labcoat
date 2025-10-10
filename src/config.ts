@@ -1,17 +1,21 @@
 import path from "path";
 import fs from "fs";
 import { pathToFileURL } from "url";
-import { AlkaliConfig } from "./types";
+import type { AlkaliConfig } from "./types";
 
-export function loadAlkaliConfig(): Promise<AlkaliConfig> {
-  const configPathTs = path.resolve("alkali.config.ts");
-  const configPathJs = path.resolve("alkali.config.js");
+export async function loadAlkaliConfig(): Promise<AlkaliConfig> {
+  const cwd = process.cwd();
+  const configPathTs = path.join(cwd, "alkali.config.ts");
+  const configPathJs = path.join(cwd, "alkali.config.js");
 
   if (fs.existsSync(configPathTs)) {
-    return import(pathToFileURL(configPathTs).href);
+    const module = await import(pathToFileURL(configPathTs).href);
+    return module.default || module;
   } else if (fs.existsSync(configPathJs)) {
-    return import(pathToFileURL(configPathJs).href);
+    const module = await import(pathToFileURL(configPathJs).href);
+    return module.default || module;
   } else {
-    return Promise.resolve({} as AlkaliConfig);
+    console.warn("⚠️ No alkali.config.{ts,js} found in project root.");
+    return {} as AlkaliConfig;
   }
 }

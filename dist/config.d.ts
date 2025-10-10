@@ -1,2 +1,2 @@
-import { AlkaliConfig } from "./types";
+import type { AlkaliConfig } from "./types";
 export declare function loadAlkaliConfig(): Promise<AlkaliConfig>;

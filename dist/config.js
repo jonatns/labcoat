@@ -40,17 +40,21 @@ exports.loadAlkaliConfig = loadAlkaliConfig;
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const url_1 = require("url");
-function loadAlkaliConfig() {
-    const configPathTs = path_1.default.resolve("alkali.config.ts");
-    const configPathJs = path_1.default.resolve("alkali.config.js");
+async function loadAlkaliConfig() {
+    const cwd = process.cwd();
+    const configPathTs = path_1.default.join(cwd, "alkali.config.ts");
+    const configPathJs = path_1.default.join(cwd, "alkali.config.js");
     if (fs_1.default.existsSync(configPathTs)) {
-        return Promise.resolve(`${(0, url_1.pathToFileURL)(configPathTs).href}`).then(s => __importStar(require(s)));
+        const module = await Promise.resolve(`${(0, url_1.pathToFileURL)(configPathTs).href}`).then(s => __importStar(require(s)));
+        return module.default || module;
     }
     else if (fs_1.default.existsSync(configPathJs)) {
-        return Promise.resolve(`${(0, url_1.pathToFileURL)(configPathJs).href}`).then(s => __importStar(require(s)));
+        const module = await Promise.resolve(`${(0, url_1.pathToFileURL)(configPathJs).href}`).then(s => __importStar(require(s)));
+        return module.default || module;
     }
     else {
-        return Promise.resolve({});
+        console.warn("⚠️ No alkali.config.{ts,js} found in project root.");
+        return {};
     }
 }
 //# sourceMappingURL=config.js.map
