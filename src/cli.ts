@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { AlkanesCompiler, AlkanesContract } from "./index";
 import fs from "fs/promises";
 import path from "path";
+import { register } from "ts-node";
 import { loadAlkaliConfig } from "./config";
 
 function handleCommandError(error: any) {
@@ -157,9 +158,18 @@ program
   .command("run <script>")
   .description("Run a custom Alkali script")
   .action(async (script) => {
-    const scriptPath = path.resolve(script);
-    const { default: run } = await import(`file://${scriptPath}`);
-    await run();
+    try {
+      register({
+        transpileOnly: true,
+        esm: true,
+      });
+
+      const scriptPath = path.resolve(script);
+      const { default: run } = await import(`file://${scriptPath}`);
+      await run();
+    } catch (err) {
+      handleCommandError(err);
+    }
   });
 
 program.parse();

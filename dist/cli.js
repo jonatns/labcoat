@@ -41,6 +41,7 @@ const commander_1 = require("commander");
 const index_1 = require("./index");
 const promises_1 = __importDefault(require("fs/promises"));
 const path_1 = __importDefault(require("path"));
+const ts_node_1 = require("ts-node");
 const config_1 = require("./config");
 function handleCommandError(error) {
     if (error instanceof Error) {
@@ -172,9 +173,18 @@ program
     .command("run <script>")
     .description("Run a custom Alkali script")
     .action(async (script) => {
-    const scriptPath = path_1.default.resolve(script);
-    const { default: run } = await Promise.resolve(`${`file://${scriptPath}`}`).then(s => __importStar(require(s)));
-    await run();
+    try {
+        (0, ts_node_1.register)({
+            transpileOnly: true,
+            esm: true,
+        });
+        const scriptPath = path_1.default.resolve(script);
+        const { default: run } = await Promise.resolve(`${`file://${scriptPath}`}`).then(s => __importStar(require(s)));
+        await run();
+    }
+    catch (err) {
+        handleCommandError(err);
+    }
 });
 program.parse();
 //# sourceMappingURL=cli.js.map
