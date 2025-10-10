@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { AlkanesCompiler, AlkanesContract } from "./index";
 import fs from "fs/promises";
 import path from "path";
+import { loadAlkaliConfig } from "./config";
 
 function handleCommandError(error: any) {
   if (error instanceof Error) {
@@ -29,12 +30,6 @@ program
     try {
       console.log("🔥 Initializing Alkali project...");
 
-      // Create project structure
-      await fs.mkdir("contracts", { recursive: true });
-      await fs.mkdir("build", { recursive: true });
-      await fs.mkdir("scripts", { recursive: true });
-
-      // Get template path
       const templatePath = path.join(
         __dirname,
         "..",
@@ -42,48 +37,13 @@ program
         options.template
       );
 
-      // Check if template exists
       try {
         await fs.access(templatePath);
+        await fs.cp(templatePath, process.cwd(), { recursive: true });
       } catch (err) {
         console.error(`Template "${options.template}" not found`);
         process.exit(1);
       }
-
-      // Copy contract template
-      const contractTemplatePath = path.join(
-        templatePath,
-        "contracts",
-        "Example.rs"
-      );
-      const contractDest = path.join("contracts", "Example.rs");
-      await fs.copyFile(contractTemplatePath, contractDest);
-
-      // ✅ Copy package.json if exists in the template
-      const packageJsonTemplatePath = path.join(templatePath, "package.json");
-      try {
-        await fs.access(packageJsonTemplatePath);
-        await fs.copyFile(
-          packageJsonTemplatePath,
-          path.join(process.cwd(), "package.json")
-        );
-        console.log("📦 Copied package.json from template");
-      } catch {
-        console.warn("⚠️ No package.json found in template — skipping");
-      }
-
-      // Create config file
-      const configContent = {
-        name: path.basename(process.cwd()),
-        compiler: {
-          target: "wasm32-unknown-unknown",
-          optimizeLevel: 3,
-        },
-      };
-      await fs.writeFile(
-        "alkali.config.json",
-        JSON.stringify(configContent, null, 2)
-      );
 
       console.log("✅ Project initialized successfully");
       console.log("\nNext steps:");
@@ -102,7 +62,8 @@ program
   .option("-o, --output <dir>", "Output directory", "./build")
   .action(async (file: string | undefined, options) => {
     try {
-      const compiler = new AlkanesCompiler();
+      const config = loadAlkaliConfig();
+      const compiler = new AlkanesCompiler(config);
       const outputDir = options.output;
 
       // Create output directory
@@ -190,6 +151,15 @@ Address: ${address}`);
     } catch (error) {
       handleCommandError(error);
     }
+  });
+
+program
+  .command("run <script>")
+  .description("Run a custom Alkali script")
+  .action(async (script) => {
+    const scriptPath = path.resolve(script);
+    const { default: run } = await import(`file://${scriptPath}`);
+    await run();
   });
 
 program.parse();

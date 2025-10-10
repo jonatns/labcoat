@@ -1,3 +1,14 @@
+export interface AlkaliCompilerConfig {
+  target: string;
+  optimizeLevel: number;
+}
+
+export interface AlkaliConfig {
+  name: string;
+  compiler: AlkaliCompilerConfig;
+  tempDir?: string;
+}
+
 export type AlkanesPrimitive =
   | "u8"
   | "u16"

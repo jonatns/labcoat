@@ -1,5 +1,38 @@
 #!/usr/bin/env node
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -8,6 +41,7 @@ const commander_1 = require("commander");
 const index_1 = require("./index");
 const promises_1 = __importDefault(require("fs/promises"));
 const path_1 = __importDefault(require("path"));
+const config_1 = require("./config");
 function handleCommandError(error) {
     if (error instanceof Error) {
         console.error("❌ Command failed:", error.message);
@@ -29,43 +63,15 @@ program
     .action(async (options) => {
     try {
         console.log("🔥 Initializing Alkali project...");
-        // Create project structure
-        await promises_1.default.mkdir("contracts", { recursive: true });
-        await promises_1.default.mkdir("build", { recursive: true });
-        await promises_1.default.mkdir("scripts", { recursive: true });
-        // Get template path
         const templatePath = path_1.default.join(__dirname, "..", "templates", options.template);
-        // Check if template exists
         try {
             await promises_1.default.access(templatePath);
+            await promises_1.default.cp(templatePath, process.cwd(), { recursive: true });
         }
         catch (err) {
             console.error(`Template "${options.template}" not found`);
             process.exit(1);
         }
-        // Copy contract template
-        const contractTemplatePath = path_1.default.join(templatePath, "contracts", "Example.rs");
-        const contractDest = path_1.default.join("contracts", "Example.rs");
-        await promises_1.default.copyFile(contractTemplatePath, contractDest);
-        // ✅ Copy package.json if exists in the template
-        const packageJsonTemplatePath = path_1.default.join(templatePath, "package.json");
-        try {
-            await promises_1.default.access(packageJsonTemplatePath);
-            await promises_1.default.copyFile(packageJsonTemplatePath, path_1.default.join(process.cwd(), "package.json"));
-            console.log("📦 Copied package.json from template");
-        }
-        catch {
-            console.warn("⚠️ No package.json found in template — skipping");
-        }
-        // Create config file
-        const configContent = {
-            name: path_1.default.basename(process.cwd()),
-            compiler: {
-                target: "wasm32-unknown-unknown",
-                optimizeLevel: 3,
-            },
-        };
-        await promises_1.default.writeFile("alkali.config.json", JSON.stringify(configContent, null, 2));
         console.log("✅ Project initialized successfully");
         console.log("\nNext steps:");
         console.log("  1. npx alkali compile            # Compile contracts");
@@ -83,7 +89,8 @@ program
     .option("-o, --output <dir>", "Output directory", "./build")
     .action(async (file, options) => {
     try {
-        const compiler = new index_1.AlkanesCompiler();
+        const config = (0, config_1.loadAlkaliConfig)();
+        const compiler = new index_1.AlkanesCompiler(config);
         const outputDir = options.output;
         // Create output directory
         await promises_1.default.mkdir(outputDir, { recursive: true });
@@ -160,6 +167,14 @@ Address: ${address}`);
     catch (error) {
         handleCommandError(error);
     }
+});
+program
+    .command("run <script>")
+    .description("Run a custom Alkali script")
+    .action(async (script) => {
+    const scriptPath = path_1.default.resolve(script);
+    const { default: run } = await Promise.resolve(`${`file://${scriptPath}`}`).then(s => __importStar(require(s)));
+    await run();
 });
 program.parse();
 //# sourceMappingURL=cli.js.map
