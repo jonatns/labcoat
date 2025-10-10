@@ -2,18 +2,12 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
-import { AlkaliConfig, AlkanesABI, AlkanesMethod, StorageKey } from "./types";
+import { AlkanesABI, AlkanesMethod, StorageKey } from "./types";
 
 const execAsync = promisify(exec);
 
 export class AlkanesCompiler {
   private tempDir: string = ".alkali";
-
-  constructor(private config: AlkaliConfig = config) {
-    if (this.config.tempDir) {
-      this.tempDir = this.config.tempDir;
-    }
-  }
 
   async compile(
     sourceCode: string

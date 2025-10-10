@@ -10,12 +10,8 @@ const promises_1 = __importDefault(require("fs/promises"));
 const path_1 = __importDefault(require("path"));
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 class AlkanesCompiler {
-    constructor(config = config) {
-        this.config = config;
+    constructor() {
         this.tempDir = ".alkali";
-        if (this.config.tempDir) {
-            this.tempDir = this.config.tempDir;
-        }
     }
     async compile(sourceCode) {
         try {

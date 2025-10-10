@@ -1,11 +1,6 @@
-export interface AlkaliCompilerConfig {
+export interface AlkaliConfig {
     network: "oylnet" | "mainnet";
     mnemonic?: string;
-}
-export interface AlkaliConfig {
-    name: string;
-    compiler: AlkaliCompilerConfig;
-    tempDir?: string;
 }
 export type AlkanesPrimitive = "u8" | "u16" | "u32" | "u64" | "u128" | "i8" | "i16" | "i32" | "i64" | "i128" | "String" | "bool" | "Vec<u8>";
 export declare enum AlkanesOpcode {

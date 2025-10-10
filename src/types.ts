@@ -1,12 +1,6 @@
-export interface AlkaliCompilerConfig {
+export interface AlkaliConfig {
   network: "oylnet" | "mainnet";
   mnemonic?: string;
-}
-
-export interface AlkaliConfig {
-  name: string;
-  compiler: AlkaliCompilerConfig;
-  tempDir?: string;
 }
 
 export type AlkanesPrimitive =

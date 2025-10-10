@@ -8,7 +8,6 @@ const commander_1 = require("commander");
 const index_1 = require("./index");
 const promises_1 = __importDefault(require("fs/promises"));
 const path_1 = __importDefault(require("path"));
-const config_1 = require("./config");
 const child_process_1 = require("child_process");
 function handleCommandError(error) {
     if (error instanceof Error) {
@@ -57,8 +56,7 @@ program
     .option("-o, --output <dir>", "Output directory", "./build")
     .action(async (file, options) => {
     try {
-        const config = await (0, config_1.loadAlkaliConfig)();
-        const compiler = new index_1.AlkanesCompiler(config);
+        const compiler = new index_1.AlkanesCompiler();
         const outputDir = options.output;
         // Create output directory
         await promises_1.default.mkdir(outputDir, { recursive: true });

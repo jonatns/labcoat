@@ -4,7 +4,6 @@ import { Command } from "commander";
 import { AlkanesCompiler, AlkanesContract } from "./index";
 import fs from "fs/promises";
 import path from "path";
-import { loadAlkaliConfig } from "./config";
 import { spawn } from "child_process";
 
 function handleCommandError(error: any) {
@@ -63,8 +62,7 @@ program
   .option("-o, --output <dir>", "Output directory", "./build")
   .action(async (file: string | undefined, options) => {
     try {
-      const config = await loadAlkaliConfig();
-      const compiler = new AlkanesCompiler(config);
+      const compiler = new AlkanesCompiler();
       const outputDir = options.output;
 
       // Create output directory
