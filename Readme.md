@@ -118,7 +118,7 @@ main().catch((err) => {
 
 #### Setting up a wallet:
 
-Before deploying to the Bitcoin network you will need to setup a mnemonic in `.env` which is used by `labcoat.config.ts`. By default it uses the oylnet network.
+Before deploying to the Bitcoin network you will need to setup a mnemonic in `.env` which is used by `labcoat.config.ts`. By default it uses the oylnet network:
 
 ```bash
 export default {
