@@ -51,9 +51,9 @@ program
 
       console.log("✅ Project initialized successfully");
       console.log("\nNext steps:");
-      console.log("  1. npx labcoat compile            # Compile contracts");
-      console.log("  2. npx labcoat test               # Run tests");
-      console.log("  3. npx labcoat deploy             # Deploy contracts");
+      console.log("  1. npx labcoat compile               # Compile contracts");
+      console.log("  2. npx labcoat test                  # Run tests");
+      console.log("  3. npx labcoat run scripts/deploy.ts # Deploy contracts");
     } catch (error) {
       console.error("❌ Failed to initialize project", error);
       process.exit(1);

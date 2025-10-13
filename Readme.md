@@ -100,9 +100,7 @@ npx labcoat compile
 
 A script in Labcoat is just a TypeScript file with access to your contracts, configuration, and any other functionality that Labcoat provides. You can use them to run deploy scripts or custom logic like simulations and executions.
 
-#### Example deploy script (scripts/deploy.ts):
-
-
+#### Writing a deploy script (scripts/deploy.ts):
 
 ```typescript
 import { labcoat } from "@jonatns/labcoat";
@@ -118,7 +116,19 @@ main().catch((err) => {
 });
 ```
 
-Then run:
+#### Setting up a wallet:
+
+Before deploying to the Bitcoin network you will need to setup a mnemonic in `.env` which is used by `labcoat.config.ts`. By default it uses the oylnet network.
+
+```bash
+export default {
+  network: "oylnet",
+  mnemonic: process.env.MNEMONIC,
+};
+
+```
+
+Once that's done run the deploy script by using our generic run command:
 
 ```bash
 npx labcoat run scripts/deploy.ts
