@@ -5,12 +5,12 @@ import { promisify } from "node:util";
 import oyl from "oyl-sdk";
 import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
 import { encipher, encodeRunestoneProtostone, ProtoStone } from "alkanes";
-import { loadAlkaliConfig } from "./config.js";
+import { loadLabcoatConfig } from "./config.js";
 
 const gzip = promisify(_gzip);
 
 export async function setup() {
-  const config = await loadAlkaliConfig();
+  const config = await loadLabcoatConfig();
   const account = oyl.mnemonicToAccount({ mnemonic: config.mnemonic });
   const provider = new oyl.Provider({
     url: "https://oylnet.oyl.gg",
@@ -88,4 +88,4 @@ export async function setup() {
   };
 }
 
-export const alkali = { setup };
+export const labcoat = { setup };

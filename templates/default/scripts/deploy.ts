@@ -1,6 +1,6 @@
 import { Oyl } from "oyl-sdk";
 import fs from "fs/promises";
-import config from "../alkali.config";
+import config from "../labcoat.config";
 
 export default async function main() {
   console.log("🚀 Deploying Example contract...");

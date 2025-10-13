@@ -1,6 +1,6 @@
 import oyl from "oyl-sdk";
 export declare function setup(): Promise<{
-    config: import("./types.js").AlkaliConfig;
+    config: import("./types.js").LabcoatConfig;
     account: oyl.Account;
     provider: oyl.Provider;
     signer: oyl.Signer;
@@ -14,6 +14,6 @@ export declare function setup(): Promise<{
         satsPerVByte: string;
     }>;
 }>;
-export declare const alkali: {
+export declare const labcoat: {
     setup: typeof setup;
 };

@@ -1,12 +1,12 @@
 import path from "path";
 import fs from "fs";
 import { pathToFileURL } from "url";
-import { AlkaliConfig } from "./types.js";
+import { LabcoatConfig } from "./types.js";
 
-export async function loadAlkaliConfig(): Promise<AlkaliConfig> {
+export async function loadLabcoatConfig(): Promise<LabcoatConfig> {
   const root = process.cwd();
-  const configPathTs = path.resolve(root, "alkali.config.ts");
-  const configPathJs = path.resolve(root, "alkali.config.js");
+  const configPathTs = path.resolve(root, "labcoat.config.ts");
+  const configPathJs = path.resolve(root, "labcoat.config.js");
 
   try {
     if (fs.existsSync(configPathTs)) {
@@ -20,10 +20,10 @@ export async function loadAlkaliConfig(): Promise<AlkaliConfig> {
       return module.default ?? module;
     }
 
-    console.warn("⚠️  No alkali.config.ts or alkali.config.js found");
-    return {} as AlkaliConfig;
+    console.warn("⚠️  No labcoat.config.ts or labcoat.config.js found");
+    return {} as LabcoatConfig;
   } catch (err) {
-    console.error("❌ Failed to load Alkali config:", err);
-    return {} as AlkaliConfig;
+    console.error("❌ Failed to load Labcoat config:", err);
+    return {} as LabcoatConfig;
   }
 }

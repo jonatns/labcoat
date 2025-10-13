@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "outDir": "build"
   },
-  "include": ["scripts", "contracts", "alkali.config.ts"]
+  "include": ["scripts", "contracts", "labcoat.config.ts"]
 }

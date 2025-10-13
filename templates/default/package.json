@@ -1,17 +1,17 @@
 {
-  "name": "alkali-project",
+  "name": "labcoat-starter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "compile": "alkali compile",
-    "test": "alkali test",
-    "deploy": "alkali run scripts/deploy.ts"
+    "compile": "labcoat compile",
+    "test": "labcoat test",
+    "deploy": "labcoat run scripts/deploy.ts"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
     "typescript": "^5.9.3",
     "ts-node": "^10.9.2",
-    "alkali": "git@github.com:jonatns/alkali.git"
+    "@jonatns/labcoat": "git@github.com:jonatns/labcoat.git"
   }
 }

@@ -15,16 +15,16 @@ function handleCommandError(error) {
 }
 const program = new Command();
 program
-    .name("alkali")
+    .name("labcoat")
     .description("Smart contract development toolkit for Bitcoin Alkanes")
     .version("0.1.0");
 program
     .command("init")
-    .description("Initialize a new Alkali project")
+    .description("Initialize a new Labcoat project")
     .option("-t, --template <name>", "Template to use", "default")
     .action(async (options) => {
     try {
-        console.log("🔥 Initializing Alkali project...");
+        console.log("🔥 Initializing Labcoat project...");
         const templatePath = path.join(__dirname, "..", "templates", options.template);
         try {
             await fs.access(templatePath);
@@ -36,9 +36,9 @@ program
         }
         console.log("✅ Project initialized successfully");
         console.log("\nNext steps:");
-        console.log("  1. npx alkali compile            # Compile contracts");
-        console.log("  2. npx alkali test               # Run tests");
-        console.log("  3. npx alkali deploy             # Deploy contracts");
+        console.log("  1. npx labcoat compile            # Compile contracts");
+        console.log("  2. npx labcoat test               # Run tests");
+        console.log("  3. npx labcoat deploy             # Deploy contracts");
     }
     catch (error) {
         console.error("❌ Failed to initialize project", error);
@@ -131,7 +131,7 @@ Address: ${address}`);
 });
 program
     .command("run <script>")
-    .description("Run a custom Alkali script (.ts or .js)")
+    .description("Run a custom Labcoat script (.ts or .js)")
     .action((script) => {
     const scriptPath = path.resolve(script);
     console.log(`🧩 Running script: ${scriptPath}`);

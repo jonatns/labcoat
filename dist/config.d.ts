@@ -1,2 +1,2 @@
-import { AlkaliConfig } from "./types.js";
-export declare function loadAlkaliConfig(): Promise<AlkaliConfig>;
+import { LabcoatConfig } from "./types.js";
+export declare function loadLabcoatConfig(): Promise<LabcoatConfig>;

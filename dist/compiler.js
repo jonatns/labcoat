@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 const execAsync = promisify(exec);
 export class AlkanesCompiler {
-    tempDir = ".alkali";
+    tempDir = ".labcoat";
     async compile(sourceCode) {
         try {
             await this.createProject(sourceCode);

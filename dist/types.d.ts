@@ -1,4 +1,4 @@
-export interface AlkaliConfig {
+export interface LabcoatConfig {
     network: "oylnet" | "mainnet";
     mnemonic?: string;
 }

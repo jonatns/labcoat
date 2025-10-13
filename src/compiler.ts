@@ -7,7 +7,7 @@ import { AlkanesABI, AlkanesMethod, StorageKey } from "./types.js";
 const execAsync = promisify(exec);
 
 export class AlkanesCompiler {
-  private tempDir: string = ".alkali";
+  private tempDir: string = ".labcoat";
 
   async compile(
     sourceCode: string

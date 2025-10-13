@@ -1,7 +1,7 @@
 {
-  "name": "@jonatns/alkali",
+  "name": "@jonatns/labcoat",
   "version": "0.1.0",
-  "description": "Smart contract development toolkit for Bitcoin Alkanes",
+  "description": "Smart contract development toolkit for Alkanes on Bitcoin",
   "type": "module",
   "main": "./dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,7 +12,7 @@
     }
   },
   "bin": {
-    "alkali": "./dist/cli.js"
+    "labcoat": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
