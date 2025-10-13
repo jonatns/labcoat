@@ -1,6 +1,7 @@
 export interface LabcoatConfig {
   network: "oylnet" | "mainnet";
   mnemonic?: string;
+  projectId?: string;
 }
 
 export type AlkanesPrimitive =

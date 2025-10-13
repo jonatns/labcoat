@@ -1,6 +1,7 @@
 export interface LabcoatConfig {
     network: "oylnet" | "mainnet";
     mnemonic?: string;
+    projectId?: string;
 }
 export type AlkanesPrimitive = "u8" | "u16" | "u32" | "u64" | "u128" | "i8" | "i16" | "i32" | "i64" | "i128" | "String" | "bool" | "Vec<u8>";
 export declare enum AlkanesOpcode {

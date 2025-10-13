@@ -1,5 +1,4 @@
 import fs from "fs/promises";
-import * as bitcoin from "bitcoinjs-lib";
 import { gzip as _gzip } from "node:zlib";
 import { promisify } from "node:util";
 import oyl from "oyl-sdk";
@@ -11,14 +10,25 @@ const gzip = promisify(_gzip);
 
 export async function setup() {
   const config = await loadLabcoatConfig();
-  const account = oyl.mnemonicToAccount({ mnemonic: config.mnemonic });
+  const networkType = config.network === "oylnet" ? "regtest" : config.network;
+  const network = oyl.getNetwork(networkType);
+  const projectId = config.projectId ?? "regtest";
   const provider = new oyl.Provider({
     url: "https://oylnet.oyl.gg",
-    projectId: config.network ?? "oylnet",
     version: "v2",
-    network: bitcoin.networks.regtest,
-    networkType: "regtest",
+    projectId,
+    network,
+    networkType,
   });
+
+  const account = oyl.mnemonicToAccount({
+    mnemonic: config.mnemonic,
+    opts: {
+      network,
+    },
+  });
+
+  console.log("account", account);
 
   const { accountUtxos } = await oyl.utxo.accountUtxos({
     account,
