@@ -13,6 +13,7 @@ export declare function setup(): Promise<{
         fee: number;
         satsPerVByte: string;
     }>;
+    simulate: (contract: string, method: string, args: any[]) => Promise<void>;
 }>;
 export declare const labcoat: {
     setup: typeof setup;

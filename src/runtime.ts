@@ -5,6 +5,7 @@ import oyl from "oyl-sdk";
 import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
 import { encipher, encodeRunestoneProtostone, ProtoStone } from "alkanes";
 import { loadLabcoatConfig } from "./config.js";
+import { waitForTrace } from "./helpers.js";
 
 const gzip = promisify(_gzip);
 
@@ -13,6 +14,7 @@ export async function setup() {
   const networkType = config.network === "oylnet" ? "regtest" : config.network;
   const network = oyl.getNetwork(networkType);
   const projectId = config.projectId ?? "regtest";
+
   const provider = new oyl.Provider({
     url: "https://oylnet.oyl.gg",
     version: "v2",
@@ -27,8 +29,6 @@ export async function setup() {
       network,
     },
   });
-
-  console.log("account", account);
 
   const { accountUtxos } = await oyl.utxo.accountUtxos({
     account,
@@ -73,7 +73,7 @@ export async function setup() {
       ],
     }).encodedRunestone;
 
-    const tx = await inscribePayload({
+    const bitcoinTx = await inscribePayload({
       protostone,
       payload,
       account,
@@ -83,10 +83,34 @@ export async function setup() {
       feeRate: 2,
     });
 
-    console.log("✅ Contract deployed!");
-    console.log(`🔗 TxID: ${tx.txId}`);
+    const { block: AlkanesTxBlock, tx: alkanesTxId } = await waitForTrace(
+      provider,
+      bitcoinTx.txId,
+      4
+    );
 
-    return tx;
+    console.log("✅ Contract deployed!");
+    console.log(`🔗 TxID: ${bitcoinTx.txId}`);
+    console.log(`🔗 Alkanes ID: ${AlkanesTxBlock}:${alkanesTxId}`);
+
+    return bitcoinTx;
+  }
+
+  async function simulate(contract: string, method: string, args: any[]) {
+    // const [block, tx] = value.split(":").map((part) => part.trim());
+    // const request = {
+    //   alkanes: options.tokens,
+    //   transaction: "0x",
+    //   block: "0x",
+    //   height: "20000",
+    //   txindex: 0,
+    //   target: options.target,
+    //   inputs: options.inputs,
+    //   pointer: 0,
+    //   refundPointer: 0,
+    //   vout: 0,
+    // };
+    // await provider.alkanes.simulate(request, decoder);
   }
 
   return {
@@ -95,6 +119,7 @@ export async function setup() {
     provider,
     signer,
     deploy,
+    simulate,
   };
 }
 

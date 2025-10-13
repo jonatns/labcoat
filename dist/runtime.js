@@ -5,6 +5,7 @@ import oyl from "oyl-sdk";
 import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
 import { encipher, encodeRunestoneProtostone, ProtoStone } from "alkanes";
 import { loadLabcoatConfig } from "./config.js";
+import { waitForTrace } from "./helpers.js";
 const gzip = promisify(_gzip);
 export async function setup() {
     const config = await loadLabcoatConfig();
@@ -24,7 +25,6 @@ export async function setup() {
             network,
         },
     });
-    console.log("account", account);
     const { accountUtxos } = await oyl.utxo.accountUtxos({
         account,
         provider,
@@ -59,7 +59,7 @@ export async function setup() {
                 }),
             ],
         }).encodedRunestone;
-        const tx = await inscribePayload({
+        const bitcoinTx = await inscribePayload({
             protostone,
             payload,
             account,
@@ -68,9 +68,27 @@ export async function setup() {
             utxos: accountUtxos,
             feeRate: 2,
         });
+        const { block: AlkanesTxBlock, tx: alkanesTxId } = await waitForTrace(provider, bitcoinTx.txId, 4);
         console.log("✅ Contract deployed!");
-        console.log(`🔗 TxID: ${tx.txId}`);
-        return tx;
+        console.log(`🔗 TxID: ${bitcoinTx.txId}`);
+        console.log(`🔗 Alkanes ID: ${AlkanesTxBlock}:${alkanesTxId}`);
+        return bitcoinTx;
+    }
+    async function simulate(contract, method, args) {
+        // const [block, tx] = value.split(":").map((part) => part.trim());
+        // const request = {
+        //   alkanes: options.tokens,
+        //   transaction: "0x",
+        //   block: "0x",
+        //   height: "20000",
+        //   txindex: 0,
+        //   target: options.target,
+        //   inputs: options.inputs,
+        //   pointer: 0,
+        //   refundPointer: 0,
+        //   vout: 0,
+        // };
+        // await provider.alkanes.simulate(request, decoder);
     }
     return {
         config,
@@ -78,6 +96,7 @@ export async function setup() {
         provider,
         signer,
         deploy,
+        simulate,
     };
 }
 export const labcoat = { setup };
