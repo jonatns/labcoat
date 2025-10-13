@@ -1,18 +1,10 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.AlkanesCompiler = void 0;
-const child_process_1 = require("child_process");
-const util_1 = require("util");
-const promises_1 = __importDefault(require("fs/promises"));
-const path_1 = __importDefault(require("path"));
-const execAsync = (0, util_1.promisify)(child_process_1.exec);
-class AlkanesCompiler {
-    constructor() {
-        this.tempDir = ".alkali";
-    }
+import { exec } from "child_process";
+import { promisify } from "util";
+import fs from "fs/promises";
+import path from "path";
+const execAsync = promisify(exec);
+export class AlkanesCompiler {
+    tempDir = ".alkali";
     async compile(sourceCode) {
         try {
             await this.createProject(sourceCode);
@@ -20,8 +12,8 @@ class AlkanesCompiler {
             if (stderr) {
                 console.warn("Build warnings:", stderr);
             }
-            const wasmPath = path_1.default.join(this.tempDir, "target", "wasm32-unknown-unknown", "release", "alkanes_contract.wasm");
-            const wasmBuffer = await promises_1.default.readFile(wasmPath);
+            const wasmPath = path.join(this.tempDir, "target", "wasm32-unknown-unknown", "release", "alkanes_contract.wasm");
+            const wasmBuffer = await fs.readFile(wasmPath);
             const abi = await this.parseABI(sourceCode);
             return {
                 bytecode: wasmBuffer.toString("base64"),
@@ -35,8 +27,8 @@ class AlkanesCompiler {
         }
     }
     async createProject(sourceCode) {
-        await promises_1.default.mkdir(this.tempDir, { recursive: true });
-        await promises_1.default.mkdir(path_1.default.join(this.tempDir, "src"), { recursive: true });
+        await fs.mkdir(this.tempDir, { recursive: true });
+        await fs.mkdir(path.join(this.tempDir, "src"), { recursive: true });
         const cargoToml = `
       [package]
       name = "alkanes-contract"
@@ -52,8 +44,8 @@ class AlkanesCompiler {
       metashrew-support = { git = "https://github.com/sandshrewmetaprotocols/metashrew" }
       anyhow = "1.0"
     `;
-        await promises_1.default.writeFile(path_1.default.join(this.tempDir, "Cargo.toml"), cargoToml);
-        await promises_1.default.writeFile(path_1.default.join(this.tempDir, "src", "lib.rs"), sourceCode);
+        await fs.writeFile(path.join(this.tempDir, "Cargo.toml"), cargoToml);
+        await fs.writeFile(path.join(this.tempDir, "src", "lib.rs"), sourceCode);
     }
     async parseABI(sourceCode) {
         const methods = [];
@@ -100,5 +92,3 @@ class AlkanesCompiler {
         };
     }
 }
-exports.AlkanesCompiler = AlkanesCompiler;
-//# sourceMappingURL=compiler.js.map

@@ -1,4 +1,4 @@
-import { AlkanesABI } from "./types";
+import { AlkanesABI } from "./types.js";
 export declare class AlkanesCompiler {
     private tempDir;
     compile(sourceCode: string): Promise<{

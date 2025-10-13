@@ -2,8 +2,15 @@
   "name": "@jonatns/alkali",
   "version": "0.1.0",
   "description": "Smart contract development toolkit for Bitcoin Alkanes",
+  "type": "module",
+  "main": "./dist/index.js",
   "types": "dist/index.d.ts",
-  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "bin": {
     "alkali": "./dist/cli.js"
   },

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { AlkanesCompiler, AlkanesContract } from "./index";
+import { AlkanesCompiler, AlkanesContract } from "./index.js";
 import fs from "fs/promises";
 import path from "path";
 import { spawn } from "child_process";

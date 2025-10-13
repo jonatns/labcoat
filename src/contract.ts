@@ -1,4 +1,4 @@
-import { AlkanesMethod, ContractConfig } from "./types";
+import { AlkanesMethod, ContractConfig } from "./types.js";
 
 export class AlkanesContract {
   private config: ContractConfig;

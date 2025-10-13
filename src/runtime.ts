@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import oyl from "oyl-sdk";
 import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
 import { encipher, encodeRunestoneProtostone, ProtoStone } from "alkanes";
-import { loadAlkaliConfig } from "./config";
+import { loadAlkaliConfig } from "./config.js";
 
 const gzip = promisify(_gzip);
 

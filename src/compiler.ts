@@ -2,7 +2,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
-import { AlkanesABI, AlkanesMethod, StorageKey } from "./types";
+import { AlkanesABI, AlkanesMethod, StorageKey } from "./types.js";
 
 const execAsync = promisify(exec);
 

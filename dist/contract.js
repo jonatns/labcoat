@@ -1,7 +1,5 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.AlkanesContract = void 0;
-class AlkanesContract {
+export class AlkanesContract {
+    config;
     constructor(config) {
         this.config = config;
     }
@@ -27,5 +25,3 @@ class AlkanesContract {
         return this.config.abi.methods.find((m) => m.name === name);
     }
 }
-exports.AlkanesContract = AlkanesContract;
-//# sourceMappingURL=contract.js.map

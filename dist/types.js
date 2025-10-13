@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.AlkanesOpcode = void 0;
-var AlkanesOpcode;
+export var AlkanesOpcode;
 (function (AlkanesOpcode) {
     AlkanesOpcode[AlkanesOpcode["Initialize"] = 0] = "Initialize";
     AlkanesOpcode[AlkanesOpcode["MintFrom"] = 47] = "MintFrom";
@@ -10,5 +7,4 @@ var AlkanesOpcode;
     AlkanesOpcode[AlkanesOpcode["Symbol"] = 100] = "Symbol";
     AlkanesOpcode[AlkanesOpcode["TotalSupply"] = 101] = "TotalSupply";
     AlkanesOpcode[AlkanesOpcode["Data"] = 1000] = "Data";
-})(AlkanesOpcode || (exports.AlkanesOpcode = AlkanesOpcode = {}));
-//# sourceMappingURL=types.js.map
+})(AlkanesOpcode || (AlkanesOpcode = {}));

@@ -1,4 +1,4 @@
-import { AlkanesCompiler } from "../compiler";
+import { AlkanesCompiler } from "../compiler.js";
 
 describe("AlkanesCompiler", () => {
   const compiler = new AlkanesCompiler();

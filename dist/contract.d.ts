@@ -1,4 +1,4 @@
-import { ContractConfig } from "./types";
+import { ContractConfig } from "./types.js";
 export declare class AlkanesContract {
     private config;
     constructor(config: ContractConfig);

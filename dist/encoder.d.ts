@@ -1,4 +1,4 @@
-import { AlkanesType } from "./types";
+import { AlkanesType } from "./types.js";
 export declare class AlkanesEncoder {
     encode(type: AlkanesType, value: any): Uint8Array;
     private encodePrimitive;

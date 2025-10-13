@@ -1,8 +1,6 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const compiler_1 = require("../compiler");
+import { AlkanesCompiler } from "../compiler.js";
 describe("AlkanesCompiler", () => {
-    const compiler = new compiler_1.AlkanesCompiler();
+    const compiler = new AlkanesCompiler();
     describe("parseABI", () => {
         it("should parse a basic contract", async () => {
             const sourceCode = `
@@ -129,4 +127,3 @@ match shift_or_err(&mut inputs)? {
         });
     });
 });
-//# sourceMappingURL=compiler.test.js.map

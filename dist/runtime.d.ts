@@ -1,6 +1,6 @@
 import oyl from "oyl-sdk";
 export declare function setup(): Promise<{
-    config: import("./types").AlkaliConfig;
+    config: import("./types.js").AlkaliConfig;
     account: oyl.Account;
     provider: oyl.Provider;
     signer: oyl.Signer;

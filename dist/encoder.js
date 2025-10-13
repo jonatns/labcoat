@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.AlkanesEncoder = void 0;
-class AlkanesEncoder {
+export class AlkanesEncoder {
     encode(type, value) {
         if (typeof type === "string") {
             return this.encodePrimitive(type, value);
@@ -128,5 +125,3 @@ class AlkanesEncoder {
         // Implementation here
     }
 }
-exports.AlkanesEncoder = AlkanesEncoder;
-//# sourceMappingURL=encoder.js.map

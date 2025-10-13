@@ -1,14 +1,9 @@
 #!/usr/bin/env node
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const commander_1 = require("commander");
-const index_1 = require("./index");
-const promises_1 = __importDefault(require("fs/promises"));
-const path_1 = __importDefault(require("path"));
-const child_process_1 = require("child_process");
+import { Command } from "commander";
+import { AlkanesCompiler, AlkanesContract } from "./index.js";
+import fs from "fs/promises";
+import path from "path";
+import { spawn } from "child_process";
 function handleCommandError(error) {
     if (error instanceof Error) {
         console.error("❌ Command failed:", error.message);
@@ -18,7 +13,7 @@ function handleCommandError(error) {
     }
     process.exit(1);
 }
-const program = new commander_1.Command();
+const program = new Command();
 program
     .name("alkali")
     .description("Smart contract development toolkit for Bitcoin Alkanes")
@@ -30,10 +25,10 @@ program
     .action(async (options) => {
     try {
         console.log("🔥 Initializing Alkali project...");
-        const templatePath = path_1.default.join(__dirname, "..", "templates", options.template);
+        const templatePath = path.join(__dirname, "..", "templates", options.template);
         try {
-            await promises_1.default.access(templatePath);
-            await promises_1.default.cp(templatePath, process.cwd(), { recursive: true });
+            await fs.access(templatePath);
+            await fs.cp(templatePath, process.cwd(), { recursive: true });
         }
         catch (err) {
             console.error(`Template "${options.template}" not found`);
@@ -56,10 +51,10 @@ program
     .option("-o, --output <dir>", "Output directory", "./build")
     .action(async (file, options) => {
     try {
-        const compiler = new index_1.AlkanesCompiler();
+        const compiler = new AlkanesCompiler();
         const outputDir = options.output;
         // Create output directory
-        await promises_1.default.mkdir(outputDir, { recursive: true });
+        await fs.mkdir(outputDir, { recursive: true });
         let filesToCompile = [];
         if (file) {
             // Specific file provided
@@ -67,14 +62,14 @@ program
         }
         else {
             // No file -> compile all .rs in contracts directory
-            const contractsDir = path_1.default.join(process.cwd(), "contracts");
+            const contractsDir = path.join(process.cwd(), "contracts");
             try {
-                const entries = await promises_1.default.readdir(contractsDir, {
+                const entries = await fs.readdir(contractsDir, {
                     withFileTypes: true,
                 });
                 filesToCompile = entries
                     .filter((e) => e.isFile() && e.name.endsWith(".rs"))
-                    .map((e) => path_1.default.join(contractsDir, e.name));
+                    .map((e) => path.join(contractsDir, e.name));
                 if (filesToCompile.length === 0) {
                     console.error("❌ No .rs files found in ./contracts");
                     process.exit(1);
@@ -87,18 +82,18 @@ program
         }
         console.log(`🦾 Compiling ${filesToCompile.length} contract(s)...`);
         for (const filePath of filesToCompile) {
-            const fileName = path_1.default.basename(filePath, ".rs");
+            const fileName = path.basename(filePath, ".rs");
             console.log(`🔨 Compiling ${fileName}.rs...`);
-            const sourceCode = await promises_1.default.readFile(filePath, "utf8");
+            const sourceCode = await fs.readFile(filePath, "utf8");
             const result = await compiler.compile(sourceCode);
             if (!result)
                 throw new Error(`Compilation failed for ${fileName}`);
             const { bytecode, abi } = result;
             // Write compiled output
-            const wasmPath = path_1.default.join(outputDir, `${fileName}.wasm`);
-            const abiPath = path_1.default.join(outputDir, `${fileName}.abi.json`);
-            await promises_1.default.writeFile(wasmPath, Buffer.from(bytecode, "base64"));
-            await promises_1.default.writeFile(abiPath, JSON.stringify(abi, null, 2));
+            const wasmPath = path.join(outputDir, `${fileName}.wasm`);
+            const abiPath = path.join(outputDir, `${fileName}.abi.json`);
+            await fs.writeFile(wasmPath, Buffer.from(bytecode, "base64"));
+            await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
             console.log(`✅ ${fileName}.rs compiled successfully:
 - Bytecode: ${wasmPath}
 - ABI: ${abiPath}\n`);
@@ -118,10 +113,10 @@ program
     .action(async (options) => {
     try {
         // Load files
-        const bytecode = await promises_1.default.readFile(options.wasm);
-        const abi = JSON.parse(await promises_1.default.readFile(options.abi, "utf8"));
+        const bytecode = await fs.readFile(options.wasm);
+        const abi = JSON.parse(await fs.readFile(options.abi, "utf8"));
         // Create contract instance
-        const contract = new index_1.AlkanesContract({
+        const contract = new AlkanesContract({
             bytecode: bytecode.toString("base64"),
             abi,
         });
@@ -138,15 +133,14 @@ program
     .command("run <script>")
     .description("Run a custom Alkali script (.ts or .js)")
     .action((script) => {
-    const scriptPath = path_1.default.resolve(script);
+    const scriptPath = path.resolve(script);
     console.log(`🧩 Running script: ${scriptPath}`);
     const isTs = scriptPath.endsWith(".ts");
     const args = isTs ? ["ts-node", scriptPath] : ["node", scriptPath];
-    const child = (0, child_process_1.spawn)("npx", args, {
+    const child = spawn("npx", args, {
         stdio: "inherit",
         shell: true, // important for cross-platform npx
     });
     child.on("exit", (code) => process.exit(code ?? 0));
 });
 program.parse();
-//# sourceMappingURL=cli.js.map
