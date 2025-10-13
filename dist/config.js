@@ -42,14 +42,37 @@ const fs_1 = __importDefault(require("fs"));
 const url_1 = require("url");
 async function loadAlkaliConfig() {
     const cwd = process.cwd();
+    const configPathTs = path_1.default.join(cwd, "alkali.config.ts");
     const configPathJs = path_1.default.join(cwd, "alkali.config.js");
-    if (fs_1.default.existsSync(configPathJs)) {
-        const module = await Promise.resolve(`${(0, url_1.pathToFileURL)(configPathJs).href}`).then(s => __importStar(require(s)));
-        return module.default || module;
-    }
-    else {
-        console.warn("⚠️ No alkali.config.js found in project root.");
+    // Prefer TS over JS
+    const targetPath = fs_1.default.existsSync(configPathTs)
+        ? configPathTs
+        : fs_1.default.existsSync(configPathJs)
+            ? configPathJs
+            : null;
+    if (!targetPath) {
+        console.warn("⚠️ No alkali.config.{ts,js} found in project root.");
         return {};
+    }
+    // If TypeScript config exists, register ts-node before import
+    if (targetPath.endsWith(".ts")) {
+        try {
+            // @ts-expect-error no types for ts-node/register
+            await Promise.resolve().then(() => __importStar(require("ts-node/register")));
+        }
+        catch {
+            console.error("❌ alkali.config.ts detected but ts-node is not installed.\nRun: npm i -D ts-node typescript");
+            process.exit(1);
+        }
+    }
+    // Import using file URL to support both CJS/ESM
+    try {
+        const configModule = await Promise.resolve(`${(0, url_1.pathToFileURL)(targetPath).href}`).then(s => __importStar(require(s)));
+        return configModule.default || configModule;
+    }
+    catch (err) {
+        console.error("❌ Failed to load Alkali config:", err);
+        process.exit(1);
     }
 }
 //# sourceMappingURL=config.js.map
