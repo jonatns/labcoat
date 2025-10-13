@@ -42,18 +42,13 @@ const fs_1 = __importDefault(require("fs"));
 const url_1 = require("url");
 async function loadAlkaliConfig() {
     const cwd = process.cwd();
-    const configPathTs = path_1.default.join(cwd, "alkali.config.ts");
     const configPathJs = path_1.default.join(cwd, "alkali.config.js");
-    if (fs_1.default.existsSync(configPathTs)) {
-        const module = await Promise.resolve(`${(0, url_1.pathToFileURL)(configPathTs).href}`).then(s => __importStar(require(s)));
-        return module.default || module;
-    }
-    else if (fs_1.default.existsSync(configPathJs)) {
+    if (fs_1.default.existsSync(configPathJs)) {
         const module = await Promise.resolve(`${(0, url_1.pathToFileURL)(configPathJs).href}`).then(s => __importStar(require(s)));
         return module.default || module;
     }
     else {
-        console.warn("⚠️ No alkali.config.{ts,js} found in project root.");
+        console.warn("⚠️ No alkali.config.js found in project root.");
         return {};
     }
 }
