@@ -5,6 +5,7 @@ import { AlkanesCompiler, AlkanesContract } from "./index.js";
 import fs from "fs/promises";
 import path from "path";
 import { spawn } from "child_process";
+import { fileURLToPath } from "url";
 
 function handleCommandError(error: any) {
   if (error instanceof Error) {
@@ -29,6 +30,9 @@ program
   .action(async (options) => {
     try {
       console.log("🔥 Initializing Labcoat project...");
+
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
 
       const templatePath = path.join(
         __dirname,

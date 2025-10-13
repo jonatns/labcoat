@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
+import { cargoTemplate } from "./cargo-template.js";
 const execAsync = promisify(exec);
 export class AlkanesCompiler {
     tempDir = ".labcoat";
@@ -29,22 +30,7 @@ export class AlkanesCompiler {
     async createProject(sourceCode) {
         await fs.mkdir(this.tempDir, { recursive: true });
         await fs.mkdir(path.join(this.tempDir, "src"), { recursive: true });
-        const cargoToml = `
-      [package]
-      name = "alkanes-contract"
-      version = "0.1.0"
-      edition = "2021"
-
-      [lib]
-      crate-type = ["cdylib", "rlib"]
-
-      [dependencies]
-      alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs" }
-      alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs" }
-      metashrew-support = { git = "https://github.com/sandshrewmetaprotocols/metashrew" }
-      anyhow = "1.0"
-    `;
-        await fs.writeFile(path.join(this.tempDir, "Cargo.toml"), cargoToml);
+        await fs.writeFile(path.join(this.tempDir, "Cargo.toml"), cargoTemplate);
         await fs.writeFile(path.join(this.tempDir, "src", "lib.rs"), sourceCode);
     }
     async parseABI(sourceCode) {
