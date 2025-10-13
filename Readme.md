@@ -27,6 +27,12 @@ Once that's done, initialize your Labcoat project by running:
 npx labcoat init
 ```
 
+Then install the required dependencies:
+
+```bash
+npm i
+```
+
 ## Project structure
 
 ```bash
@@ -43,7 +49,7 @@ scripts
 
 Writing a smart contract with Labcoat is as easy as writing a Rust file inside the contracts directory. For example, your contracts/Example.rs should look like this:
 
-```bash
+```rust
 use alkanes_runtime::{declare_alkane, message::MessageDispatch, runtime::AlkaneResponder};
 use alkanes_support::response::CallResponse;
 use anyhow::Result;
@@ -98,7 +104,7 @@ A script in Labcoat is just a TypeScript file with access to your contracts, con
 
 
 
-```bash
+```typescript
 import { labcoat } from "@jonatns/labcoat";
 
 export default async function main() {
