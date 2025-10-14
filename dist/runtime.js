@@ -53,7 +53,7 @@ export async function setup() {
         await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
     }
     async function deploy(contractName) {
-        console.log(`🚀 Deploying ${contractName}...`);
+        console.log(`🚀 Deploying ${contractName} contract...`);
         const buildDir = "./build";
         const wasmPath = `${buildDir}/${contractName}.wasm`;
         const abiPath = `${buildDir}/${contractName}.abi.json`;

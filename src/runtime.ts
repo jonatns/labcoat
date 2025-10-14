@@ -61,7 +61,7 @@ export async function setup() {
   }
 
   async function deploy(contractName: string) {
-    console.log(`🚀 Deploying ${contractName}...`);
+    console.log(`🚀 Deploying ${contractName} contract...`);
 
     const buildDir = "./build";
     const wasmPath = `${buildDir}/${contractName}.wasm`;
