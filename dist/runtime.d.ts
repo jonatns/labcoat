@@ -17,6 +17,7 @@ export declare function setup(): Promise<{
         alkanesId: string;
         status: any;
     }>;
+    simulate: (contractName: string, methodName: string, args?: any[]) => Promise<any>;
 }>;
 export declare const labcoat: {
     setup: typeof setup;

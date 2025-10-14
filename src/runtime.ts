@@ -32,20 +32,33 @@ export async function setup() {
     mnemonic: config.mnemonic,
     opts: { network },
   });
-
   const { accountUtxos } = await oyl.utxo.accountUtxos({ account, provider });
 
   const privateKeys = oyl.getWalletPrivateKeys({
     mnemonic: config.mnemonic!,
     opts: { network: account.network },
   });
-
   const signer = new oyl.Signer(account.network, {
     taprootPrivateKey: privateKeys.taproot.privateKey,
     segwitPrivateKey: privateKeys.nativeSegwit.privateKey,
     nestedSegwitPrivateKey: privateKeys.nestedSegwit.privateKey,
     legacyPrivateKey: privateKeys.legacy.privateKey,
   });
+
+  // Helper to load or create manifest
+  async function loadManifest(): Promise<Record<string, any>> {
+    try {
+      const data = await fs.readFile(MANIFEST_PATH, "utf8");
+      return JSON.parse(data);
+    } catch {
+      return {};
+    }
+  }
+
+  async function saveManifest(manifest: Record<string, any>) {
+    await fs.mkdir("./deployments", { recursive: true });
+    await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+  }
 
   async function deploy(contractName: string) {
     console.log(`🚀 Deploying ${contractName}...`);
@@ -55,14 +68,9 @@ export async function setup() {
     const abiPath = `${buildDir}/${contractName}.abi.json`;
 
     const bytecode = await fs.readFile(wasmPath);
+    const abi = JSON.parse(await fs.readFile(abiPath, "utf8"));
 
-    let manifest: Record<string, any> = {};
-    try {
-      manifest = JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8"));
-    } catch {
-      manifest = {};
-    }
-
+    const manifest = await loadManifest();
     manifest[contractName] = manifest[contractName] || {
       abi: abiPath,
       wasm: wasmPath,
@@ -74,12 +82,12 @@ export async function setup() {
       },
     };
 
+    // Prepare inscribe payload
     const payload = {
       body: await gzip(bytecode, { level: 9 }),
       cursed: false,
       tags: { contentType: "" },
     };
-
     const protostone = encodeRunestoneProtostone({
       protostones: [
         ProtoStone.message({
@@ -102,18 +110,19 @@ export async function setup() {
       feeRate: 2,
     });
 
+    // Update manifest with pending deployment
     manifest[contractName].deployment = {
       status: "pending",
       txId: bitcoinTx.txId,
       alkanesId: null,
       deployedAt: Date.now(),
     };
-    await fs.mkdir("./deployments", { recursive: true });
-    await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+    await saveManifest(manifest);
     console.log(`📝 Manifest updated with pending deployment`);
     console.log(`🔗 Bitcoin Tx ID: ${bitcoinTx.txId}`);
 
-    console.log("⏳ Waiting for Alkanes create trace...");
+    // Wait for Alkanes trace
+    console.log("⏳ Waiting for Alkanes traces...");
     const createTrace = await waitForTrace(provider, bitcoinTx.txId, "create");
     const returnTrace = await waitForTrace(provider, bitcoinTx.txId, "return");
 
@@ -128,13 +137,14 @@ export async function setup() {
       console.warn(`⚠️ Revert reason: ${revertReason}`);
     }
 
+    // Update manifest with final deployment
     manifest[contractName].deployment = {
       status,
       txId: bitcoinTx.txId,
       alkanesId,
       deployedAt: Date.now(),
     };
-    await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+    await saveManifest(manifest);
 
     if (status === "success") {
       console.log(`✅ Contract deployed successfully!`);
@@ -145,20 +155,55 @@ export async function setup() {
       console.warn(`⚠️ Deployment status unknown`);
     }
 
-    return {
-      bitcoinTx,
-      alkanesId,
-      status,
-    };
+    return { bitcoinTx, alkanesId, status };
   }
 
-  return {
-    config,
-    account,
-    provider,
-    signer,
-    deploy,
-  };
+  async function simulate(
+    contractName: string,
+    methodName: string,
+    args: any[] = []
+  ) {
+    const manifest = await loadManifest();
+    const contractInfo = manifest[contractName];
+    if (!contractInfo)
+      throw new Error(`Contract ${contractName} not found in manifest`);
+
+    const abi = JSON.parse(await fs.readFile(contractInfo.abi, "utf8"));
+    const normalizedMethod = methodName
+      .replace(/([A-Z])/g, "_$1")
+      .toLowerCase()
+      .replace(/^_/, ""); // DoSomething -> do_something
+    const method = abi.methods.find(
+      (m: any) => m.name.toLowerCase() === normalizedMethod.toLowerCase()
+    );
+    if (!method)
+      throw new Error(
+        `Method ${methodName} not found in ABI of ${contractName}`
+      );
+
+    const [block, tx] = contractInfo.deployment.alkanesId
+      .split(":")
+      .map((p: string) => p.trim());
+
+    const request = {
+      alkanes: [],
+      transaction: "0x",
+      block: "0x",
+      height: "20000",
+      txindex: 0,
+      target: { block, tx },
+      inputs: [method.opcode.toString()],
+      pointer: 0,
+      refundPointer: 0,
+      vout: 0,
+    };
+
+    const simulationResult = await provider.alkanes.simulate(request);
+    console.log(`🧪 Simulation result:`, simulationResult);
+    return simulationResult;
+  }
+
+  return { config, account, provider, signer, deploy, simulate };
 }
 
 export const labcoat = { setup };
