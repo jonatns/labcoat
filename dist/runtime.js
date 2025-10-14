@@ -44,8 +44,6 @@ export async function setup() {
         const wasmPath = `${buildDir}/${contractName}.wasm`;
         const abiPath = `${buildDir}/${contractName}.abi.json`;
         const bytecode = await fs.readFile(wasmPath);
-        const abi = JSON.parse(await fs.readFile(abiPath, "utf8"));
-        // Load or create manifest
         let manifest = {};
         try {
             manifest = JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8"));
@@ -88,7 +86,6 @@ export async function setup() {
             utxos: accountUtxos,
             feeRate: 2,
         });
-        // Update manifest with pending deployment
         manifest[contractName].deployment = {
             status: "pending",
             txId: bitcoinTx.txId,
@@ -100,8 +97,8 @@ export async function setup() {
         console.log(`📝 Manifest updated with pending deployment`);
         console.log(`🔗 Bitcoin Tx ID: ${bitcoinTx.txId}`);
         console.log("⏳ Waiting for Alkanes create trace...");
-        const createTrace = await waitForTrace(provider, bitcoinTx.txId, 4, "create");
-        const returnTrace = await waitForTrace(provider, bitcoinTx.txId, 4, "return");
+        const createTrace = await waitForTrace(provider, bitcoinTx.txId, "create");
+        const returnTrace = await waitForTrace(provider, bitcoinTx.txId, "return");
         const alkanesId = `${Number(createTrace.data.block)}:${Number(createTrace.data.tx)}`;
         const status = returnTrace?.data?.status ?? "unknown";
         if (status === "revert") {

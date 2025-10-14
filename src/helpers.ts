@@ -3,12 +3,11 @@ import { Provider } from "oyl-sdk";
 export async function waitForTrace(
   provider: Provider,
   txId: string,
-  vout: number,
   eventName: string
 ): Promise<any> {
   while (true) {
     try {
-      const traces = await provider.alkanes.trace({ txid: txId, vout });
+      const traces = await provider.alkanes.trace({ txid: txId, vout: 4 });
 
       if (Array.isArray(traces)) {
         const entry = traces.find((t) => t.event === eventName);

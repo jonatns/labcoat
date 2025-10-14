@@ -1,7 +1,7 @@
-export async function waitForTrace(provider, txId, vout, eventName) {
+export async function waitForTrace(provider, txId, eventName) {
     while (true) {
         try {
-            const traces = await provider.alkanes.trace({ txid: txId, vout });
+            const traces = await provider.alkanes.trace({ txid: txId, vout: 4 });
             if (Array.isArray(traces)) {
                 const entry = traces.find((t) => t.event === eventName);
                 if (entry) {
