@@ -4,10 +4,10 @@ import { promisify } from "node:util";
 import oyl from "oyl-sdk";
 import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
 import { encipher, encodeRunestoneProtostone, ProtoStone } from "alkanes";
-import { waitForTrace } from "./helpers.js";
+import { decodeRevertReason, waitForTrace } from "./helpers.js";
 import { loadLabcoatConfig } from "./config.js";
 const gzip = promisify(_gzip);
-const MANIFEST_PATH = "./build/manifest.json";
+const MANIFEST_PATH = "./deployments/manifest.json";
 export async function setup() {
     const config = await loadLabcoatConfig();
     const url = config.network === "oylnet"
@@ -45,6 +45,7 @@ export async function setup() {
         const abiPath = `${buildDir}/${contractName}.abi.json`;
         const bytecode = await fs.readFile(wasmPath);
         const abi = JSON.parse(await fs.readFile(abiPath, "utf8"));
+        // Load or create manifest
         let manifest = {};
         try {
             manifest = JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8"));
@@ -59,7 +60,7 @@ export async function setup() {
                 status: "pending",
                 txId: null,
                 alkanesId: null,
-                updatedAt: Date.now(),
+                deployedAt: Date.now(),
             },
         };
         const payload = {
@@ -92,30 +93,38 @@ export async function setup() {
             status: "pending",
             txId: bitcoinTx.txId,
             alkanesId: null,
-            updatedAt: Date.now(),
+            deployedAt: Date.now(),
         };
+        await fs.mkdir("./deployments", { recursive: true });
         await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
         console.log(`📝 Manifest updated with pending deployment`);
-        console.log(`🔗 Tx ID: ${bitcoinTx.txId}`);
-        console.log("⏳ Waiting for Alkanes trace...");
-        const trace = await waitForTrace(provider, bitcoinTx.txId, 4, "create");
-        const statusTrace = await waitForTrace(provider, bitcoinTx.txId, 4, "return");
-        const status = statusTrace?.status ?? "unknown";
-        const alkanesId = `${Number(trace.block)}:${Number(trace.tx)}`;
-        // Update manifest with final deployment status
+        console.log(`🔗 Bitcoin Tx ID: ${bitcoinTx.txId}`);
+        console.log("⏳ Waiting for Alkanes create trace...");
+        const createTrace = await waitForTrace(provider, bitcoinTx.txId, 4, "create");
+        const returnTrace = await waitForTrace(provider, bitcoinTx.txId, 4, "return");
+        const alkanesId = `${Number(createTrace.data.block)}:${Number(createTrace.data.tx)}`;
+        const status = returnTrace?.data?.status ?? "unknown";
+        if (status === "revert") {
+            const hexData = returnTrace?.data?.response?.data ?? "0x";
+            const revertReason = decodeRevertReason(hexData);
+            console.warn(`⚠️ Revert reason: ${revertReason}`);
+        }
         manifest[contractName].deployment = {
             status,
             txId: bitcoinTx.txId,
             alkanesId,
-            updatedAt: Date.now(),
+            deployedAt: Date.now(),
         };
         await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
         if (status === "success") {
             console.log(`✅ Contract deployed successfully!`);
             console.log(`🔗 Alkanes ID: ${alkanesId}`);
         }
+        else if (status === "revert") {
+            console.warn(`⚠️ Deployment reverted!`);
+        }
         else {
-            console.warn(`⚠️ Deployment reverted (${status})`);
+            console.warn(`⚠️ Deployment status unknown`);
         }
         return {
             bitcoinTx,

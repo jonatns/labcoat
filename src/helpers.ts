@@ -4,18 +4,20 @@ export async function waitForTrace(
   provider: Provider,
   txId: string,
   vout: number,
-  eventName = "create"
-) {
+  eventName: string
+): Promise<any> {
   while (true) {
     try {
-      const result = await provider.alkanes.trace({ txid: txId, vout });
+      const traces = await provider.alkanes.trace({ txid: txId, vout });
 
-      const entry = result.find(({ event }) => event === eventName);
-      if (entry) {
-        return entry.data;
+      if (Array.isArray(traces)) {
+        const entry = traces.find((t) => t.event === eventName);
+        if (entry) {
+          return entry;
+        }
       }
     } catch (err) {
-      console.warn("Trace not ready yet, retrying...", err);
+      console.warn(`Trace not ready yet for ${eventName}, retrying...`, err);
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1000));

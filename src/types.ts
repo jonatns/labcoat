@@ -65,7 +65,7 @@ export interface AlkanesDeployment {
   status: AlkanesDeploymentStatus;
   txId?: string;
   alkanesId?: string;
-  updatedAt?: number;
+  deployedAt?: number;
 }
 
 export interface AlkanesABI {
