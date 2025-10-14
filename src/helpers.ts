@@ -3,14 +3,16 @@ import { Provider } from "oyl-sdk";
 export async function waitForTrace(
   provider: Provider,
   txId: string,
-  vout: number
+  vout: number,
+  eventName = "create"
 ) {
   while (true) {
     try {
       const result = await provider.alkanes.trace({ txid: txId, vout });
 
-      if (Array.isArray(result) && result.length > 0) {
-        return result;
+      const entry = result.find(({ event }) => event === eventName);
+      if (entry) {
+        return entry.data;
       }
     } catch (err) {
       console.warn("Trace not ready yet, retrying...", err);

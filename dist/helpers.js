@@ -1,9 +1,10 @@
-export async function waitForTrace(provider, txId, vout) {
+export async function waitForTrace(provider, txId, vout, eventName = "create") {
     while (true) {
         try {
             const result = await provider.alkanes.trace({ txid: txId, vout });
-            if (Array.isArray(result) && result.length > 0) {
-                return result;
+            const entry = result.find(({ event }) => event === eventName);
+            if (entry) {
+                return entry.data;
             }
         }
         catch (err) {
