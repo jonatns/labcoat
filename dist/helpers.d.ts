@@ -1,5 +1,3 @@
 import { Provider } from "oyl-sdk";
-export declare function waitForTrace(provider: Provider, txId: string, vout: number, eventName?: string): Promise<{
-    block: number;
-    tx: number;
-}>;
+export declare function waitForTrace(provider: Provider, txId: string, vout: number): Promise<any[]>;
+export declare function decodeRevertReason(hex: string): string | undefined;

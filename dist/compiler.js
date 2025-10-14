@@ -42,16 +42,16 @@ export class AlkanesCompiler {
         while ((match = messageRegex.exec(sourceCode)) !== null) {
             const [_, opcodeStr, methodNameRaw] = match;
             const opcodeNum = parseInt(opcodeStr, 10);
-            // Convert enum variant name to camelCase for method name
+            // Convert enum variant name to snake_case for method name
             const methodName = methodNameRaw
                 .replace(/([A-Z])/g, "_$1")
                 .toLowerCase()
-                .replace(/^_/, ""); // "DoSomething" => "do_something"
+                .replace(/^_/, "");
             methods.push({
                 opcode: opcodeNum,
                 name: methodName,
-                inputs: [], // Could extend later if function has arguments
-                outputs: [], // Could extend later if function returns data
+                inputs: [],
+                outputs: [],
             });
             opcodes[methodName] = opcodeNum;
         }
@@ -69,12 +69,16 @@ export class AlkanesCompiler {
                 type: "Vec<u8>", // default type
             });
         }
+        const deployment = {
+            status: "not-deployed",
+        };
         return {
             name,
             version: "1.0.0",
             methods,
             storage,
             opcodes,
+            deployment,
         };
     }
 }

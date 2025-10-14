@@ -67,18 +67,15 @@ program
   .action(async (file: string | undefined, options) => {
     try {
       const compiler = new AlkanesCompiler();
-      const outputDir = options.output;
 
-      // Create output directory
+      const outputDir = options.output;
       await fs.mkdir(outputDir, { recursive: true });
 
       let filesToCompile: string[] = [];
 
       if (file) {
-        // Specific file provided
         filesToCompile = [file];
       } else {
-        // No file -> compile all .rs in contracts directory
         const contractsDir = path.join(process.cwd(), "contracts");
         try {
           const entries = await fs.readdir(contractsDir, {
@@ -110,7 +107,6 @@ program
 
         const { bytecode, abi } = result;
 
-        // Write compiled output
         const wasmPath = path.join(outputDir, `${fileName}.wasm`);
         const abiPath = path.join(outputDir, `${fileName}.abi.json`);
 
@@ -136,17 +132,14 @@ program
   .option("--args <args...>", "Constructor arguments")
   .action(async (options) => {
     try {
-      // Load files
       const bytecode = await fs.readFile(options.wasm);
       const abi = JSON.parse(await fs.readFile(options.abi, "utf8"));
 
-      // Create contract instance
       const contract = new AlkanesContract({
         bytecode: bytecode.toString("base64"),
         abi,
       });
 
-      // Deploy
       const address = await contract.deploy(options.args || []);
 
       console.log(`✅ Contract deployed successfully:

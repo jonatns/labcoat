@@ -1,34 +1,33 @@
 import fs from "fs/promises";
+import path from "path";
 import { gzip as _gzip } from "node:zlib";
 import { promisify } from "node:util";
 import oyl from "oyl-sdk";
 import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
 import { encipher, encodeRunestoneProtostone, ProtoStone } from "alkanes";
 import { loadLabcoatConfig } from "./config.js";
-import { waitForTrace } from "./helpers.js";
+import { decodeRevertReason, waitForTrace } from "./helpers.js";
 const gzip = promisify(_gzip);
 export async function setup() {
     const config = await loadLabcoatConfig();
+    const url = config.network === "oylnet"
+        ? "https://oylnet.oyl.gg"
+        : "https://mainnet.sandshrew.io";
     const networkType = config.network === "oylnet" ? "regtest" : config.network;
     const network = oyl.getNetwork(networkType);
     const projectId = config.projectId ?? "regtest";
     const provider = new oyl.Provider({
-        url: "https://oylnet.oyl.gg",
         version: "v2",
+        url,
         projectId,
         network,
         networkType,
     });
     const account = oyl.mnemonicToAccount({
         mnemonic: config.mnemonic,
-        opts: {
-            network,
-        },
+        opts: { network },
     });
-    const { accountUtxos } = await oyl.utxo.accountUtxos({
-        account,
-        provider,
-    });
+    const { accountUtxos } = await oyl.utxo.accountUtxos({ account, provider });
     const privateKeys = oyl.getWalletPrivateKeys({
         mnemonic: config.mnemonic,
         opts: { network: account.network },
@@ -41,8 +40,11 @@ export async function setup() {
     });
     async function deploy(contractName) {
         console.log(`🚀 Deploying ${contractName}...`);
-        const bytecode = await fs.readFile(`./build/${contractName}.wasm`);
-        const abi = JSON.parse(await fs.readFile(`./build/${contractName}.abi.json`, "utf8"));
+        const buildDir = path.resolve("./build");
+        const wasmPath = path.join(buildDir, `${contractName}.wasm`);
+        const abiPath = path.join(buildDir, `${contractName}.abi.json`);
+        const bytecode = await fs.readFile(wasmPath);
+        const abi = JSON.parse(await fs.readFile(abiPath, "utf8"));
         const payload = {
             body: await gzip(bytecode, { level: 9 }),
             cursed: false,
@@ -68,27 +70,62 @@ export async function setup() {
             utxos: accountUtxos,
             feeRate: 2,
         });
-        const { block: AlkanesTxBlock, tx: alkanesTxId } = await waitForTrace(provider, bitcoinTx.txId, 4);
-        console.log("✅ Contract deployed!");
         console.log(`🔗 TxID: ${bitcoinTx.txId}`);
-        console.log(`🔗 Alkanes ID: ${AlkanesTxBlock}:${alkanesTxId}`);
-        return bitcoinTx;
+        abi.deployment = {
+            ...abi.deployment,
+            txid: bitcoinTx.txId,
+            status: "pending",
+            updatedAt: Date.now(),
+        };
+        await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+        console.log(`📝 ABI updated with pending deployment`);
+        console.log("⏳ Waiting for Alkanes trace...");
+        const trace = await waitForTrace(provider, bitcoinTx.txId, 4);
+        const createEvent = trace.find(({ event }) => event === "create");
+        const returnEvent = trace.find(({ event }) => event === "return");
+        if (!createEvent) {
+            console.error("❌ No create event found in trace.");
+            Object.assign(abi.deployment, {
+                status: "failed",
+                error: "No create event found",
+                updatedAt: Date.now(),
+            });
+            await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+            return;
+        }
+        const alkanesBlock = Number(createEvent.data.block);
+        const alkanesTx = Number(createEvent.data.tx);
+        const alkanesId = `${alkanesBlock}:${alkanesTx}`;
+        const status = returnEvent?.data?.status ?? "unknown";
+        let revertReason;
+        if (status === "revert" && returnEvent?.data?.response?.data) {
+            revertReason = decodeRevertReason(returnEvent.data.response.data);
+        }
+        Object.assign(abi.deployment, {
+            alkanesId,
+            status,
+            updatedAt: Date.now(),
+        });
+        if (status === "success") {
+            console.log("✅ Contract deployed successfully!");
+            console.log(`🔗 Alkanes ID: ${alkanesId}`);
+        }
+        else if (status === "revert") {
+            console.warn(`⚠️ Deployment reverted.`);
+            if (revertReason) {
+                console.warn(`💥 Revert reason: ${revertReason}`);
+                abi.deployment.revertReason = revertReason;
+            }
+        }
+        else {
+            console.warn(`⚠️ Deployment ended with status: ${status}`);
+        }
+        await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+        console.log(`🧱 ABI updated with final status: ${status}`);
+        return { bitcoinTx, alkanesId, status };
     }
     async function simulate(contract, method, args) {
-        // const [block, tx] = value.split(":").map((part) => part.trim());
-        // const request = {
-        //   alkanes: options.tokens,
-        //   transaction: "0x",
-        //   block: "0x",
-        //   height: "20000",
-        //   txindex: 0,
-        //   target: options.target,
-        //   inputs: options.inputs,
-        //   pointer: 0,
-        //   refundPointer: 0,
-        //   vout: 0,
-        // };
-        // await provider.alkanes.simulate(request, decoder);
+        // Placeholder for simulation API integration
     }
     return {
         config,

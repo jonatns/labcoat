@@ -2,7 +2,13 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
-import { AlkanesABI, AlkanesMethod, StorageKey } from "./types.js";
+import {
+  AlkanesABI,
+  AlkanesDeployment,
+  AlkanesDeploymentStatus,
+  AlkanesMethod,
+  StorageKey,
+} from "./types.js";
 import { cargoTemplate } from "./cargo-template.js";
 
 const execAsync = promisify(exec);
@@ -60,23 +66,23 @@ export class AlkanesCompiler {
 
     // Match MessageDispatch enum variants with #[opcode(N)]
     const messageRegex = /#\[opcode\((\d+)\)\]\s*(\w+)/g;
-    let match;
+    let match: RegExpExecArray | null;
 
     while ((match = messageRegex.exec(sourceCode)) !== null) {
       const [_, opcodeStr, methodNameRaw] = match;
       const opcodeNum = parseInt(opcodeStr, 10);
 
-      // Convert enum variant name to camelCase for method name
+      // Convert enum variant name to snake_case for method name
       const methodName = methodNameRaw
         .replace(/([A-Z])/g, "_$1")
         .toLowerCase()
-        .replace(/^_/, ""); // "DoSomething" => "do_something"
+        .replace(/^_/, "");
 
       methods.push({
         opcode: opcodeNum,
         name: methodName,
-        inputs: [], // Could extend later if function has arguments
-        outputs: [], // Could extend later if function returns data
+        inputs: [],
+        outputs: [],
       });
 
       opcodes[methodName] = opcodeNum;
@@ -98,12 +104,17 @@ export class AlkanesCompiler {
       });
     }
 
+    const deployment: AlkanesDeployment = {
+      status: "not-deployed",
+    };
+
     return {
       name,
       version: "1.0.0",
       methods,
       storage,
       opcodes,
+      deployment,
     };
   }
 }

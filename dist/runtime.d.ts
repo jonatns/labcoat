@@ -5,13 +5,17 @@ export declare function setup(): Promise<{
     provider: oyl.Provider;
     signer: oyl.Signer;
     deploy: (contractName: string) => Promise<{
-        commitTx: string;
-        txId: string;
-        rawTx: string;
-        size: any;
-        weight: any;
-        fee: number;
-        satsPerVByte: string;
+        bitcoinTx: {
+            commitTx: string;
+            txId: string;
+            rawTx: string;
+            size: any;
+            weight: any;
+            fee: number;
+            satsPerVByte: string;
+        };
+        alkanesId: string;
+        status: any;
     }>;
     simulate: (contract: string, method: string, args: any[]) => Promise<void>;
 }>;

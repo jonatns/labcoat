@@ -41,12 +41,20 @@ export interface StorageKey {
     key: string;
     type: AlkanesType;
 }
+export type AlkanesDeploymentStatus = "not-deployed" | "pending" | "success" | "revert";
+export interface AlkanesDeployment {
+    status: AlkanesDeploymentStatus;
+    txId?: string;
+    alkanesId?: string;
+    updatedAt?: number;
+}
 export interface AlkanesABI {
     name: string;
-    version?: string;
+    version: string;
     methods: AlkanesMethod[];
     storage: StorageKey[];
     opcodes: Record<string, number>;
+    deployment: AlkanesDeployment;
 }
 export interface AlkaneTransfer {
     id: string;
@@ -62,8 +70,4 @@ export interface ContractConfig {
     abi: AlkanesABI;
     bytecode: string;
     address?: string;
-}
-export interface Encoder {
-    encode(type: AlkanesType, value: any): Uint8Array;
-    decode(type: AlkanesType, data: Uint8Array): any;
 }

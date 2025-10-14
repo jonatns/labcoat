@@ -29,14 +29,12 @@ export enum AlkanesOpcode {
   Data = 1000,
 }
 
-// Complex types
 export type AlkanesType =
   | AlkanesPrimitive
   | { array: { type: AlkanesType; length: number } }
   | { vec: { type: AlkanesType } }
   | { tuple: AlkanesType[] };
 
-// Method parameter
 export interface AlkanesParam {
   name: string;
   type: AlkanesType;
@@ -52,19 +50,31 @@ export interface AlkanesMethod {
   outputs: AlkanesParam[];
 }
 
-// Storage key definition
 export interface StorageKey {
   key: string;
   type: AlkanesType;
 }
 
-// Contract ABI
+export type AlkanesDeploymentStatus =
+  | "not-deployed"
+  | "pending"
+  | "success"
+  | "revert";
+
+export interface AlkanesDeployment {
+  status: AlkanesDeploymentStatus;
+  txId?: string;
+  alkanesId?: string;
+  updatedAt?: number;
+}
+
 export interface AlkanesABI {
   name: string;
-  version?: string;
+  version: string;
   methods: AlkanesMethod[];
   storage: StorageKey[];
-  opcodes: Record<string, number>; // Maps method names to opcodes
+  opcodes: Record<string, number>;
+  deployment: AlkanesDeployment;
 }
 
 // Response types
@@ -85,10 +95,4 @@ export interface ContractConfig {
   abi: AlkanesABI;
   bytecode: string;
   address?: string;
-}
-
-// Input encoding helpers
-export interface Encoder {
-  encode(type: AlkanesType, value: any): Uint8Array;
-  decode(type: AlkanesType, data: Uint8Array): any;
 }
