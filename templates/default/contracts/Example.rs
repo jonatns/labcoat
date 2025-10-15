@@ -4,10 +4,10 @@ use anyhow::Result;
 use metashrew_support::compat::to_arraybuffer_layout;
 
 #[derive(Default)]
-pub struct GreetContract(());
+pub struct ExampleContract(());
 
 #[derive(MessageDispatch)]
-enum GreetContractMessage {
+enum ExampleContractMessage {
     #[opcode(0)]
     Initialize,
 
@@ -16,7 +16,7 @@ enum GreetContractMessage {
     Greet { name: String },
 }
 
-impl GreetContract {
+impl ExampleContract {
     fn initialize(&self) -> Result<CallResponse> {
         let context = self.context()?;
         let response = CallResponse::forward(&context.incoming_alkanes);
@@ -34,10 +34,10 @@ impl GreetContract {
     }
 }
 
-impl AlkaneResponder for GreetContract {}
+impl AlkaneResponder for ExampleContract {}
 
 declare_alkane! {
-    impl AlkaneResponder for GreetContract {
-        type Message = GreetContractMessage;
+    impl AlkaneResponder for ExampleContract {
+        type Message = ExampleContractMessage;
     }
 }
