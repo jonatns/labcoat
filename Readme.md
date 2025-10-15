@@ -47,8 +47,6 @@ deployments
 scripts
 └── deploy.ts
 └── greet.ts
-
-
 ```
 
 ## Writing a smart contract
@@ -107,11 +105,11 @@ Then all you need to do is run:
 npx labcoat compile
 ```
 
-## Deploying contracts using scripts
+## Deploying contracts
 
 A script in Labcoat is just a TypeScript file with access to your contracts, configuration, and any other functionality that Labcoat provides. You can use them to run deploy scripts or custom logic like simulations and executions.
 
-#### Writing a deploy script (scripts/deploy.ts):
+### Writing a deploy script (scripts/deploy.ts):
 
 ```typescript
 import { labcoat } from "@jonatns/labcoat";
@@ -127,7 +125,7 @@ main().catch((err) => {
 });
 ```
 
-#### Setting up a wallet:
+### Setting up a wallet:
 
 Before deploying to the Bitcoin network you will need to setup a mnemonic in `.env` which is used by `labcoat.config.ts`. By default it uses the oylnet network:
 
@@ -145,4 +143,46 @@ Once that's done run the deploy script by using our generic run command:
 npx labcoat run scripts/deploy.ts
 ```
 
-Labcoat will print the TX ID along with the Alkanes ID once the TX is confirmed. The TX ID and Alkanes ID are stored in the generated ABI for future use.
+Labcoat will print the TX ID along with the Alkanes ID once the TX is confirmed. The TX ID and Alkanes ID are stored in deployments/manifest.json for future use.
+
+### Simulating contract calls (scripts/greet.ts)
+
+You can simulate contracts calls by creating a script and using the simulate function returned by `labcoat.setup()`:
+
+```typescript
+import { labcoat } from "@jonatns/labcoat";
+
+export default async function main() {
+  const { simulate } = await labcoat.setup();
+  await simulate("Example", "Greet", ["World"]);
+}
+
+main().catch((err) => {
+  console.error("❌ Deployment failed:", err);
+  process.exit(1);
+});
+```
+
+The script above makes a call to a method called Greet in the Example contract. It also passes an argument with the word `World`. 
+
+You should see the following result:
+
+```json
+{
+  status: 0,
+  gasUsed: 39656,
+  execution: {
+    alkanes: [],
+    storage: [],
+    error: null,
+    data: '0x48656c6c6f20576f726c6421'
+  },
+  parsed: {
+    string: 'Hello World!',
+    bytes: '0x48656c6c6f20576f726c6421',
+    le: '10334410032597741434076685640',
+    be: '22405534230753928650781647905'
+  }
+}
+```
+
