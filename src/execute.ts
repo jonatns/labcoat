@@ -3,6 +3,7 @@ import { encodeRunestoneProtostone, ProtoStone, encipher } from "alkanes";
 import { Account, alkanes, FormattedUtxo, Provider, Signer } from "oyl-sdk";
 import { loadManifest } from "./manifest.js";
 import { readFile } from "fs/promises";
+import ora from "ora";
 
 export async function executeContract(
   contractName: string,
@@ -14,6 +15,8 @@ export async function executeContract(
   utxos: FormattedUtxo[]
 ) {
   console.log(`🚀 Executing ${contractName}.${methodName} with args:`, args);
+
+  const spinner = ora("Preparing execute...").start();
 
   const manifest = await loadManifest();
   const contractInfo = manifest[contractName];
@@ -57,21 +60,30 @@ export async function executeContract(
     provider,
   });
 
-  console.log(`🔗 Tx ID: ${executionResult.executeResult.txId}`);
+  spinner.stop();
+
+  console.log(`- 🔗 Tx ID: ${executionResult.executeResult.txId}`);
+
+  spinner.start("Waiting for Alkanes traces...");
   const returnTrace = await waitForTrace(
     provider,
     executionResult.executeResult.txId,
     "return"
   );
+
+  spinner.stop();
+
   const status = returnTrace?.data?.status ?? "unknown";
 
   if (status === "revert") {
-    console.warn(
-      "⚠️ Revert reason:",
-      decodeRevertReason(returnTrace?.data?.response?.data ?? "0x")
+    console.log(`- 📊 Execute status: ${status}`);
+    console.log(
+      `- 🪵 Reason: ${decodeRevertReason(
+        returnTrace?.data?.response?.data ?? "0x"
+      )}`
     );
   } else {
-    console.log(`✅ Execution status: ${status.toUpperCase()}`);
+    console.log(`- 📊 Execute status: ${status}`);
   }
 
   return executionResult;

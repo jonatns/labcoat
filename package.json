@@ -33,17 +33,18 @@
     "blockchain"
   ],
   "dependencies": {
-    "commander": "^13.1.0",
     "alkanes": "git+https://github.com/kungfuflex/alkanes.git",
-    "oyl-sdk": "git@github.com:jonatns/oyl-sdk.git",
-    "dotenv": "^17.2.3"
+    "commander": "^13.1.0",
+    "dotenv": "^17.2.3",
+    "ora": "^9.0.0",
+    "oyl-sdk": "git@github.com:jonatns/oyl-sdk.git"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
     "@types/node": "^22.13.4",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
-    "typescript": "^5.7.3",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
   }
 }

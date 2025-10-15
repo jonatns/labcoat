@@ -1,22 +1,21 @@
-import { utxo } from "oyl-sdk";
+import { FormattedUtxo, utxo } from "oyl-sdk";
 import { setupWallet } from "./wallet.js";
 import { deployContract } from "./deploy.js";
 import { simulateContract } from "./simulate..js";
 import { executeContract } from "./execute.js";
 
 export async function setup() {
+  let utxos: FormattedUtxo[];
   const { config, account, signer, provider } = await setupWallet();
 
-  const { accountUtxos } = await utxo.accountUtxos({ account, provider });
+  async function fetchUtxos() {
+    const { accountUtxos } = await utxo.accountUtxos({ account, provider });
+    utxos = accountUtxos;
+  }
 
   async function deploy(contractName: string) {
-    return deployContract(
-      contractName,
-      account,
-      signer,
-      provider,
-      accountUtxos
-    );
+    await fetchUtxos();
+    return deployContract(contractName, account, signer, provider, utxos);
   }
 
   async function simulate(
@@ -32,6 +31,7 @@ export async function setup() {
     methodName: string,
     args: any[] = []
   ) {
+    await fetchUtxos();
     return executeContract(
       contractName,
       methodName,
@@ -39,7 +39,7 @@ export async function setup() {
       account,
       signer,
       provider,
-      accountUtxos
+      utxos
     );
   }
 

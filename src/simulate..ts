@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import { decodeAlkanesResult, encodeArgs } from "./helpers.js";
 import { loadManifest } from "./manifest.js";
+import ora from "ora";
 
 export async function simulateContract(
   provider: any,
@@ -9,6 +10,8 @@ export async function simulateContract(
   args: any[] = []
 ) {
   console.log(`🧪 Simulating ${contractName}.${methodName} with args:`, args);
+
+  const spinner = ora("Preparing simulation...").start();
 
   const manifest = await loadManifest();
   const contractInfo = manifest[contractName];
@@ -25,6 +28,7 @@ export async function simulateContract(
     .map((p: string) => p.trim());
   const encodedArgs = encodeArgs(args);
 
+  spinner.text = "⏳ Running simulation...";
   const request = {
     alkanes: [],
     transaction: "0x",
@@ -39,6 +43,9 @@ export async function simulateContract(
   };
 
   const result = await provider.alkanes.simulate(request);
+  spinner.stop();
+
+  console.log("- ✅ Simulation complete");
 
   return decodeAlkanesResult(result);
 }
