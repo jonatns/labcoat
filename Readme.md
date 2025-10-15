@@ -165,7 +165,11 @@ main().catch((err) => {
 
 The script above makes a call to a method called `Greet` in the `Example` contract. It also passes an argument with the word `World`. 
 
-You should see the following result:
+You should see the following result when running:
+
+```bash
+npx labcoat run scripts/greet.ts
+```
 
 ```json
 {
