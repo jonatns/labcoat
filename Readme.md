@@ -169,19 +169,19 @@ You should see the following result:
 
 ```json
 {
-  status: 0,
-  gasUsed: 39656,
-  execution: {
-    alkanes: [],
-    storage: [],
-    error: null,
-    data: '0x48656c6c6f20576f726c6421'
+  "status": 0,
+  "gasUsed": 39656,
+  "execution": {
+    "alkanes": [],
+    "storage": [],
+    "error": null,
+    "data": "0x48656c6c6f20576f726c6421"
   },
-  parsed: {
-    string: 'Hello World!',
-    bytes: '0x48656c6c6f20576f726c6421',
-    le: '10334410032597741434076685640',
-    be: '22405534230753928650781647905'
+  "parsed": {
+    "string": "Hello World!",
+    "bytes": "0x48656c6c6f20576f726c6421",
+    "le": "10334410032597741434076685640",
+    "be": "22405534230753928650781647905"
   }
 }
 ```
