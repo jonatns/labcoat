@@ -4,9 +4,8 @@ import fs from "fs/promises";
 import path from "path";
 import {
   AlkanesABI,
-  AlkanesDeployment,
-  AlkanesDeploymentStatus,
   AlkanesMethod,
+  AlkanesInput,
   StorageKey,
 } from "./types.js";
 import { cargoTemplate } from "./cargo-template.js";
@@ -23,7 +22,7 @@ export class AlkanesCompiler {
       await this.createProject(sourceCode);
 
       const { stderr } = await execAsync(
-        `cargo build --target=wasm32-unknown-unknown --release`,
+        `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
         { cwd: this.tempDir }
       );
 
@@ -64,49 +63,68 @@ export class AlkanesCompiler {
     const methods: AlkanesMethod[] = [];
     const opcodes: Record<string, number> = {};
 
-    // Match MessageDispatch enum variants with #[opcode(N)]
-    const messageRegex = /#\[opcode\((\d+)\)\]\s*(\w+)/g;
+    // Match enum variants with:
+    // - #[opcode(N)]
+    // - optional #[returns(Type)]
+    // - variant name
+    // - optional { inputs... }
+    const messageRegex =
+      /#\[opcode\((\d+)\)\](?:\s*#\[returns\(([^)]+)\)\])?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\{([^}]*)\})?/gm;
+
     let match: RegExpExecArray | null;
-
     while ((match = messageRegex.exec(sourceCode)) !== null) {
-      const [_, opcodeStr, methodNameRaw] = match;
+      const [, opcodeStr, returnsType, variantName, inputBlock] = match;
       const opcodeNum = parseInt(opcodeStr, 10);
+      const outputs = returnsType ? [returnsType.trim()] : [];
 
-      // Convert enum variant name to snake_case for method name
-      const methodName = methodNameRaw
-        .replace(/([A-Z])/g, "_$1")
-        .toLowerCase()
-        .replace(/^_/, "");
+      const inputs: AlkanesInput[] = [];
+
+      if (inputBlock && inputBlock.trim().length > 0) {
+        // Split fields inside { ... }
+        const fieldRegex = /(\w+)\s*:\s*([\w<>]+)/g;
+        let fieldMatch: RegExpExecArray | null;
+        while ((fieldMatch = fieldRegex.exec(inputBlock)) !== null) {
+          const [, fieldName, fieldType] = fieldMatch;
+          inputs.push({
+            name: fieldName.trim(),
+            type: fieldType.trim(),
+          });
+        }
+      }
+
+      console.log(`Parsed method: ${variantName} (opcode: ${opcodeNum})`);
+      console.log(`  Inputs: ${JSON.stringify(inputs)}`);
+      console.log(`  Outputs: ${JSON.stringify(outputs)}`);
 
       methods.push({
         opcode: opcodeNum,
-        name: methodName,
-        inputs: [],
-        outputs: [],
+        name: variantName,
+        inputs,
+        outputs,
       });
 
-      opcodes[methodName] = opcodeNum;
+      opcodes[variantName] = opcodeNum;
     }
 
-    // Parse struct name (pub struct Name)
-    const structRegex = /pub\s+struct\s+(\w+)/;
-    const structMatch = sourceCode.match(structRegex);
-    const name = structMatch ? structMatch[1] : "UnknownContract";
+    // Parse struct name(s)
+    const structRegex = /pub\s+struct\s+(\w+)/g;
+    const structNames: string[] = [];
+    let structMatch: RegExpExecArray | null;
+    while ((structMatch = structRegex.exec(sourceCode)) !== null) {
+      structNames.push(structMatch[1]);
+    }
+    const name = structNames.length > 0 ? structNames[0] : "UnknownContract";
 
-    // Parse storage (StoragePointer::from_keyword)
+    // Parse storage pointers
     const storage: StorageKey[] = [];
     const storageRegex = /StoragePointer::from_keyword\("([^"]+)"\)/g;
-    let storageMatch;
+    let storageMatch: RegExpExecArray | null;
     while ((storageMatch = storageRegex.exec(sourceCode)) !== null) {
       storage.push({
         key: storageMatch[1],
-        type: "Vec<u8>", // default type
+        type: "Vec<u8>",
       });
     }
-
-    const deployment: AlkanesDeployment = {
-      status: "not-deployed",
-    };
 
     return {
       name,
@@ -114,7 +132,6 @@ export class AlkanesCompiler {
       methods,
       storage,
       opcodes,
-      deployment,
     };
   }
 }

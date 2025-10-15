@@ -13,40 +13,21 @@ export declare enum AlkanesOpcode {
     TotalSupply = 101,
     Data = 1000
 }
-export type AlkanesType = AlkanesPrimitive | {
-    array: {
-        type: AlkanesType;
-        length: number;
-    };
-} | {
-    vec: {
-        type: AlkanesType;
-    };
-} | {
-    tuple: AlkanesType[];
-};
-export interface AlkanesParam {
+export type AlkanesType = string;
+export interface AlkanesInput {
     name: string;
     type: AlkanesType;
-    components?: AlkanesParam[];
 }
 export interface AlkanesMethod {
     opcode: AlkanesOpcode | number;
     name: string;
     doc?: string;
-    inputs: AlkanesParam[];
-    outputs: AlkanesParam[];
+    inputs: AlkanesInput[];
+    outputs: string[];
 }
 export interface StorageKey {
     key: string;
     type: AlkanesType;
-}
-export type AlkanesDeploymentStatus = "not-deployed" | "pending" | "success" | "revert";
-export interface AlkanesDeployment {
-    status: AlkanesDeploymentStatus;
-    txId?: string;
-    alkanesId?: string;
-    deployedAt?: number;
 }
 export interface AlkanesABI {
     name: string;
@@ -54,7 +35,6 @@ export interface AlkanesABI {
     methods: AlkanesMethod[];
     storage: StorageKey[];
     opcodes: Record<string, number>;
-    deployment: AlkanesDeployment;
 }
 export interface AlkaneTransfer {
     id: string;

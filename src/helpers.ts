@@ -34,3 +34,17 @@ export function decodeRevertReason(hex: string): string | undefined {
     return;
   }
 }
+
+function encodeArg(arg: string | number | bigint): string {
+  if (typeof arg === "string") {
+    const buf = Buffer.from(arg, "utf8");
+    return "0x" + Buffer.from(buf).reverse().toString("hex"); // reverse for little-endian
+  }
+  throw new Error(
+    `Unsupported argument type: ${typeof arg}. Only string arguments are currently supported.`
+  );
+}
+
+export function encodeArgs(args: unknown[]): string[] {
+  return args.map(encodeArg);
+}

@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import oyl from "oyl-sdk";
 import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
 import { encipher, encodeRunestoneProtostone, ProtoStone } from "alkanes";
-import { decodeRevertReason, waitForTrace } from "./helpers.js";
+import { decodeRevertReason, encodeArgs, waitForTrace } from "./helpers.js";
 import { loadLabcoatConfig } from "./config.js";
 const gzip = promisify(_gzip);
 const MANIFEST_PATH = "./deployments/manifest.json";
@@ -153,6 +153,7 @@ export async function setup() {
         const [block, tx] = contractInfo.deployment.alkanesId
             .split(":")
             .map((p) => p.trim());
+        const encodedArgs = encodeArgs(args);
         const request = {
             alkanes: [],
             transaction: "0x",
@@ -160,7 +161,7 @@ export async function setup() {
             height: "20000",
             txindex: 0,
             target: { block, tx },
-            inputs: [method.opcode.toString()],
+            inputs: [method.opcode.toString(), ...encodedArgs],
             pointer: 0,
             refundPointer: 0,
             vout: 0,

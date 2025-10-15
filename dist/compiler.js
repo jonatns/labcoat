@@ -9,7 +9,7 @@ export class AlkanesCompiler {
     async compile(sourceCode) {
         try {
             await this.createProject(sourceCode);
-            const { stderr } = await execAsync(`cargo build --target=wasm32-unknown-unknown --release`, { cwd: this.tempDir });
+            const { stderr } = await execAsync(`cargo clean && cargo build --target=wasm32-unknown-unknown --release`, { cwd: this.tempDir });
             if (stderr) {
                 console.warn("Build warnings:", stderr);
             }
@@ -36,49 +36,65 @@ export class AlkanesCompiler {
     async parseABI(sourceCode) {
         const methods = [];
         const opcodes = {};
-        // Match MessageDispatch enum variants with #[opcode(N)]
-        const messageRegex = /#\[opcode\((\d+)\)\]\s*(\w+)/g;
+        // Match enum variants with:
+        // - #[opcode(N)]
+        // - optional #[returns(Type)]
+        // - variant name
+        // - optional { inputs... }
+        const messageRegex = /#\[opcode\((\d+)\)\](?:\s*#\[returns\(([^)]+)\)\])?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\{([^}]*)\})?/gm;
         let match;
         while ((match = messageRegex.exec(sourceCode)) !== null) {
-            const [_, opcodeStr, methodNameRaw] = match;
+            const [, opcodeStr, returnsType, variantName, inputBlock] = match;
             const opcodeNum = parseInt(opcodeStr, 10);
-            // Convert enum variant name to snake_case for method name
-            const methodName = methodNameRaw
-                .replace(/([A-Z])/g, "_$1")
-                .toLowerCase()
-                .replace(/^_/, "");
+            const outputs = returnsType ? [returnsType.trim()] : [];
+            const inputs = [];
+            if (inputBlock && inputBlock.trim().length > 0) {
+                // Split fields inside { ... }
+                const fieldRegex = /(\w+)\s*:\s*([\w<>]+)/g;
+                let fieldMatch;
+                while ((fieldMatch = fieldRegex.exec(inputBlock)) !== null) {
+                    const [, fieldName, fieldType] = fieldMatch;
+                    inputs.push({
+                        name: fieldName.trim(),
+                        type: fieldType.trim(),
+                    });
+                }
+            }
+            console.log(`Parsed method: ${variantName} (opcode: ${opcodeNum})`);
+            console.log(`  Inputs: ${JSON.stringify(inputs)}`);
+            console.log(`  Outputs: ${JSON.stringify(outputs)}`);
             methods.push({
                 opcode: opcodeNum,
-                name: methodName,
-                inputs: [],
-                outputs: [],
+                name: variantName,
+                inputs,
+                outputs,
             });
-            opcodes[methodName] = opcodeNum;
+            opcodes[variantName] = opcodeNum;
         }
-        // Parse struct name (pub struct Name)
-        const structRegex = /pub\s+struct\s+(\w+)/;
-        const structMatch = sourceCode.match(structRegex);
-        const name = structMatch ? structMatch[1] : "UnknownContract";
-        // Parse storage (StoragePointer::from_keyword)
+        // Parse struct name(s)
+        const structRegex = /pub\s+struct\s+(\w+)/g;
+        const structNames = [];
+        let structMatch;
+        while ((structMatch = structRegex.exec(sourceCode)) !== null) {
+            structNames.push(structMatch[1]);
+        }
+        const name = structNames.length > 0 ? structNames[0] : "UnknownContract";
+        // Parse storage pointers
         const storage = [];
         const storageRegex = /StoragePointer::from_keyword\("([^"]+)"\)/g;
         let storageMatch;
         while ((storageMatch = storageRegex.exec(sourceCode)) !== null) {
             storage.push({
                 key: storageMatch[1],
-                type: "Vec<u8>", // default type
+                type: "Vec<u8>",
             });
         }
-        const deployment = {
-            status: "not-deployed",
-        };
         return {
             name,
             version: "1.0.0",
             methods,
             storage,
             opcodes,
-            deployment,
         };
     }
 }

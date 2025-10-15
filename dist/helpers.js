@@ -28,3 +28,13 @@ export function decodeRevertReason(hex) {
         return;
     }
 }
+function encodeArg(arg) {
+    if (typeof arg === "string") {
+        const buf = Buffer.from(arg, "utf8");
+        return "0x" + Buffer.from(buf).reverse().toString("hex"); // reverse for little-endian
+    }
+    throw new Error(`Unsupported argument type: ${typeof arg}. Only string arguments are currently supported.`);
+}
+export function encodeArgs(args) {
+    return args.map(encodeArg);
+}
