@@ -1,4 +1,4 @@
-# Labcoat
+# 👨‍🔬 Labcoat ⚛
 
 Labcoat is a development toolkit for **Bitcoin Alkanes smart contracts**. It provides a Hardhat-style experience for compiling, deploying, and testing Alkanes contracts.
 
