@@ -60,9 +60,6 @@ export class AlkanesCompiler {
                     });
                 }
             }
-            console.log(`Parsed method: ${variantName} (opcode: ${opcodeNum})`);
-            console.log(`  Inputs: ${JSON.stringify(inputs)}`);
-            console.log(`  Outputs: ${JSON.stringify(outputs)}`);
             methods.push({
                 opcode: opcodeNum,
                 name: variantName,
