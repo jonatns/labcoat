@@ -17,7 +17,7 @@ export class AlkanesCompiler {
             const wasmBuffer = await fs.readFile(wasmPath);
             const abi = await this.parseABI(sourceCode);
             return {
-                bytecode: wasmBuffer.toString("base64"),
+                wasmBuffer,
                 abi,
             };
         }

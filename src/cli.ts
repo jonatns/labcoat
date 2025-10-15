@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { AlkanesCompiler, AlkanesContract } from "./index.js";
+import { AlkanesCompiler } from "./index.js";
 import fs from "fs/promises";
 import path from "path";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
+import { gzipWasm } from "./helpers.js";
 
 function handleCommandError(error: any) {
   if (error instanceof Error) {
@@ -106,45 +107,23 @@ program
         const result = await compiler.compile(sourceCode);
         if (!result) throw new Error(`Compilation failed for ${fileName}`);
 
-        const { bytecode, abi } = result;
+        const { wasmBuffer, abi } = result;
 
-        const wasmPath = path.join(outputDir, `${fileName}.wasm`);
+        console.log(`🔨 Gzipping ${fileName}.wasm...`);
+        const gzippedWasmBuffer = await gzipWasm(wasmBuffer);
+
+        const wasmPath = path.join(outputDir, `${fileName}.wasm.gz`);
         const abiPath = path.join(outputDir, `${fileName}.abi.json`);
 
-        await fs.writeFile(wasmPath, Buffer.from(bytecode, "base64"));
+        await fs.writeFile(wasmPath, gzippedWasmBuffer);
         await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
 
         console.log(`✅ ${fileName}.rs compiled successfully:
-- Bytecode: ${wasmPath}
+- WASM: ${wasmPath}
 - ABI: ${abiPath}\n`);
       }
 
       console.log("🎉 All contracts compiled successfully!");
-    } catch (error) {
-      handleCommandError(error);
-    }
-  });
-
-program
-  .command("deploy")
-  .description("Deploy a compiled contract")
-  .requiredOption("--wasm <file>", "WASM bytecode file")
-  .requiredOption("--abi <file>", "ABI JSON file")
-  .option("--args <args...>", "Constructor arguments")
-  .action(async (options) => {
-    try {
-      const bytecode = await fs.readFile(options.wasm);
-      const abi = JSON.parse(await fs.readFile(options.abi, "utf8"));
-
-      const contract = new AlkanesContract({
-        bytecode: bytecode.toString("base64"),
-        abi,
-      });
-
-      const address = await contract.deploy(options.args || []);
-
-      console.log(`✅ Contract deployed successfully:
-Address: ${address}`);
     } catch (error) {
       handleCommandError(error);
     }

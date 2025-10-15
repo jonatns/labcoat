@@ -1,23 +1,24 @@
-import oyl from "oyl-sdk";
 export declare function setup(): Promise<{
-    config: import("./types.js").LabcoatConfig;
-    account: oyl.Account;
-    provider: oyl.Provider;
-    signer: oyl.Signer;
+    config: {
+        network: "signet" | "mainnet" | "testnet" | "regtest";
+        mnemonic: string;
+        projectId: string;
+        rpcUrl: string;
+    };
+    account: import("oyl-sdk").Account;
+    provider: import("oyl-sdk").Provider;
+    signer: import("oyl-sdk").Signer;
     deploy: (contractName: string) => Promise<{
-        bitcoinTx: {
-            commitTx: string;
-            txId: string;
-            rawTx: string;
-            size: any;
-            weight: any;
-            fee: number;
-            satsPerVByte: string;
-        };
+        txId: string;
         alkanesId: string;
         status: any;
     }>;
-    simulate: (contractName: string, methodName: string, args?: any[]) => Promise<any>;
+    simulate: (contractName: string, methodName: string, args?: any[]) => Promise<string | number | bigint>;
+    execute: (contractName: string, methodName: string, args?: any[]) => Promise<{
+        frbtcWrapResult: any;
+        executeResult: any;
+        frbtcUnwrapResult: any;
+    }>;
 }>;
 export declare const labcoat: {
     setup: typeof setup;

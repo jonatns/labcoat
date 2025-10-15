@@ -2,7 +2,7 @@ import { AlkanesABI } from "./types.js";
 export declare class AlkanesCompiler {
     private tempDir;
     compile(sourceCode: string): Promise<{
-        bytecode: string;
+        wasmBuffer: Buffer;
         abi: AlkanesABI;
     } | void>;
     private createProject;

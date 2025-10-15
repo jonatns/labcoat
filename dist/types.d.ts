@@ -1,5 +1,5 @@
 export interface LabcoatConfig {
-    network: "oylnet" | "mainnet";
+    network: "signet" | "mainnet" | "testnet" | "regtest";
     mnemonic?: string;
     projectId?: string;
 }

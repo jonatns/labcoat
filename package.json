@@ -35,7 +35,7 @@
   "dependencies": {
     "commander": "^13.1.0",
     "alkanes": "git+https://github.com/kungfuflex/alkanes.git",
-    "oyl-sdk": "git+https://github.com/Oyl-Wallet/oyl-sdk.git",
+    "oyl-sdk": "git@github.com:jonatns/oyl-sdk.git",
     "dotenv": "^17.2.3"
   },
   "devDependencies": {

@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { pathToFileURL } from "url";
-export async function loadLabcoatConfig() {
+async function loadLabcoatConfig() {
     const root = process.cwd();
     const configPathTs = path.resolve(root, "labcoat.config.ts");
     const configPathJs = path.resolve(root, "labcoat.config.js");
@@ -22,4 +22,14 @@ export async function loadLabcoatConfig() {
         console.error("❌ Failed to load Labcoat config:", err);
         return {};
     }
+}
+export async function loadConfig() {
+    const labcoatConfig = await loadLabcoatConfig();
+    return {
+        mnemonic: "<your mnemonic>",
+        network: "oylnet",
+        projectId: "regtest",
+        rpcUrl: "https://oylnet.oyl.gg",
+        ...labcoatConfig,
+    };
 }

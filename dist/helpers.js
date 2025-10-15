@@ -1,3 +1,9 @@
+import { gzip as _gzip } from "node:zlib";
+import { promisify } from "node:util";
+const gzip = promisify(_gzip);
+export async function gzipWasm(wasmBuffer) {
+    return gzip(wasmBuffer, { level: 9 });
+}
 export async function waitForTrace(provider, txId, eventName) {
     while (true) {
         try {
@@ -29,12 +35,40 @@ export function decodeRevertReason(hex) {
     }
 }
 function encodeArg(arg) {
+    if (typeof arg === "string" && arg.startsWith("0x")) {
+        const cleanHex = arg.slice(2).padStart(32, "0").toLowerCase();
+        return "0x" + cleanHex.match(/../g).reverse().join("");
+    }
     if (typeof arg === "string") {
         const buf = Buffer.from(arg, "utf8");
-        return "0x" + Buffer.from(buf).reverse().toString("hex"); // reverse for little-endian
+        return "0x" + Buffer.from(buf).reverse().toString("hex");
     }
-    throw new Error(`Unsupported argument type: ${typeof arg}. Only string arguments are currently supported.`);
+    if (typeof arg === "number" || typeof arg === "bigint") {
+        const big = BigInt(arg);
+        // Convert number → hex, pad to even length
+        let hex = big.toString(16);
+        if (hex.length % 2 !== 0)
+            hex = "0" + hex;
+        // Split into bytes and reverse for little-endian
+        const reversed = hex.match(/../g).reverse().join("");
+        // Pad to 16 bytes (u128)
+        return "0x" + reversed.padEnd(32, "0");
+    }
+    throw new Error(`Unsupported argument type: ${typeof arg}. Must be string, number, or bigint.`);
 }
 export function encodeArgs(args) {
     return args.map(encodeArg);
+}
+export function decodeAlkanesResult(result) {
+    if (!result.parsed)
+        return result.execution?.data ?? null;
+    const { string, be } = result.parsed;
+    if (string && /^[\x20-\x7E\s]*$/.test(string)) {
+        return string;
+    }
+    if (be) {
+        const n = BigInt(be);
+        return n <= Number.MAX_SAFE_INTEGER ? Number(n) : n;
+    }
+    return result.execution?.data ?? null;
 }

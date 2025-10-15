@@ -1,2 +1,6 @@
-import { LabcoatConfig } from "./types.js";
-export declare function loadLabcoatConfig(): Promise<LabcoatConfig>;
+export declare function loadConfig(): Promise<{
+    network: "signet" | "mainnet" | "testnet" | "regtest";
+    mnemonic: string;
+    projectId: string;
+    rpcUrl: string;
+}>;

@@ -9,6 +9,7 @@ import {
   StorageKey,
 } from "./types.js";
 import { cargoTemplate } from "./cargo-template.js";
+import { gzipWasm } from "./helpers.js";
 
 const execAsync = promisify(exec);
 
@@ -17,7 +18,7 @@ export class AlkanesCompiler {
 
   async compile(
     sourceCode: string
-  ): Promise<{ bytecode: string; abi: AlkanesABI } | void> {
+  ): Promise<{ wasmBuffer: Buffer; abi: AlkanesABI } | void> {
     try {
       await this.createProject(sourceCode);
 
@@ -38,11 +39,10 @@ export class AlkanesCompiler {
         "alkanes_contract.wasm"
       );
       const wasmBuffer = await fs.readFile(wasmPath);
-
       const abi = await this.parseABI(sourceCode);
 
       return {
-        bytecode: wasmBuffer.toString("base64"),
+        wasmBuffer,
         abi,
       };
     } catch (error) {

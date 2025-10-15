@@ -3,7 +3,7 @@ import fs from "fs";
 import { pathToFileURL } from "url";
 import { LabcoatConfig } from "./types.js";
 
-export async function loadLabcoatConfig(): Promise<LabcoatConfig> {
+async function loadLabcoatConfig(): Promise<LabcoatConfig> {
   const root = process.cwd();
   const configPathTs = path.resolve(root, "labcoat.config.ts");
   const configPathJs = path.resolve(root, "labcoat.config.js");
@@ -26,4 +26,16 @@ export async function loadLabcoatConfig(): Promise<LabcoatConfig> {
     console.error("❌ Failed to load Labcoat config:", err);
     return {} as LabcoatConfig;
   }
+}
+
+export async function loadConfig() {
+  const labcoatConfig = await loadLabcoatConfig();
+
+  return {
+    mnemonic: "<your mnemonic>",
+    network: "oylnet",
+    projectId: "regtest",
+    rpcUrl: "https://oylnet.oyl.gg",
+    ...labcoatConfig,
+  };
 }
