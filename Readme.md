@@ -41,8 +41,14 @@ labcoat.config.ts
 contracts
 ├── Example.rs
 
+deployments
+├── manifest.json
+
 scripts
 └── deploy.ts
+└── greet.ts
+
+
 ```
 
 ## Writing a smart contract
@@ -62,8 +68,10 @@ pub struct ExampleContract(());
 enum ExampleContractMessage {
     #[opcode(0)]
     Initialize,
+
     #[opcode(1)]
-    DoSomething,
+    #[returns(String)]
+    Greet { name: String },
 }
 
 impl ExampleContract {
@@ -73,10 +81,13 @@ impl ExampleContract {
         Ok(response)
     }
 
-    fn do_something(&self) -> Result<CallResponse> {
+    fn greet(&self, name: String) -> Result<CallResponse> {
         let context = self.context()?;
         let mut response = CallResponse::forward(&context.incoming_alkanes);
-        response.data = b"Hello from ExampleContract".to_vec();
+
+        let message = format!("Hello {}!", name);
+        response.data = message.as_bytes().to_vec();
+
         Ok(response)
     }
 }
