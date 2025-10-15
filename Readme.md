@@ -143,7 +143,7 @@ Once that's done run the deploy script by using our generic run command:
 npx labcoat run scripts/deploy.ts
 ```
 
-Labcoat will print the TX ID along with the Alkanes ID once the TX is confirmed. The TX ID and Alkanes ID are stored in deployments/manifest.json for future use.
+Labcoat will print the Tx ID along with the Alkanes ID once the TX is confirmed. The Tx ID and Alkanes ID are stored in deployments/manifest.json for future use.
 
 ### Simulating contract calls (scripts/greet.ts)
 
@@ -163,7 +163,7 @@ main().catch((err) => {
 });
 ```
 
-The script above makes a call to a method called Greet in the Example contract. It also passes an argument with the word `World`. 
+The script above makes a call to a method called `Greet` in the `Example` contract. It also passes an argument with the word `World`. 
 
 You should see the following result:
 
