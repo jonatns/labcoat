@@ -6,6 +6,10 @@ export interface LabcoatConfig {
   projectId?: string;
 }
 
+export interface TransactionOptions {
+  feeRate?: number;
+}
+
 export type AlkanesPrimitive =
   | "u8"
   | "u16"

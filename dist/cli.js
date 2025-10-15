@@ -87,7 +87,7 @@ program
             const fileName = path.basename(filePath, ".rs");
             console.log(`🔨 Compiling ${fileName}.rs...`);
             const sourceCode = await fs.readFile(filePath, "utf8");
-            const result = await compiler.compile(sourceCode);
+            const result = await compiler.compile(fileName, sourceCode);
             if (!result)
                 throw new Error(`Compilation failed for ${fileName}`);
             const { wasmBuffer, abi } = result;

@@ -4,7 +4,7 @@ import { alkanes } from "oyl-sdk";
 import { loadManifest } from "./manifest.js";
 import { readFile } from "fs/promises";
 import ora from "ora";
-export async function executeContract(contractName, methodName, args, account, signer, provider, utxos) {
+export async function executeContract(contractName, methodName, args, options, wallet) {
     console.log(`🚀 Executing ${contractName}.${methodName} with args:`, args);
     const spinner = ora("Preparing execute...").start();
     const manifest = await loadManifest();
@@ -37,17 +37,14 @@ export async function executeContract(contractName, methodName, args, account, s
     }).encodedRunestone;
     const executionResult = await alkanes.execute({
         protostone,
-        utxos,
         alkanesUtxos: [],
-        feeRate: 2,
-        account,
-        signer,
-        provider,
+        feeRate: options.feeRate,
+        ...wallet,
     });
     spinner.stop();
     console.log(`- 🔗 Tx ID: ${executionResult.executeResult.txId}`);
     spinner.start("Waiting for Alkanes traces...");
-    const returnTrace = await waitForTrace(provider, executionResult.executeResult.txId, "return");
+    const returnTrace = await waitForTrace(wallet.provider, executionResult.executeResult.txId, "return");
     spinner.stop();
     const status = returnTrace?.data?.status ?? "unknown";
     if (status === "revert") {

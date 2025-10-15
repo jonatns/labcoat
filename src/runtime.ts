@@ -3,19 +3,29 @@ import { setupWallet } from "./wallet.js";
 import { deployContract } from "./deploy.js";
 import { simulateContract } from "./simulate..js";
 import { executeContract } from "./execute.js";
+import { TransactionOptions } from "./types.js";
 
 export async function setup() {
-  let utxos: FormattedUtxo[];
   const { config, account, signer, provider } = await setupWallet();
+  const wallet = {
+    account,
+    signer,
+    provider,
+    utxos: [],
+  };
+  const defaultOptions: TransactionOptions = { feeRate: 2 };
 
   async function fetchUtxos() {
     const { accountUtxos } = await utxo.accountUtxos({ account, provider });
-    utxos = accountUtxos;
+    wallet.utxos = accountUtxos;
   }
 
-  async function deploy(contractName: string) {
+  async function deploy(
+    contractName: string,
+    options: TransactionOptions = defaultOptions
+  ) {
     await fetchUtxos();
-    return deployContract(contractName, account, signer, provider, utxos);
+    return deployContract(contractName, options, wallet);
   }
 
   async function simulate(
@@ -29,18 +39,11 @@ export async function setup() {
   async function execute(
     contractName: string,
     methodName: string,
-    args: any[] = []
+    args: any[] = [],
+    options: TransactionOptions = defaultOptions
   ) {
     await fetchUtxos();
-    return executeContract(
-      contractName,
-      methodName,
-      args,
-      account,
-      signer,
-      provider,
-      utxos
-    );
+    return executeContract(contractName, methodName, args, options, wallet);
   }
 
   return { config, account, provider, signer, deploy, simulate, execute };

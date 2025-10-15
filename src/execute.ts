@@ -9,10 +9,13 @@ export async function executeContract(
   contractName: string,
   methodName: string,
   args: any[],
-  account: Account,
-  signer: Signer,
-  provider: Provider,
-  utxos: FormattedUtxo[]
+  options: { feeRate?: number },
+  wallet: {
+    account: Account;
+    signer: Signer;
+    provider: Provider;
+    utxos: FormattedUtxo[];
+  }
 ) {
   console.log(`🚀 Executing ${contractName}.${methodName} with args:`, args);
 
@@ -52,12 +55,9 @@ export async function executeContract(
 
   const executionResult = await alkanes.execute({
     protostone,
-    utxos,
     alkanesUtxos: [],
-    feeRate: 2,
-    account,
-    signer,
-    provider,
+    feeRate: options.feeRate,
+    ...wallet,
   });
 
   spinner.stop();
@@ -66,7 +66,7 @@ export async function executeContract(
 
   spinner.start("Waiting for Alkanes traces...");
   const returnTrace = await waitForTrace(
-    provider,
+    wallet.provider,
     executionResult.executeResult.txId,
     "return"
   );

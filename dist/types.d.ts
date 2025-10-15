@@ -3,6 +3,9 @@ export interface LabcoatConfig {
     mnemonic?: string;
     projectId?: string;
 }
+export interface TransactionOptions {
+    feeRate?: number;
+}
 export type AlkanesPrimitive = "u8" | "u16" | "u32" | "u64" | "u128" | "i8" | "i16" | "i32" | "i64" | "i128" | "String" | "bool" | "Vec<u8>";
 export declare enum AlkanesOpcode {
     Initialize = 0,

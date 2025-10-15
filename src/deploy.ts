@@ -6,27 +6,31 @@ import { loadManifest, saveManifest } from "./manifest.js";
 import { toAlkanesId } from "./utils.js";
 import { Account, FormattedUtxo, Provider, Signer } from "oyl-sdk";
 import ora from "ora";
+import path from "path";
 
 export async function deployContract(
   contractName: string,
-  account: Account,
-  signer: Signer,
-  provider: Provider,
-  utxos: FormattedUtxo[]
+  options: { feeRate?: number },
+  wallet: {
+    account: Account;
+    signer: Signer;
+    provider: Provider;
+    utxos: FormattedUtxo[];
+  }
 ) {
   console.log(`🚀 Deploying ${contractName}...`);
 
   const spinner = ora("Preparing deployment...").start();
 
   try {
-    const buildDir = "./build";
-    const wasmBuffer = await fs.readFile(`${buildDir}/${contractName}.wasm.gz`);
+    const buildDir = path.resolve("build");
+    const wasmPath = path.join(buildDir, `${contractName}.wasm.gz`);
+    const wasmBuffer = await fs.readFile(wasmPath);
 
     const manifest = await loadManifest();
-    manifest[contractName] = manifest[contractName] || {
-      abi: "",
-      wasm: "",
-      deployment: {},
+    manifest[contractName] = {
+      ...(manifest[contractName] || {}),
+      deployment: manifest[contractName]?.deployment || {},
     };
 
     const payload = {
@@ -51,11 +55,8 @@ export async function deployContract(
     const tx = await inscribePayload({
       protostone,
       payload,
-      account,
-      signer,
-      provider,
-      utxos,
-      feeRate: 0.5,
+      feeRate: options.feeRate,
+      ...wallet,
     });
 
     spinner.stop();
@@ -63,8 +64,8 @@ export async function deployContract(
     console.log(`- 🔗 Tx ID: ${tx.txId}`);
 
     spinner.start("Waiting for Alkanes traces...");
-    const createTrace = await waitForTrace(provider, tx.txId, "create");
-    const returnTrace = await waitForTrace(provider, tx.txId, "return");
+    const createTrace = await waitForTrace(wallet.provider, tx.txId, "create");
+    const returnTrace = await waitForTrace(wallet.provider, tx.txId, "return");
 
     const alkanesId = toAlkanesId(createTrace.data);
     const status = returnTrace?.data?.status ?? "unknown";

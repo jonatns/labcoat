@@ -10,6 +10,7 @@ import {
 } from "./types.js";
 import { cargoTemplate } from "./cargo-template.js";
 import { gzipWasm } from "./helpers.js";
+import { loadManifest, saveManifest } from "./manifest.js";
 
 const execAsync = promisify(exec);
 
@@ -17,6 +18,7 @@ export class AlkanesCompiler {
   private tempDir: string = ".labcoat";
 
   async compile(
+    contractName: string,
     sourceCode: string
   ): Promise<{ wasmBuffer: Buffer; abi: AlkanesABI } | void> {
     try {
@@ -31,6 +33,7 @@ export class AlkanesCompiler {
         console.warn("Build warnings:", stderr);
       }
 
+      // Read compiled WASM
       const wasmPath = path.join(
         this.tempDir,
         "target",
@@ -39,12 +42,32 @@ export class AlkanesCompiler {
         "alkanes_contract.wasm"
       );
       const wasmBuffer = await fs.readFile(wasmPath);
+
       const abi = await this.parseABI(sourceCode);
 
-      return {
-        wasmBuffer,
-        abi,
+      const buildDir = "./build";
+      await fs.mkdir(buildDir, { recursive: true });
+
+      const abiPath = `${buildDir}/${contractName}.abi.json`;
+      const wasmOutPath = `${buildDir}/${contractName}.wasm.gz`;
+
+      await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+      await fs.writeFile(wasmOutPath, await gzipWasm(wasmBuffer));
+
+      const manifest = await loadManifest();
+      manifest[contractName] = {
+        ...(manifest[contractName] || {}),
+        abi: abiPath,
+        wasm: wasmOutPath,
+        compiledAt: Date.now(),
       };
+      await saveManifest(manifest);
+
+      console.log(`✅ Compiled ${contractName}`);
+      console.log(`- ABI: ${abiPath}`);
+      console.log(`- WASM: ${wasmOutPath}`);
+
+      return { wasmBuffer, abi };
     } catch (error) {
       if (error instanceof Error) {
         throw new Error(`Compilation failed: ${error.message}`);
@@ -63,11 +86,7 @@ export class AlkanesCompiler {
     const methods: AlkanesMethod[] = [];
     const opcodes: Record<string, number> = {};
 
-    // Match enum variants with:
-    // - #[opcode(N)]
-    // - optional #[returns(Type)]
-    // - variant name
-    // - optional { inputs... }
+    // Match enum variants
     const messageRegex =
       /#\[opcode\((\d+)\)\](?:\s*#\[returns\(([^)]+)\)\])?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\{([^}]*)\})?/gm;
 
@@ -78,17 +97,12 @@ export class AlkanesCompiler {
       const outputs = returnsType ? [returnsType.trim()] : [];
 
       const inputs: AlkanesInput[] = [];
-
       if (inputBlock && inputBlock.trim().length > 0) {
-        // Split fields inside { ... }
         const fieldRegex = /(\w+)\s*:\s*([\w<>]+)/g;
         let fieldMatch: RegExpExecArray | null;
         while ((fieldMatch = fieldRegex.exec(inputBlock)) !== null) {
           const [, fieldName, fieldType] = fieldMatch;
-          inputs.push({
-            name: fieldName.trim(),
-            type: fieldType.trim(),
-          });
+          inputs.push({ name: fieldName.trim(), type: fieldType.trim() });
         }
       }
 
@@ -98,7 +112,6 @@ export class AlkanesCompiler {
         inputs,
         outputs,
       });
-
       opcodes[variantName] = opcodeNum;
     }
 
@@ -116,18 +129,9 @@ export class AlkanesCompiler {
     const storageRegex = /StoragePointer::from_keyword\("([^"]+)"\)/g;
     let storageMatch: RegExpExecArray | null;
     while ((storageMatch = storageRegex.exec(sourceCode)) !== null) {
-      storage.push({
-        key: storageMatch[1],
-        type: "Vec<u8>",
-      });
+      storage.push({ key: storageMatch[1], type: "Vec<u8>" });
     }
 
-    return {
-      name,
-      version: "1.0.0",
-      methods,
-      storage,
-      opcodes,
-    };
+    return { name, version: "1.0.0", methods, storage, opcodes };
   }
 }

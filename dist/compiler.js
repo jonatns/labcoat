@@ -3,23 +3,40 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import { cargoTemplate } from "./cargo-template.js";
+import { gzipWasm } from "./helpers.js";
+import { loadManifest, saveManifest } from "./manifest.js";
 const execAsync = promisify(exec);
 export class AlkanesCompiler {
     tempDir = ".labcoat";
-    async compile(sourceCode) {
+    async compile(contractName, sourceCode) {
         try {
             await this.createProject(sourceCode);
             const { stderr } = await execAsync(`cargo clean && cargo build --target=wasm32-unknown-unknown --release`, { cwd: this.tempDir });
             if (stderr) {
                 console.warn("Build warnings:", stderr);
             }
+            // Read compiled WASM
             const wasmPath = path.join(this.tempDir, "target", "wasm32-unknown-unknown", "release", "alkanes_contract.wasm");
             const wasmBuffer = await fs.readFile(wasmPath);
             const abi = await this.parseABI(sourceCode);
-            return {
-                wasmBuffer,
-                abi,
+            const buildDir = "./build";
+            await fs.mkdir(buildDir, { recursive: true });
+            const abiPath = `${buildDir}/${contractName}.abi.json`;
+            const wasmOutPath = `${buildDir}/${contractName}.wasm.gz`;
+            await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+            await fs.writeFile(wasmOutPath, await gzipWasm(wasmBuffer));
+            const manifest = await loadManifest();
+            manifest[contractName] = {
+                ...(manifest[contractName] || {}),
+                abi: abiPath,
+                wasm: wasmOutPath,
+                compiledAt: Date.now(),
             };
+            await saveManifest(manifest);
+            console.log(`✅ Compiled ${contractName}`);
+            console.log(`- ABI: ${abiPath}`);
+            console.log(`- WASM: ${wasmOutPath}`);
+            return { wasmBuffer, abi };
         }
         catch (error) {
             if (error instanceof Error) {
@@ -36,11 +53,7 @@ export class AlkanesCompiler {
     async parseABI(sourceCode) {
         const methods = [];
         const opcodes = {};
-        // Match enum variants with:
-        // - #[opcode(N)]
-        // - optional #[returns(Type)]
-        // - variant name
-        // - optional { inputs... }
+        // Match enum variants
         const messageRegex = /#\[opcode\((\d+)\)\](?:\s*#\[returns\(([^)]+)\)\])?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\{([^}]*)\})?/gm;
         let match;
         while ((match = messageRegex.exec(sourceCode)) !== null) {
@@ -49,15 +62,11 @@ export class AlkanesCompiler {
             const outputs = returnsType ? [returnsType.trim()] : [];
             const inputs = [];
             if (inputBlock && inputBlock.trim().length > 0) {
-                // Split fields inside { ... }
                 const fieldRegex = /(\w+)\s*:\s*([\w<>]+)/g;
                 let fieldMatch;
                 while ((fieldMatch = fieldRegex.exec(inputBlock)) !== null) {
                     const [, fieldName, fieldType] = fieldMatch;
-                    inputs.push({
-                        name: fieldName.trim(),
-                        type: fieldType.trim(),
-                    });
+                    inputs.push({ name: fieldName.trim(), type: fieldType.trim() });
                 }
             }
             methods.push({
@@ -81,17 +90,8 @@ export class AlkanesCompiler {
         const storageRegex = /StoragePointer::from_keyword\("([^"]+)"\)/g;
         let storageMatch;
         while ((storageMatch = storageRegex.exec(sourceCode)) !== null) {
-            storage.push({
-                key: storageMatch[1],
-                type: "Vec<u8>",
-            });
+            storage.push({ key: storageMatch[1], type: "Vec<u8>" });
         }
-        return {
-            name,
-            version: "1.0.0",
-            methods,
-            storage,
-            opcodes,
-        };
+        return { name, version: "1.0.0", methods, storage, opcodes };
     }
 }

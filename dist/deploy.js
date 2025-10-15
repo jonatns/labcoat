@@ -5,17 +5,18 @@ import { waitForTrace } from "./helpers.js";
 import { loadManifest, saveManifest } from "./manifest.js";
 import { toAlkanesId } from "./utils.js";
 import ora from "ora";
-export async function deployContract(contractName, account, signer, provider, utxos) {
+import path from "path";
+export async function deployContract(contractName, options, wallet) {
     console.log(`🚀 Deploying ${contractName}...`);
     const spinner = ora("Preparing deployment...").start();
     try {
-        const buildDir = "./build";
-        const wasmBuffer = await fs.readFile(`${buildDir}/${contractName}.wasm.gz`);
+        const buildDir = path.resolve("build");
+        const wasmPath = path.join(buildDir, `${contractName}.wasm.gz`);
+        const wasmBuffer = await fs.readFile(wasmPath);
         const manifest = await loadManifest();
-        manifest[contractName] = manifest[contractName] || {
-            abi: "",
-            wasm: "",
-            deployment: {},
+        manifest[contractName] = {
+            ...(manifest[contractName] || {}),
+            deployment: manifest[contractName]?.deployment || {},
         };
         const payload = {
             body: wasmBuffer,
@@ -37,17 +38,14 @@ export async function deployContract(contractName, account, signer, provider, ut
         const tx = await inscribePayload({
             protostone,
             payload,
-            account,
-            signer,
-            provider,
-            utxos,
-            feeRate: 0.5,
+            feeRate: options.feeRate,
+            ...wallet,
         });
         spinner.stop();
         console.log(`- 🔗 Tx ID: ${tx.txId}`);
         spinner.start("Waiting for Alkanes traces...");
-        const createTrace = await waitForTrace(provider, tx.txId, "create");
-        const returnTrace = await waitForTrace(provider, tx.txId, "return");
+        const createTrace = await waitForTrace(wallet.provider, tx.txId, "create");
+        const returnTrace = await waitForTrace(wallet.provider, tx.txId, "return");
         const alkanesId = toAlkanesId(createTrace.data);
         const status = returnTrace?.data?.status ?? "unknown";
         manifest[contractName].deployment = {
