@@ -42,6 +42,7 @@ program
         console.log("  1. npx labcoat compile               # Compile contracts");
         console.log("  2. npx labcoat test                  # Run tests");
         console.log("  3. npx labcoat run scripts/deploy.ts # Deploy contracts");
+        console.log("  4. npx labcoat run scripts/greet.ts  # Run greet script");
     }
     catch (error) {
         console.error("❌ Failed to initialize project", error);
