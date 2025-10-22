@@ -24518,19 +24518,24 @@ async function saveManifest(manifest) {
 // src/compiler.ts
 var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var AlkanesCompiler = class {
-  tempDir = ".labcoat";
+  baseDir;
+  constructor(customTempDir) {
+    this.baseDir = customTempDir || process.env.TMP_BUILD_DIR || ".labcoat";
+  }
   async compile(contractName, sourceCode) {
+    const buildId = `build_${Date.now().toString(36)}`;
+    const tempDir = import_path.default.join(this.baseDir, buildId);
     try {
-      await this.createProject(sourceCode);
-      const { stderr } = await execAsync(
+      await this.createProject(tempDir, sourceCode);
+      console.log(`\u{1F9F1} Building in ${tempDir}`);
+      const { stdout, stderr } = await execAsync(
         `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
-        { cwd: this.tempDir }
+        { cwd: tempDir }
       );
-      if (stderr) {
-        console.warn("Build warnings:", stderr);
-      }
+      if (stderr?.trim()) console.warn("\u26A0\uFE0F Build warnings:", stderr);
+      if (stdout?.trim()) console.log(stdout);
       const wasmPath = import_path.default.join(
-        this.tempDir,
+        tempDir,
         "target",
         "wasm32-unknown-unknown",
         "release",
@@ -24558,15 +24563,19 @@ var AlkanesCompiler = class {
       return { wasmBuffer, abi };
     } catch (error) {
       if (error instanceof Error) {
+        console.error(`\u274C Compilation failed: ${error.message}`);
         throw new Error(`Compilation failed: ${error.message}`);
       }
+    } finally {
+      await import_promises2.default.rm(tempDir, { recursive: true, force: true }).catch(() => {
+      });
     }
   }
-  async createProject(sourceCode) {
-    await import_promises2.default.mkdir(this.tempDir, { recursive: true });
-    await import_promises2.default.mkdir(import_path.default.join(this.tempDir, "src"), { recursive: true });
-    await import_promises2.default.writeFile(import_path.default.join(this.tempDir, "Cargo.toml"), cargoTemplate);
-    await import_promises2.default.writeFile(import_path.default.join(this.tempDir, "src", "lib.rs"), sourceCode);
+  async createProject(tempDir, sourceCode) {
+    await import_promises2.default.mkdir(tempDir, { recursive: true });
+    await import_promises2.default.mkdir(import_path.default.join(tempDir, "src"), { recursive: true });
+    await import_promises2.default.writeFile(import_path.default.join(tempDir, "Cargo.toml"), cargoTemplate);
+    await import_promises2.default.writeFile(import_path.default.join(tempDir, "src", "lib.rs"), sourceCode);
   }
   async parseABI(sourceCode) {
     const methods = [];

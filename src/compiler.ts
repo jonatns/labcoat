@@ -15,36 +15,47 @@ import { loadManifest, saveManifest } from "./manifest.js";
 const execAsync = promisify(exec);
 
 export class AlkanesCompiler {
-  private tempDir: string = ".labcoat";
+  private baseDir: string;
+
+  constructor(customTempDir?: string) {
+    // Allow override via arg or environment
+    this.baseDir = customTempDir || process.env.TMP_BUILD_DIR || ".labcoat";
+  }
 
   async compile(
     contractName: string,
     sourceCode: string
   ): Promise<{ wasmBuffer: Buffer; abi: AlkanesABI } | void> {
-    try {
-      await this.createProject(sourceCode);
+    // Each compile gets its own subdirectory
+    const buildId = `build_${Date.now().toString(36)}`;
+    const tempDir = path.join(this.baseDir, buildId);
 
-      const { stderr } = await execAsync(
+    try {
+      await this.createProject(tempDir, sourceCode);
+
+      console.log(`🧱 Building in ${tempDir}`);
+
+      const { stdout, stderr } = await execAsync(
         `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
-        { cwd: this.tempDir }
+        { cwd: tempDir }
       );
 
-      if (stderr) {
-        console.warn("Build warnings:", stderr);
-      }
+      if (stderr?.trim()) console.warn("⚠️ Build warnings:", stderr);
+      if (stdout?.trim()) console.log(stdout);
 
       // Read compiled WASM
       const wasmPath = path.join(
-        this.tempDir,
+        tempDir,
         "target",
         "wasm32-unknown-unknown",
         "release",
         "alkanes_contract.wasm"
       );
-      const wasmBuffer = await fs.readFile(wasmPath);
 
+      const wasmBuffer = await fs.readFile(wasmPath);
       const abi = await this.parseABI(sourceCode);
 
+      // Output files
       const buildDir = "./build";
       await fs.mkdir(buildDir, { recursive: true });
 
@@ -54,6 +65,7 @@ export class AlkanesCompiler {
       await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
       await fs.writeFile(wasmOutPath, await gzipWasm(wasmBuffer));
 
+      // Manifest update
       const manifest = await loadManifest();
       manifest[contractName] = {
         ...(manifest[contractName] || {}),
@@ -70,23 +82,26 @@ export class AlkanesCompiler {
       return { wasmBuffer, abi };
     } catch (error) {
       if (error instanceof Error) {
+        console.error(`❌ Compilation failed: ${error.message}`);
         throw new Error(`Compilation failed: ${error.message}`);
       }
+    } finally {
+      // Clean up temp folder
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 
-  private async createProject(sourceCode: string) {
-    await fs.mkdir(this.tempDir, { recursive: true });
-    await fs.mkdir(path.join(this.tempDir, "src"), { recursive: true });
-    await fs.writeFile(path.join(this.tempDir, "Cargo.toml"), cargoTemplate);
-    await fs.writeFile(path.join(this.tempDir, "src", "lib.rs"), sourceCode);
+  private async createProject(tempDir: string, sourceCode: string) {
+    await fs.mkdir(tempDir, { recursive: true });
+    await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "Cargo.toml"), cargoTemplate);
+    await fs.writeFile(path.join(tempDir, "src", "lib.rs"), sourceCode);
   }
 
   public async parseABI(sourceCode: string): Promise<AlkanesABI> {
     const methods: AlkanesMethod[] = [];
     const opcodes: Record<string, number> = {};
 
-    // Match enum variants
     const messageRegex =
       /#\[opcode\((\d+)\)\](?:\s*#\[returns\(([^)]+)\)\])?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\{([^}]*)\})?/gm;
 
@@ -115,16 +130,15 @@ export class AlkanesCompiler {
       opcodes[variantName] = opcodeNum;
     }
 
-    // Parse struct name(s)
     const structRegex = /pub\s+struct\s+(\w+)/g;
     const structNames: string[] = [];
     let structMatch: RegExpExecArray | null;
     while ((structMatch = structRegex.exec(sourceCode)) !== null) {
       structNames.push(structMatch[1]);
     }
+
     const name = structNames.length > 0 ? structNames[0] : "UnknownContract";
 
-    // Parse storage pointers
     const storage: StorageKey[] = [];
     const storageRegex = /StoragePointer::from_keyword\("([^"]+)"\)/g;
     let storageMatch: RegExpExecArray | null;

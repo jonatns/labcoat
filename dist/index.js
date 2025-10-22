@@ -10100,19 +10100,24 @@ async function saveManifest(manifest) {
 // src/compiler.ts
 var execAsync = promisify2(exec);
 var AlkanesCompiler = class {
-  tempDir = ".labcoat";
+  baseDir;
+  constructor(customTempDir) {
+    this.baseDir = customTempDir || process.env.TMP_BUILD_DIR || ".labcoat";
+  }
   async compile(contractName, sourceCode) {
+    const buildId = `build_${Date.now().toString(36)}`;
+    const tempDir = path.join(this.baseDir, buildId);
     try {
-      await this.createProject(sourceCode);
-      const { stderr } = await execAsync(
+      await this.createProject(tempDir, sourceCode);
+      console.log(`\u{1F9F1} Building in ${tempDir}`);
+      const { stdout, stderr } = await execAsync(
         `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
-        { cwd: this.tempDir }
+        { cwd: tempDir }
       );
-      if (stderr) {
-        console.warn("Build warnings:", stderr);
-      }
+      if (stderr?.trim()) console.warn("\u26A0\uFE0F Build warnings:", stderr);
+      if (stdout?.trim()) console.log(stdout);
       const wasmPath = path.join(
-        this.tempDir,
+        tempDir,
         "target",
         "wasm32-unknown-unknown",
         "release",
@@ -10140,15 +10145,19 @@ var AlkanesCompiler = class {
       return { wasmBuffer, abi };
     } catch (error) {
       if (error instanceof Error) {
+        console.error(`\u274C Compilation failed: ${error.message}`);
         throw new Error(`Compilation failed: ${error.message}`);
       }
+    } finally {
+      await fs2.rm(tempDir, { recursive: true, force: true }).catch(() => {
+      });
     }
   }
-  async createProject(sourceCode) {
-    await fs2.mkdir(this.tempDir, { recursive: true });
-    await fs2.mkdir(path.join(this.tempDir, "src"), { recursive: true });
-    await fs2.writeFile(path.join(this.tempDir, "Cargo.toml"), cargoTemplate);
-    await fs2.writeFile(path.join(this.tempDir, "src", "lib.rs"), sourceCode);
+  async createProject(tempDir, sourceCode) {
+    await fs2.mkdir(tempDir, { recursive: true });
+    await fs2.mkdir(path.join(tempDir, "src"), { recursive: true });
+    await fs2.writeFile(path.join(tempDir, "Cargo.toml"), cargoTemplate);
+    await fs2.writeFile(path.join(tempDir, "src", "lib.rs"), sourceCode);
   }
   async parseABI(sourceCode) {
     const methods = [];
