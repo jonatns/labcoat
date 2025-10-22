@@ -11,29 +11,35 @@ import {
 import { cargoTemplate } from "./cargo-template.js";
 import { gzipWasm } from "./helpers.js";
 import { loadManifest, saveManifest } from "./manifest.js";
+import { nanoid } from "nanoid";
 
 const execAsync = promisify(exec);
 
 export class AlkanesCompiler {
   private baseDir: string;
+  private cleanupAfter: boolean;
 
-  constructor(customTempDir?: string) {
-    // Allow override via arg or environment
-    this.baseDir = customTempDir || process.env.TMP_BUILD_DIR || ".labcoat";
+  constructor(options?: { baseDir?: string; cleanup?: boolean }) {
+    this.baseDir = options?.baseDir ?? path.join(process.cwd(), ".labcoat");
+    this.cleanupAfter = options?.cleanup ?? true;
+  }
+
+  private async getTempDir() {
+    const id = nanoid(10);
+    const dir = path.join(this.baseDir, `build_${id}`);
+    await fs.mkdir(dir, { recursive: true });
+    return dir;
   }
 
   async compile(
     contractName: string,
     sourceCode: string
-  ): Promise<{ wasmBuffer: Buffer; abi: AlkanesABI } | void> {
-    // Each compile gets its own subdirectory
-    const buildId = `build_${Date.now().toString(36)}`;
-    const tempDir = path.join(this.baseDir, buildId);
+  ): Promise<{ wasmBuffer: Buffer; abi: AlkanesABI }> {
+    const tempDir = await this.getTempDir();
 
     try {
-      await this.createProject(tempDir, sourceCode);
-
       console.log(`🧱 Building in ${tempDir}`);
+      await this.createProject(tempDir, sourceCode);
 
       const { stdout, stderr } = await execAsync(
         `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
@@ -43,7 +49,6 @@ export class AlkanesCompiler {
       if (stderr?.trim()) console.warn("⚠️ Build warnings:", stderr);
       if (stdout?.trim()) console.log(stdout);
 
-      // Read compiled WASM
       const wasmPath = path.join(
         tempDir,
         "target",
@@ -55,17 +60,15 @@ export class AlkanesCompiler {
       const wasmBuffer = await fs.readFile(wasmPath);
       const abi = await this.parseABI(sourceCode);
 
-      // Output files
-      const buildDir = "./build";
+      const buildDir = path.join(process.cwd(), "build");
       await fs.mkdir(buildDir, { recursive: true });
 
-      const abiPath = `${buildDir}/${contractName}.abi.json`;
-      const wasmOutPath = `${buildDir}/${contractName}.wasm.gz`;
+      const abiPath = path.join(buildDir, `${contractName}.abi.json`);
+      const wasmOutPath = path.join(buildDir, `${contractName}.wasm.gz`);
 
       await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
       await fs.writeFile(wasmOutPath, await gzipWasm(wasmBuffer));
 
-      // Manifest update
       const manifest = await loadManifest();
       manifest[contractName] = {
         ...(manifest[contractName] || {}),
@@ -80,14 +83,10 @@ export class AlkanesCompiler {
       console.log(`- WASM: ${wasmOutPath}`);
 
       return { wasmBuffer, abi };
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(`❌ Compilation failed: ${error.message}`);
-        throw new Error(`Compilation failed: ${error.message}`);
-      }
     } finally {
-      // Clean up temp folder
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      if (this.cleanupAfter) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      }
     }
   }
 

@@ -24516,18 +24516,26 @@ async function saveManifest(manifest) {
 }
 
 // src/compiler.ts
+var import_nanoid = require("nanoid");
 var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var AlkanesCompiler = class {
   baseDir;
-  constructor(customTempDir) {
-    this.baseDir = customTempDir || process.env.TMP_BUILD_DIR || ".labcoat";
+  cleanupAfter;
+  constructor(options) {
+    this.baseDir = options?.baseDir ?? import_path.default.join(process.cwd(), ".labcoat");
+    this.cleanupAfter = options?.cleanup ?? true;
+  }
+  async getTempDir() {
+    const id = (0, import_nanoid.nanoid)(10);
+    const dir = import_path.default.join(this.baseDir, `build_${id}`);
+    await import_promises2.default.mkdir(dir, { recursive: true });
+    return dir;
   }
   async compile(contractName, sourceCode) {
-    const buildId = `build_${Date.now().toString(36)}`;
-    const tempDir = import_path.default.join(this.baseDir, buildId);
+    const tempDir = await this.getTempDir();
     try {
-      await this.createProject(tempDir, sourceCode);
       console.log(`\u{1F9F1} Building in ${tempDir}`);
+      await this.createProject(tempDir, sourceCode);
       const { stdout, stderr } = await execAsync(
         `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
         { cwd: tempDir }
@@ -24543,10 +24551,10 @@ var AlkanesCompiler = class {
       );
       const wasmBuffer = await import_promises2.default.readFile(wasmPath);
       const abi = await this.parseABI(sourceCode);
-      const buildDir = "./build";
+      const buildDir = import_path.default.join(process.cwd(), "build");
       await import_promises2.default.mkdir(buildDir, { recursive: true });
-      const abiPath = `${buildDir}/${contractName}.abi.json`;
-      const wasmOutPath = `${buildDir}/${contractName}.wasm.gz`;
+      const abiPath = import_path.default.join(buildDir, `${contractName}.abi.json`);
+      const wasmOutPath = import_path.default.join(buildDir, `${contractName}.wasm.gz`);
       await import_promises2.default.writeFile(abiPath, JSON.stringify(abi, null, 2));
       await import_promises2.default.writeFile(wasmOutPath, await gzipWasm(wasmBuffer));
       const manifest = await loadManifest();
@@ -24561,14 +24569,11 @@ var AlkanesCompiler = class {
       console.log(`- ABI: ${abiPath}`);
       console.log(`- WASM: ${wasmOutPath}`);
       return { wasmBuffer, abi };
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(`\u274C Compilation failed: ${error.message}`);
-        throw new Error(`Compilation failed: ${error.message}`);
-      }
     } finally {
-      await import_promises2.default.rm(tempDir, { recursive: true, force: true }).catch(() => {
-      });
+      if (this.cleanupAfter) {
+        await import_promises2.default.rm(tempDir, { recursive: true, force: true }).catch(() => {
+        });
+      }
     }
   }
   async createProject(tempDir, sourceCode) {

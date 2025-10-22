@@ -10098,18 +10098,26 @@ async function saveManifest(manifest) {
 }
 
 // src/compiler.ts
+import { nanoid } from "nanoid";
 var execAsync = promisify2(exec);
 var AlkanesCompiler = class {
   baseDir;
-  constructor(customTempDir) {
-    this.baseDir = customTempDir || process.env.TMP_BUILD_DIR || ".labcoat";
+  cleanupAfter;
+  constructor(options) {
+    this.baseDir = options?.baseDir ?? path.join(process.cwd(), ".labcoat");
+    this.cleanupAfter = options?.cleanup ?? true;
+  }
+  async getTempDir() {
+    const id = nanoid(10);
+    const dir = path.join(this.baseDir, `build_${id}`);
+    await fs2.mkdir(dir, { recursive: true });
+    return dir;
   }
   async compile(contractName, sourceCode) {
-    const buildId = `build_${Date.now().toString(36)}`;
-    const tempDir = path.join(this.baseDir, buildId);
+    const tempDir = await this.getTempDir();
     try {
-      await this.createProject(tempDir, sourceCode);
       console.log(`\u{1F9F1} Building in ${tempDir}`);
+      await this.createProject(tempDir, sourceCode);
       const { stdout, stderr } = await execAsync(
         `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
         { cwd: tempDir }
@@ -10125,10 +10133,10 @@ var AlkanesCompiler = class {
       );
       const wasmBuffer = await fs2.readFile(wasmPath);
       const abi = await this.parseABI(sourceCode);
-      const buildDir = "./build";
+      const buildDir = path.join(process.cwd(), "build");
       await fs2.mkdir(buildDir, { recursive: true });
-      const abiPath = `${buildDir}/${contractName}.abi.json`;
-      const wasmOutPath = `${buildDir}/${contractName}.wasm.gz`;
+      const abiPath = path.join(buildDir, `${contractName}.abi.json`);
+      const wasmOutPath = path.join(buildDir, `${contractName}.wasm.gz`);
       await fs2.writeFile(abiPath, JSON.stringify(abi, null, 2));
       await fs2.writeFile(wasmOutPath, await gzipWasm(wasmBuffer));
       const manifest = await loadManifest();
@@ -10143,14 +10151,11 @@ var AlkanesCompiler = class {
       console.log(`- ABI: ${abiPath}`);
       console.log(`- WASM: ${wasmOutPath}`);
       return { wasmBuffer, abi };
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(`\u274C Compilation failed: ${error.message}`);
-        throw new Error(`Compilation failed: ${error.message}`);
-      }
     } finally {
-      await fs2.rm(tempDir, { recursive: true, force: true }).catch(() => {
-      });
+      if (this.cleanupAfter) {
+        await fs2.rm(tempDir, { recursive: true, force: true }).catch(() => {
+        });
+      }
     }
   }
   async createProject(tempDir, sourceCode) {

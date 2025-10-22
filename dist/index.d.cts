@@ -59,11 +59,16 @@ interface ContractConfig {
 
 declare class AlkanesCompiler {
     private baseDir;
-    constructor(customTempDir?: string);
+    private cleanupAfter;
+    constructor(options?: {
+        baseDir?: string;
+        cleanup?: boolean;
+    });
+    private getTempDir;
     compile(contractName: string, sourceCode: string): Promise<{
         wasmBuffer: Buffer;
         abi: AlkanesABI;
-    } | void>;
+    }>;
     private createProject;
     parseABI(sourceCode: string): Promise<AlkanesABI>;
 }

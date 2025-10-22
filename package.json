@@ -1,6 +1,6 @@
 {
   "name": "@jonatns/labcoat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Smart contract development toolkit for Alkanes on Bitcoin",
   "type": "module",
   "main": "./dist/index.js",
@@ -37,6 +37,7 @@
     "alkanes": "git+https://github.com/kungfuflex/alkanes.git",
     "commander": "^13.1.0",
     "dotenv": "^17.2.3",
+    "nanoid": "^5.1.6",
     "ora": "^9.0.0",
     "oyl-sdk": "git@github.com:jonatns/oyl-sdk.git"
   },
