@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "postbuild": "chmod +x dist/cli.cjs",
     "prepublishOnly": "npm run build",
     "release": "npm run build && changeset version && changeset publish"
   },
