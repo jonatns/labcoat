@@ -40,13 +40,14 @@ labcoat.config.ts
 
 contracts
 ├── Example.rs
+├── Storage.rs
 
 deployments
 ├── manifest.json
 
 scripts
-└── deploy.ts
-└── greet.ts
+└── example.ts
+└── storage.ts
 ```
 
 ## Writing a smart contract
@@ -102,27 +103,34 @@ declare_alkane! {
 Then all you need to do is run:
 
 ```bash
-npx labcoat compile
+npx labcoat compile contracts/Example.rs
 ```
 
 ## Deploying contracts
 
 A script in Labcoat is just a TypeScript file with access to your contracts, configuration, and any other functionality that Labcoat provides. You can use them to run deploy scripts or custom logic like simulations and executions.
 
-### Writing a deploy script (scripts/deploy.ts):
+### Writing a Labcoat script (scripts/example.ts):
 
 ```typescript
 import { labcoat } from "@jonatns/labcoat";
 
 export default async function main() {
-  const { deploy } = await labcoat.setup();
+  const { deploy, simulate } = await labcoat.setup();
+
   await deploy("Example");
+
+  const result = await simulate("Example", "Greet", ["World"]);
+  console.log("📦 Result:", result);
 }
 
-main().catch((err) => {
-  console.error("❌ Deployment failed:", err);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error("❌", err);
+    process.exit(1);
+  });
+
 ```
 
 ### Setting up a wallet:
@@ -137,56 +145,11 @@ export default {
 
 ```
 
-Once that's done run the deploy script by using our generic run command:
+Once that's done run the example script by using our generic run command:
 
 ```bash
-npx labcoat run scripts/deploy.ts
+npx labcoat run scripts/example.ts
 ```
 
-Labcoat will print the Tx ID along with the Alkanes ID once the TX is confirmed. The Tx ID and Alkanes ID are stored in deployments/manifest.json for future use.
-
-### Simulating contract calls (scripts/greet.ts)
-
-You can simulate contracts calls by creating a script and using the simulate function returned by `labcoat.setup()`:
-
-```typescript
-import { labcoat } from "@jonatns/labcoat";
-
-export default async function main() {
-  const { simulate } = await labcoat.setup();
-  await simulate("Example", "Greet", ["World"]);
-}
-
-main().catch((err) => {
-  console.error("❌ Deployment failed:", err);
-  process.exit(1);
-});
-```
-
-The script above makes a call to a method called `Greet` in the `Example` contract. It also passes an argument with the word `World`. 
-
-You should see the following result when running:
-
-```bash
-npx labcoat run scripts/greet.ts
-```
-
-```json
-{
-  "status": 0,
-  "gasUsed": 39656,
-  "execution": {
-    "alkanes": [],
-    "storage": [],
-    "error": null,
-    "data": "0x48656c6c6f20576f726c6421"
-  },
-  "parsed": {
-    "string": "Hello World!",
-    "bytes": "0x48656c6c6f20576f726c6421",
-    "le": "10334410032597741434076685640",
-    "be": "22405534230753928650781647905"
-  }
-}
-```
+The example script will deploy and simulate a function call against the Example contract. The Tx ID and Alkane ID will be stored in deployments/manifest.json for future use.
 
