@@ -24,7 +24,7 @@ cd labcoat-example
 Once that's done, initialize your Labcoat project by running:
 
 ```bash
-npx labcoat init
+npx @jonatns/labcoat init
 ```
 
 Then install the required dependencies:

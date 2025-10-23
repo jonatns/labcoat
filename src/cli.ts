@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+process.env.NODE_NO_WARNINGS = "1";
 
 import { Command } from "commander";
 import { AlkanesCompiler } from "./index.js";
@@ -32,7 +32,6 @@ program
     try {
       console.log("🔥 Initializing Labcoat project...");
 
-      const __filename = fileURLToPath(import.meta.url);
       const __dirname = path.dirname(__filename);
 
       const templatePath = path.join(
@@ -52,10 +51,15 @@ program
 
       console.log("✅ Project initialized successfully");
       console.log("\nNext steps:");
-      console.log("  1. npx labcoat compile               # Compile contracts");
-      console.log("  2. npx labcoat test                  # Run tests");
-      console.log("  3. npx labcoat run scripts/deploy.ts # Deploy contracts");
-      console.log("  4. npx labcoat run scripts/greet.ts  # Run greet script");
+      console.log(
+        "  1. npm install                              # Install dependencies"
+      );
+      console.log(
+        "  2. npx labcoat compile contracts/Example.rs # Compile Example contract"
+      );
+      console.log(
+        "  3. npx labcoat run scripts/example.ts       # Deploy and simulate Example contract"
+      );
     } catch (error) {
       console.error("❌ Failed to initialize project", error);
       process.exit(1);
@@ -134,17 +138,15 @@ program
   .description("Run a custom Labcoat script (.ts or .js)")
   .action((script) => {
     const scriptPath = path.resolve(script);
+    const isTs = scriptPath.endsWith(".ts");
 
     console.log(`🧩 Running script: ${scriptPath}`);
 
-    const isTs = scriptPath.endsWith(".ts");
-
-    const args = isTs ? ["ts-node", scriptPath] : ["node", scriptPath];
-
-    const child = spawn("npx", args, {
-      stdio: "inherit",
-      shell: true, // important for cross-platform npx
-    });
+    const child = spawn(
+      "node",
+      isTs ? ["--loader", "ts-node/esm", scriptPath] : [scriptPath],
+      { stdio: "inherit", shell: true }
+    );
 
     child.on("exit", (code) => process.exit(code ?? 0));
   });

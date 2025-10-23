@@ -1,5 +1,3 @@
-import { Network } from "oyl-sdk";
-
 export interface LabcoatConfig {
   network: "signet" | "mainnet" | "testnet" | "regtest";
   mnemonic?: string;
