@@ -1,6 +1,6 @@
 {
   "name": "@jonatns/labcoat",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Smart contract development toolkit for Alkanes on Bitcoin",
   "type": "module",
   "types": "dist/index.d.ts",
