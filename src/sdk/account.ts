@@ -1,4 +1,4 @@
-import oyl from "oyl-sdk";
+import oyl from "@oyl/sdk";
 
 export function setupAccount(mnemonic: string, network: any) {
   const account = oyl.mnemonicToAccount({ mnemonic, opts: { network } });

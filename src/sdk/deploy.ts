@@ -1,10 +1,10 @@
 import fs from "fs/promises";
-import { inscribePayload } from "oyl-sdk/lib/alkanes/token.js";
+import { inscribePayload } from "@oyl/sdk/lib/alkanes/token.js";
 import { encodeRunestoneProtostone, ProtoStone, encipher } from "alkanes";
 import { waitForTrace } from "./helpers.js";
 import { loadManifest, saveManifest } from "./manifest.js";
-import { toAlkanesId } from "./utils.js";
-import { Account, FormattedUtxo, Provider, Signer } from "oyl-sdk";
+import { toAlkanesId } from "./utils/alkanes.js";
+import { Account, FormattedUtxo, Provider, Signer } from "@oyl/sdk";
 import ora from "ora";
 import path from "path";
 

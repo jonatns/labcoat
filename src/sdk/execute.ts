@@ -1,9 +1,9 @@
-import { encodeArgs, waitForTrace, decodeRevertReason } from "./helpers.js";
-import { encodeRunestoneProtostone, ProtoStone, encipher } from "alkanes";
-import { Account, alkanes, FormattedUtxo, Provider, Signer } from "oyl-sdk";
-import { loadManifest } from "./manifest.js";
 import { readFile } from "fs/promises";
 import ora from "ora";
+import { encodeRunestoneProtostone, ProtoStone, encipher } from "alkanes";
+import { Account, alkanes, FormattedUtxo, Provider, Signer } from "@oyl/sdk";
+import { encodeArgs, waitForTrace, decodeRevertReason } from "./helpers.js";
+import { loadManifest } from "./manifest.js";
 
 export async function executeContract(
   contractName: string,

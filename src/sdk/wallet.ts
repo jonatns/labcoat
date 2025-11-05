@@ -1,6 +1,6 @@
 import { loadConfig } from "./config.js";
 import { setupAccount } from "./account.js";
-import { Network, Provider } from "oyl-sdk";
+import { Network, Provider } from "@oyl/sdk";
 import * as bitcoin from "bitcoinjs-lib";
 
 function getBitcoinNetwork(network: Network): bitcoin.networks.Network {

@@ -1,11 +1,23 @@
-import { gzip as _gzip, InputType } from "node:zlib";
 import { promisify } from "node:util";
-import { Provider } from "oyl-sdk";
+import { gzip } from "zlib";
+import { Provider } from "@oyl/sdk";
 
-const gzip = promisify(_gzip);
+const gzipAsync = promisify(gzip);
 
-export async function gzipWasm(wasmBuffer: InputType) {
-  return gzip(wasmBuffer, { level: 9 });
+/**
+ * Compresses a WebAssembly buffer using gzip.
+ * Works in both Node and Bun environments.
+ */
+export async function gzipWasm(
+  wasmBuffer: Buffer | Uint8Array
+): Promise<Buffer> {
+  try {
+    const result = await gzipAsync(wasmBuffer);
+    return Buffer.from(result);
+  } catch (error) {
+    console.error("❌ Failed to gzip wasm:", error);
+    throw error;
+  }
 }
 
 export async function waitForTrace(
