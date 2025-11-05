@@ -1,4 +1,4 @@
-import { FormattedUtxo, utxo } from "oyl-sdk";
+import { FormattedUtxo, utxo } from "@oyl/sdk";
 import { setupWallet } from "./wallet.js";
 import { deployContract } from "./deploy.js";
 import { simulateContract } from "./simulate..js";

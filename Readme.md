@@ -8,7 +8,7 @@ Labcoat is a development toolkit for **Bitcoin Alkanes smart contracts**. It pro
 
 - Compile Alkanes contracts (`.rs`) to WebAssembly (`.wasm`)
 - Generate ABI from Rust contracts automatically
-- Deploy contracts to Bitcoin networks using `oyl-sdk`
+- Deploy contracts to Bitcoin networks using `@oyl/sdk`
 
 ---
 
@@ -130,7 +130,6 @@ main()
     console.error("❌", err);
     process.exit(1);
   });
-
 ```
 
 ### Setting up a wallet:
@@ -152,4 +151,3 @@ npx labcoat run scripts/example.ts
 ```
 
 The example script will deploy and simulate a function call against the Example contract. The Tx ID and Alkane ID will be stored in deployments/manifest.json for future use.
-

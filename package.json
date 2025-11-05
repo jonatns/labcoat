@@ -3,28 +3,31 @@
   "version": "0.6.0",
   "description": "Smart contract development toolkit for Alkanes on Bitcoin",
   "type": "module",
-  "types": "dist/index.d.ts",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "author": "Jonathan P. Navarrete <jonatns@gmail.com>",
+  "license": "MIT",
+  "main": "dist/sdk/index.js",
+  "types": "dist/sdk/index.d.ts",
   "exports": {
     ".": {
-      "require": "./dist/index.cjs",
-      "import": "./dist/index.js"
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js",
+      "require": "./dist/sdk/index.cjs"
     }
   },
   "bin": {
-    "labcoat": "dist/cli.cjs"
-  },
-  "scripts": {
-    "build": "tsup",
-    "postbuild": "chmod +x dist/cli.cjs",
-    "prepublishOnly": "npm run build",
-    "release": "npm run build && changeset version && changeset publish"
+    "labcoat": "dist/cli/index.js"
   },
   "files": [
     "dist",
     "templates"
   ],
+  "scripts": {
+    "build": "tsup",
+    "postbuild": "chmod +x dist/cli/index.js",
+    "prepublishOnly": "bun run build",
+    "release": "bun run build && changeset version && changeset publish",
+    "postinstall": "node scripts/postinstall.js"
+  },
   "keywords": [
     "bitcoin",
     "alkanes",
@@ -33,15 +36,15 @@
     "rust",
     "blockchain"
   ],
-  "author": "Jonathan P. Navarrete jonatns@gmail.com",
-  "license": "MIT",
   "dependencies": {
+    "@jonatns/labcoat": "link:../../Library/pnpm/global/5/node_modules/@jonatns/labcoat",
+    "@oyl/sdk": "git+https://github.com/jonatns/oyl-sdk.git",
+    "adm-zip": "^0.5.16",
     "alkanes": "git+https://github.com/kungfuflex/alkanes.git",
     "commander": "^13.1.0",
     "dotenv": "^17.2.3",
     "nanoid": "^5.1.6",
-    "ora": "^9.0.0",
-    "oyl-sdk": "git@github.com:jonatns/oyl-sdk.git"
+    "ora": "^9.0.0"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
@@ -49,8 +52,8 @@
     "@types/node": "^22.13.4",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
-    "ts-node": "^10.9.2",
     "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
 }
