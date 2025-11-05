@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import { LabcoatConfig } from "./types.js";
-import { importTypeScriptModule } from "../utils/ts-runner.js";
+import { importTypeScriptModule } from "./utils/ts-runner.js";
 
 /**
  * Loads labcoat.config.ts or labcoat.config.js (prefers TS)

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import path from "path";
 import { spawn } from "child_process";
-import { runTypeScriptFile } from "../../utils/ts-runner.js";
+import { runTypeScriptFile } from "@/sdk/utils/ts-runner.js";
 
 export const runCommand = new Command("run")
   .argument("<script>", "Path to a .ts or .js script to execute")

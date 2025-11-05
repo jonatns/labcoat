@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Command } from "commander";
 import fs from "fs/promises";
 import path from "path";

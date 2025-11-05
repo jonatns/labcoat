@@ -2,21 +2,21 @@ import { defineConfig } from "tsup";
 
 export default defineConfig([
   {
-    entry: ["src/sdk/index.ts"],
+    entry: ["src/sdk/**/*.ts"],
     format: ["esm", "cjs"],
     dts: true,
     sourcemap: true,
     clean: true,
     target: "node18",
     outDir: "dist/sdk",
-    bundle: true,
+    bundle: false,
     platform: "node",
     treeshake: true,
   },
   {
     entry: ["src/cli/index.ts"],
     format: ["esm"],
-    clean: false,
+    clean: true,
     target: "node18",
     outDir: "dist/cli",
     bundle: true,
