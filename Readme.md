@@ -106,6 +106,21 @@ Then all you need to do is run:
 npx labcoat compile contracts/Example.rs
 ```
 
+## Testing contracts
+
+Labcoat ships with an integrated contract test runner so you can validate your
+WASM exports without installing any extra tooling. Place your JavaScript test
+files in `tests/*.spec.js`, then run:
+
+```bash
+npx labcoat test
+```
+
+The `test` command compiles the Rust contract to `wasm32-wasi`, spins up the
+sandboxed runtime, and executes every exported test function. You can use the
+provided `expectEqual` and `expectRevert` helpers as well as the `TestRuntime`
+instance to call into your contract and inspect results.
+
 ## Deploying contracts
 
 A script in Labcoat is just a TypeScript file with access to your contracts, configuration, and any other functionality that Labcoat provides. You can use them to run deploy scripts or custom logic like simulations and executions.
