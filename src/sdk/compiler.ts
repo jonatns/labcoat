@@ -97,6 +97,10 @@ export class AlkanesCompiler {
     await fs.writeFile(path.join(tempDir, "src", "lib.rs"), sourceCode);
   }
 
+  public async scaffoldProject(tempDir: string, sourceCode: string) {
+    await this.createProject(tempDir, sourceCode);
+  }
+
   public async parseABI(sourceCode: string): Promise<AlkanesABI> {
     const methods: AlkanesMethod[] = [];
     const opcodes: Record<string, number> = {};
