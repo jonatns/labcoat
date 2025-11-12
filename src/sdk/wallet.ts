@@ -24,13 +24,19 @@ export async function setupWallet() {
   const config = await loadConfig();
   const bitcoinNetwork = getBitcoinNetwork(config.network);
   const { account, signer } = setupAccount(config.mnemonic, bitcoinNetwork);
-  const provider = new Provider({
+
+  const providerOptions = {
     version: "v2",
     url: config.rpcUrl,
     projectId: config.projectId ?? "regtest",
     network: bitcoinNetwork,
     networkType: config.network,
-  });
+  };
 
-  return { config, account, signer, provider };
+  try {
+    const provider = new Provider(providerOptions);
+    return { config, account, signer, provider };
+  } catch (error) {
+    throw error;
+  }
 }
