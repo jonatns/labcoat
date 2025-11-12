@@ -2,6 +2,9 @@ export interface LabcoatConfig {
   network: "signet" | "mainnet" | "testnet" | "regtest";
   mnemonic?: string;
   projectId?: string;
+  compiler?: {
+    dependencies?: Record<string, string>;
+  };
 }
 
 export interface TransactionOptions {

@@ -110,6 +110,16 @@ export class TestRuntime {
           if (!this.memory) return;
           new Uint8Array(this.memory.buffer).set(this.currentContextBytes, ptr);
         },
+        __height: () => Number(this.simulatedContext.myself.block),
+        __timestamp: () => Date.now(),
+        __address: () => 0,
+        __caller: () => 0,
+        __value: () => 0,
+        __seed: () => Math.floor(Math.random() * 1e9),
+        __chain: () => 0,
+        __request_storage: () => 0,
+        __load_storage: (_ptr: number) => {},
+        __commit_storage: (_ptr: number, _len: number) => {},
       },
     };
   }

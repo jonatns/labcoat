@@ -7,21 +7,28 @@ import {
   AlkanesMethod,
   AlkanesInput,
   StorageKey,
+  LabcoatConfig,
 } from "./types.js";
 import { cargoTemplate } from "./cargo-template.js";
 import { gzipWasm } from "./helpers.js";
 import { loadManifest, saveManifest } from "./manifest.js";
 import { nanoid } from "nanoid";
+import { loadConfig } from "./config.js";
 
 const execAsync = promisify(exec);
 
 export class AlkanesCompiler {
   private baseDir: string;
   private cleanupAfter: boolean;
+  private config: LabcoatConfig;
 
   constructor(options?: { baseDir?: string; cleanup?: boolean }) {
     this.baseDir = options?.baseDir ?? path.join(process.cwd(), ".labcoat");
     this.cleanupAfter = options?.cleanup ?? true;
+  }
+
+  public async init() {
+    this.config = await loadConfig();
   }
 
   private async getTempDir() {
@@ -33,13 +40,25 @@ export class AlkanesCompiler {
 
   async compile(
     contractName: string,
-    sourceCode: string
+    sourcePathOrCode: string
   ): Promise<{ wasmBuffer: Buffer; abi: AlkanesABI }> {
+    if (!this.config || Object.keys(this.config).length === 0) {
+      await this.init();
+    }
+
     const tempDir = await this.getTempDir();
 
     try {
       console.log(`🧱 Building in ${tempDir}`);
-      await this.createProject(tempDir, sourceCode);
+
+      const stat = await fs.stat(sourcePathOrCode).catch(() => null);
+      if (stat?.isDirectory()) {
+        // Multi-file contract folder
+        await this.copyProject(sourcePathOrCode, tempDir);
+      } else {
+        // Single-file fallback
+        await this.createProject(tempDir, sourcePathOrCode);
+      }
 
       const { stdout, stderr } = await execAsync(
         `cargo clean && cargo build --target=wasm32-unknown-unknown --release`,
@@ -58,7 +77,7 @@ export class AlkanesCompiler {
       );
 
       const wasmBuffer = await fs.readFile(wasmPath);
-      const abi = await this.parseABI(sourceCode);
+      const abi = await this.parseABI(sourcePathOrCode);
 
       const buildDir = path.join(process.cwd(), "build");
       await fs.mkdir(buildDir, { recursive: true });
@@ -93,15 +112,69 @@ export class AlkanesCompiler {
   private async createProject(tempDir: string, sourceCode: string) {
     await fs.mkdir(tempDir, { recursive: true });
     await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
-    await fs.writeFile(path.join(tempDir, "Cargo.toml"), cargoTemplate);
+
+    const deps = this.config?.compiler?.dependencies ?? {};
+
+    const cargoToml =
+      cargoTemplate +
+      `${Object.entries(deps)
+        .map(([name, version]) => `${name} = "${version}"`)
+        .join("\n")}`;
+
+    await fs.writeFile(path.join(tempDir, "Cargo.toml"), cargoToml);
     await fs.writeFile(path.join(tempDir, "src", "lib.rs"), sourceCode);
   }
 
-  public async scaffoldProject(tempDir: string, sourceCode: string) {
-    await this.createProject(tempDir, sourceCode);
+  private async copyProject(contractDir: string, tempDir: string) {
+    const srcDir = path.join(tempDir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+
+    // copy every .rs file recursively
+    const entries = await fs.readdir(contractDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(contractDir, entry.name);
+      const destPath = path.join(srcDir, entry.name);
+
+      if (entry.isDirectory()) {
+        await this.copyProject(srcPath, path.join(tempDir, "src", entry.name));
+      } else if (entry.isFile() && entry.name.endsWith(".rs")) {
+        await fs.copyFile(srcPath, destPath);
+      }
+    }
+
+    const deps = this.config?.compiler?.dependencies ?? {};
+
+    const cargoToml =
+      cargoTemplate +
+      `${Object.entries(deps)
+        .map(([name, version]) => `${name} = "${version}"`)
+        .join("\n")}`;
+
+    await fs.writeFile(path.join(tempDir, "Cargo.toml"), cargoToml);
   }
 
-  public async parseABI(sourceCode: string): Promise<AlkanesABI> {
+  public async scaffoldProject(tempDir: string, sourcePathOrCode: string) {
+    const stat = await fs.stat(sourcePathOrCode).catch(() => null);
+    if (stat?.isDirectory()) {
+      await this.copyProject(sourcePathOrCode, tempDir);
+    } else {
+      await this.createProject(tempDir, sourcePathOrCode);
+    }
+  }
+
+  public async parseABI(sourcePathOrCode: string): Promise<AlkanesABI> {
+    let sourceCode = sourcePathOrCode;
+
+    const stat = await fs.stat(sourcePathOrCode).catch(() => null);
+    if (stat?.isDirectory()) {
+      const libPath = path.join(sourcePathOrCode, "lib.rs");
+      try {
+        sourceCode = await fs.readFile(libPath, "utf8");
+      } catch {
+        throw new Error(`Missing lib.rs in ${sourcePathOrCode}`);
+      }
+    }
+
     const methods: AlkanesMethod[] = [];
     const opcodes: Record<string, number> = {};
 
