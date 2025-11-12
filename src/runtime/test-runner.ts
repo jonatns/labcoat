@@ -4,6 +4,7 @@ import { pathToFileURL } from "url";
 import { WASI } from "wasi";
 import { expect } from "chai";
 import type { AlkanesABI } from "@/sdk/types.js";
+import { importTypeScriptModule } from "@/sdk/utils/ts-runner.js";
 
 /* ===========================
  * Console colors
@@ -348,7 +349,11 @@ async function discoverTestFiles(projectRoot: string) {
 
   const entries = await fs.readdir(testDir, { withFileTypes: true });
   return entries
-    .filter((e) => e.isFile() && e.name.endsWith(".spec.js"))
+    .filter(
+      (e) =>
+        e.isFile() &&
+        (e.name.endsWith(".spec.js") || e.name.endsWith(".spec.ts"))
+    )
     .map((e) => path.join(testDir, e.name))
     .sort();
 }
@@ -428,7 +433,7 @@ export async function runContractTests(
 
     let module: TestFileModule;
     try {
-      module = await import(pathToFileURL(file).href);
+      module = await importTypeScriptModule(file);
     } catch (error) {
       failed += 1;
       const err = error as Error;
