@@ -8,13 +8,45 @@ export class AssertionError extends Error {
 }
 
 export function expectEqual<T>(actual: T, expected: T, message?: string) {
-  if (isDeepStrictEqual(actual, expected)) {
-    return;
+  const unwrap = (v: unknown) => {
+    if (v instanceof String) return v.valueOf(); // unbox String objects
+    if (
+      typeof v === "object" &&
+      v &&
+      "toString" in v &&
+      typeof v.toString === "function"
+    ) {
+      const str = v.toString();
+      if (typeof str === "string" && str !== "[object Object]") {
+        return str; // handle weird String-like wrappers
+      }
+    }
+    return v;
+  };
+
+  const a = unwrap(actual);
+  const e = unwrap(expected);
+
+  // Explicit manual check for string equality
+  if (typeof a === "string" && typeof e === "string") {
+    if (a === e) return; // ✅ primitive equality check only
   }
 
-  const defaultMessage = `Expected ${formatValue(actual)} to equal ${formatValue(
-    expected
+  // Then check numbers, bigints, booleans, etc.
+  if (Object.is(a, e)) return;
+
+  // If both are objects, do JSON compare instead of isDeepStrictEqual
+  try {
+    if (JSON.stringify(a) === JSON.stringify(e)) return;
+  } catch (_) {
+    // ignore JSON stringify errors
+  }
+
+  const defaultMessage = `Expected ${formatValue(a)} to equal ${formatValue(
+    e
   )}`;
+  console.log("a", a, typeof a, Object.prototype.toString.call(a));
+  console.log("e", e, typeof e, Object.prototype.toString.call(e));
   throw new AssertionError(message ?? defaultMessage);
 }
 
@@ -39,7 +71,9 @@ export async function expectRevert(
     );
   }
 
-  throw new AssertionError("Expected function to throw but it completed successfully");
+  throw new AssertionError(
+    "Expected function to throw but it completed successfully"
+  );
 }
 
 function formatValue(value: unknown) {

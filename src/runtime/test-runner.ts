@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { pathToFileURL } from "url";
 import { WASI } from "wasi";
-import { expectEqual, expectRevert } from "./assertions.js";
+import { expect } from "chai";
 
 const COLOR_GREEN = "\u001b[32m";
 const COLOR_RED = "\u001b[31m";
@@ -23,8 +23,8 @@ type TestHook = (context: TestContext) => unknown | Promise<unknown>;
 
 export interface TestContext {
   runtime: TestRuntime;
-  expectEqual: typeof expectEqual;
-  expectRevert: typeof expectRevert;
+  expectEqual: (a: any, b: any, msg?: string) => Chai.Assertion;
+  expectRevert: (fn: () => Promise<any>, msg?: string) => Promise<void>;
 }
 
 import { AlkanesABI } from "@/sdk/types.js";
@@ -48,10 +48,18 @@ export class TestRuntime {
   private wasi?: WASI;
   private readonly wasmPath: string;
   private abi?: AlkanesABI;
-  private lastOpcode = 0;
-  private lastContextPtr = 0;
-  private lastArgs: unknown[] = [];
-  private lastContextSize = 0;
+  private currentContextBytes: Uint8Array = new Uint8Array(0);
+  private simulatedContext: {
+    myself: { block: bigint; tx: bigint };
+    caller: { block: bigint; tx: bigint };
+    vout: bigint;
+    incoming: Array<{ block: bigint; tx: bigint; value: bigint }>;
+  } = {
+    myself: { block: 1n, tx: 1n },
+    caller: { block: 2n, tx: 2n },
+    vout: 0n,
+    incoming: [],
+  };
   private lastResponseData: Uint8Array | null = null;
 
   public mockSender = "alk1testsender0000000000000000000000";
@@ -78,85 +86,64 @@ export class TestRuntime {
     });
     this.wasi = wasi;
 
-    const encoder = new TextEncoder();
-    const nameBytes = encoder.encode("World");
+    // const encoder = new TextEncoder();
+    // const nameBytes = encoder.encode("World");
 
-    const chunks: Uint8Array[] = [];
+    // const chunks: Uint8Array[] = [];
 
-    // Utility to push a 16-byte little-endian u128
-    function pushU128(value: bigint) {
-      const bytes = new Uint8Array(16);
-      for (let i = 0; i < 16; i++) {
-        bytes[i] = Number((value >> BigInt(8 * i)) & 0xffn);
-      }
-      chunks.push(bytes);
-    }
+    // // Utility to push a 16-byte little-endian u128
+    // function pushU128(value: bigint) {
+    //   const bytes = new Uint8Array(16);
+    //   for (let i = 0; i < 16; i++) {
+    //     bytes[i] = Number((value >> BigInt(8 * i)) & 0xffn);
+    //   }
+    //   chunks.push(bytes);
+    // }
 
-    // ---- Context fields ----
+    // // ---- Context fields ----
+    // // myself
+    // pushU128(1n); // block
+    // pushU128(1n); // tx
 
-    // myself
-    pushU128(1n); // block
-    pushU128(1n); // tx
+    // // caller
+    // pushU128(2n); // block
+    // pushU128(2n); // tx
 
-    // caller
-    pushU128(2n); // block
-    pushU128(2n); // tx
+    // // vout
+    // pushU128(1n);
 
-    // vout
-    pushU128(1n);
+    // // incoming_alkanes
+    // pushU128(1n); // len = 1
+    // pushU128(10n); // id.block
+    // pushU128(20n); // id.tx
+    // pushU128(99n); // value
 
-    // incoming_alkanes
-    pushU128(1n); // len = 1
-    pushU128(10n); // id.block
-    pushU128(20n); // id.tx
-    pushU128(99n); // value
+    // // Inputs: opcode + strlen(bytes) + packed bytes as u128 chunks
+    // pushU128(1n); // opcode = 1 (Greet)
 
-    // --------------------------
-    // Inputs (u128 opcode + string)
-    // --------------------------
-    pushU128(1n); // opcode = 1 (Greet)
+    // // pack "World" into a single 16-byte little-endian u128 (no length)
+    // let acc = 0n;
+    // let shift = 0n;
+    // for (let i = 0; i < nameBytes.length; i++) {
+    //   acc |= BigInt(nameBytes[i]) << (8n * shift);
+    //   shift += 1n;
+    // }
 
-    // Encode "World" as aligned u128 chunks
-    const nameU128Chunks: bigint[] = [];
-    let current = 0n;
-    let shift = 0n;
-    for (let i = 0; i < nameBytes.length; i++) {
-      current |= BigInt(nameBytes[i]) << (8n * shift);
-      shift += 1n;
-      if (shift === 16n) {
-        nameU128Chunks.push(current);
-        current = 0n;
-        shift = 0n;
-      }
-    }
-    if (shift > 0n) {
-      nameU128Chunks.push(current);
-    }
+    // pushU128(acc);
 
-    // Push string chunk count
-    pushU128(BigInt(nameU128Chunks.length));
-
-    // Push each string chunk
-    for (const chunk of nameU128Chunks) {
-      pushU128(chunk);
-    }
-
-    // --------------------------
-    // Build serialized context buffer
-    // --------------------------
-    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-    const serializedContext = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      serializedContext.set(chunk, offset);
-      offset += chunk.length;
-    }
+    // // Merge all chunks into one buffer
+    // let totalLength = chunks.reduce((a, c) => a + c.length, 0);
+    // const serializedContext = new Uint8Array(totalLength);
+    // let offset = 0;
+    // for (const chunk of chunks) {
+    //   serializedContext.set(chunk, offset);
+    //   offset += chunk.length;
+    // }
 
     return {
       ...wasi.getImportObject(),
       env: {
         println: (ptr: number, len: number) => this.handlePrintln(ptr, len),
-        // Common WASM functions
         abort: (
           message: number,
           fileName: number,
@@ -168,20 +155,161 @@ export class TestRuntime {
           );
           throw new Error(`WASM abort at ${fileName}:${line}:${column}`);
         },
-        __request_context: () => {
-          console.log(
-            `__request_context returning ${serializedContext.length} bytes`
-          );
-          return serializedContext.length;
-        },
+        __request_context: () => this.currentContextBytes.length,
         __load_context: (ptr: number) => {
           if (!this.memory) return;
-          const mem = new Uint8Array(this.memory.buffer);
-          mem.set(serializedContext, ptr);
-          console.log(`__load_context wrote ${serializedContext.length} bytes`);
+          new Uint8Array(this.memory.buffer).set(this.currentContextBytes, ptr);
         },
       },
     };
+  }
+
+  // ---- helpers: u128 <-> bytes (little-endian 16 bytes) ----
+  private u128ToBytesLE(v: bigint): Uint8Array {
+    const out = new Uint8Array(16);
+    let x = v;
+    for (let i = 0; i < 16; i++) {
+      out[i] = Number(x & 0xffn);
+      x >>= 8n;
+    }
+    return out;
+  }
+
+  private packStringArg = (dst: Uint8Array[], s: string) => {
+    const bytes = new TextEncoder().encode(s);
+
+    // emit ceil(len/16) u128 words, LE, zero-padded; NO length/word count prefix
+    let acc = 0n;
+    let shift = 0n;
+    let inChunk = 0;
+
+    for (let i = 0; i < bytes.length; i++) {
+      acc |= BigInt(bytes[i]) << (8n * shift);
+      shift += 1n;
+      inChunk += 1;
+
+      if (inChunk === 16) {
+        this.pushU128LE(dst, acc);
+        acc = 0n;
+        shift = 0n;
+        inChunk = 0;
+      }
+    }
+    if (inChunk > 0) {
+      this.pushU128LE(dst, acc); // zero-padded tail
+    }
+  };
+
+  private readU128LE(buf: Uint8Array, o: number): [bigint, number] {
+    let v = 0n;
+    for (let i = 0; i < 16; i++) v |= BigInt(buf[o + i]) << BigInt(8 * i);
+    return [v, o + 16];
+  }
+
+  // Pack an arbitrary byte array as: [u128 byte_len] + ceil(len/16) × u128 words
+  private packBytesAsU128Words(bytes: Uint8Array): Uint8Array[] {
+    const chunks: Uint8Array[] = [];
+    chunks.push(this.u128ToBytesLE(BigInt(bytes.length))); // exact byte length
+    let acc = 0n,
+      shift = 0n;
+    for (let i = 0; i < bytes.length; i++) {
+      acc |= BigInt(bytes[i]) << (8n * shift);
+      shift += 1n;
+      if (shift === 16n) {
+        chunks.push(this.u128ToBytesLE(acc));
+        acc = 0n;
+        shift = 0n;
+      }
+    }
+    if (shift > 0n) {
+      chunks.push(this.u128ToBytesLE(acc)); // final partial word
+    }
+    return chunks;
+  }
+
+  private serializeContext(opcode: number, args: unknown[]): Uint8Array {
+    const parts: Uint8Array[] = [];
+
+    // header
+    this.pushU128LE(parts, this.simulatedContext.myself.block);
+    this.pushU128LE(parts, this.simulatedContext.myself.tx);
+    this.pushU128LE(parts, this.simulatedContext.caller.block);
+    this.pushU128LE(parts, this.simulatedContext.caller.tx);
+    this.pushU128LE(parts, this.simulatedContext.vout);
+
+    // incoming_alkanes
+    this.pushU128LE(parts, BigInt(this.simulatedContext.incoming.length));
+    for (const p of this.simulatedContext.incoming) {
+      this.pushU128LE(parts, p.block);
+      this.pushU128LE(parts, p.tx);
+      this.pushU128LE(parts, p.value);
+    }
+
+    // inputs: opcode + args
+    this.pushU128LE(parts, BigInt(opcode));
+    for (const a of args) {
+      if (typeof a === "string") {
+        this.packStringArg(parts, a);
+      } else if (typeof a === "bigint") {
+        this.pushU128LE(parts, a);
+      } else if (typeof a === "number") {
+        this.pushU128LE(parts, BigInt(a));
+      } else {
+        throw new Error(`Unsupported arg type: ${typeof a}`);
+      }
+    }
+
+    const total = parts.reduce((n, u) => n + u.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const u of parts) {
+      out.set(u, off);
+      off += u.length;
+    }
+    return out;
+  }
+
+  private pushU128LE = (dst: Uint8Array[], v: bigint) => {
+    const b = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) b[i] = Number((v >> BigInt(8 * i)) & 0xffn);
+    dst.push(b);
+  };
+  // Build the whole request context buffer deterministically
+  private buildRequestContext(
+    opcode: bigint,
+    argBytes: Uint8Array
+  ): Uint8Array {
+    const parts: Uint8Array[] = [];
+
+    // fixed header
+    parts.push(this.u128ToBytesLE(this.simulatedContext.myself.block));
+    parts.push(this.u128ToBytesLE(this.simulatedContext.myself.tx));
+    parts.push(this.u128ToBytesLE(this.simulatedContext.caller.block));
+    parts.push(this.u128ToBytesLE(this.simulatedContext.caller.tx));
+    parts.push(this.u128ToBytesLE(this.simulatedContext.vout));
+
+    // incoming_alkanes
+    const incoming = this.simulatedContext.incoming;
+    parts.push(this.u128ToBytesLE(BigInt(incoming.length)));
+    for (const t of incoming) {
+      parts.push(this.u128ToBytesLE(t.block));
+      parts.push(this.u128ToBytesLE(t.tx));
+      parts.push(this.u128ToBytesLE(t.value));
+    }
+
+    // inputs: opcode + arg byte array as u128 words
+    parts.push(this.u128ToBytesLE(opcode));
+    parts.push(...this.packBytesAsU128Words(argBytes));
+
+    // flatten
+    const total = parts.reduce((n, p) => n + p.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) {
+      out.set(p, off);
+      off += p.length;
+    }
+    return out;
   }
 
   private handlePrintln(ptr: number, len: number) {
@@ -202,24 +330,16 @@ export class TestRuntime {
       if (memoryExport instanceof WebAssembly.Memory) {
         this.memory = memoryExport;
       }
-
-      if (this.wasi) {
-        this.wasi.initialize(instance);
-      }
-
+      if (this.wasi) this.wasi.initialize(instance);
       return instance;
     } catch (error) {
-      // If instantiation fails due to missing imports, try to provide better error info
       if (error instanceof WebAssembly.LinkError) {
         const message = error.message;
-        // Extract the missing import name from the error message
         const importMatch = message.match(/function="([^"]+)"/);
         if (importMatch) {
           const missingFunction = importMatch[1];
           throw new Error(
-            `Missing required WASM import: ${missingFunction}. ` +
-              `Add it to TestRuntime.createImports() env exports. ` +
-              `Original error: ${message}`
+            `Missing required WASM import: ${missingFunction}. Add it to TestRuntime.createImports() env exports. Original error: ${message}`
           );
         }
       }
@@ -233,6 +353,27 @@ export class TestRuntime {
     this.wasi = undefined;
   }
 
+  public setMyself(block: bigint, tx: bigint) {
+    this.simulatedContext.myself = { block, tx };
+  }
+  public setCaller(block: bigint, tx: bigint) {
+    this.simulatedContext.caller = { block, tx };
+  }
+  public setVout(vout: bigint) {
+    this.simulatedContext.vout = vout;
+  }
+  public setIncoming(
+    incoming: Array<{ block: bigint; tx: bigint; value: bigint }>
+  ) {
+    this.simulatedContext.incoming = incoming.slice();
+  }
+  public addIncoming(x: { block: bigint; tx: bigint; value: bigint }) {
+    this.simulatedContext.incoming.push(x);
+  }
+  public clearIncoming() {
+    this.simulatedContext.incoming = [];
+  }
+
   private async ensureInstance() {
     if (!this.instance) {
       await this.instantiate();
@@ -240,65 +381,41 @@ export class TestRuntime {
     return this.instance!;
   }
 
-  /**
-   * Write a string to WASM memory and return a pointer
-   */
   private writeString(str: string): number {
-    if (!this.memory) {
-      throw new Error("Memory not available");
-    }
+    if (!this.memory) throw new Error("Memory not available");
     const encoder = new TextEncoder();
     const bytes = encoder.encode(str);
     const buffer = new Uint8Array(this.memory.buffer);
 
-    // Find free space (simple approach: use end of memory)
-    // In production, you'd use a proper allocator
     const ptr = Math.max(0, buffer.length - bytes.length - 8);
 
-    // Write length (4 bytes, little-endian)
     const view = new DataView(this.memory.buffer);
     view.setUint32(ptr, bytes.length, true);
-
-    // Write string bytes
     buffer.set(bytes, ptr + 4);
 
     return ptr;
   }
 
-  /**
-   * Read a string from WASM memory at the given pointer
-   * Handles both direct string pointers and CallResponse structures
-   */
   private readString(ptr: number): string {
-    if (!this.memory || ptr === 0) {
-      return "";
-    }
+    if (!this.memory || ptr === 0) return "";
 
     try {
       const view = new DataView(this.memory.buffer);
       const buffer = new Uint8Array(this.memory.buffer);
 
-      // Try reading as length-prefixed string first
       if (ptr + 4 < buffer.length) {
         const length = view.getUint32(ptr, true);
         if (length > 0 && length < 10000 && ptr + 4 + length <= buffer.length) {
           const bytes = new Uint8Array(this.memory.buffer, ptr + 4, length);
           const decoder = new TextDecoder();
           const str = decoder.decode(bytes);
-          // If it looks like valid text, return it
-          if (str.length > 0 && /^[\x20-\x7E]*$/.test(str)) {
-            return str;
-          }
+          if (str.length > 0 && /^[\x20-\x7E]*$/.test(str)) return str;
         }
       }
 
-      // Try reading as CallResponse structure
-      // CallResponse might have: data pointer, data length, etc.
-      // Try reading as Vec<u8> format: (ptr, len) pair
       if (ptr + 8 < buffer.length) {
         const dataPtr = view.getUint32(ptr, true);
         const dataLen = view.getUint32(ptr + 4, true);
-
         if (
           dataPtr > 0 &&
           dataLen > 0 &&
@@ -311,18 +428,12 @@ export class TestRuntime {
         }
       }
 
-      // Try reading raw bytes from the pointer location
-      // Look for null-terminated string or length-prefixed
       let str = "";
       for (let i = 0; i < Math.min(1000, buffer.length - ptr); i++) {
         const byte = buffer[ptr + i];
-        if (byte === 0) break; // null terminator
-        if (byte >= 32 && byte <= 126) {
-          // printable ASCII
-          str += String.fromCharCode(byte);
-        } else {
-          break;
-        }
+        if (byte === 0) break;
+        if (byte >= 32 && byte <= 126) str += String.fromCharCode(byte);
+        else break;
       }
       if (str.length > 0) return str;
     } catch (error) {
@@ -332,31 +443,20 @@ export class TestRuntime {
     return "";
   }
 
-  /**
-   * Read CallResponse structure from memory
-   * Returns the data field as a string if it contains text
-   */
   public readCallResponse(ptr: number): {
     data: string;
     dataPtr?: number;
     dataLen?: number;
   } {
-    if (!this.memory || ptr === 0) {
-      return { data: "" };
-    }
+    if (!this.memory || ptr === 0) return { data: "" };
 
     const view = new DataView(this.memory.buffer);
     const buffer = new Uint8Array(this.memory.buffer);
 
-    // Try to read CallResponse structure
-    // This is a simplified version - actual structure may differ
     try {
-      // Common Rust Vec<u8> layout: (ptr, len, cap) - 24 bytes
-      // Or just (ptr, len) - 8 bytes
       if (ptr + 8 <= buffer.length) {
         const dataPtr = view.getUint32(ptr, true);
         const dataLen = view.getUint32(ptr + 4, true);
-
         if (
           dataPtr > 0 &&
           dataLen > 0 &&
@@ -376,75 +476,118 @@ export class TestRuntime {
     return { data: "" };
   }
 
-  /**
-   * Encode arguments for WASM call
-   * Handles strings by writing them to memory and returning pointers
-   */
-  private encodeArgs(args: unknown[]): (number | bigint)[] {
-    return args.map((arg) => {
-      if (typeof arg === "string") {
-        return this.writeString(arg);
-      }
-      if (typeof arg === "bigint") {
-        return arg;
-      }
-      if (typeof arg === "number") {
-        return arg;
-      }
-      throw new Error(`Unsupported argument type: ${typeof arg}`);
-    });
-  }
-
-  /**
-   * Call a contract method by name (using ABI opcode lookup)
-   */
   public async call(method: string, ...args: unknown[]) {
     const instance = await this.ensureInstance();
     const executeFn = instance.exports["__execute"];
-    if (typeof executeFn !== "function") {
+    if (typeof executeFn !== "function")
       throw new Error("Contract does not export __execute");
-    }
 
     const opcode = this.abi?.opcodes?.[method];
-    if (opcode === undefined) {
-      throw new Error(`Unknown method: ${method}`);
-    }
+    if (opcode === undefined) throw new Error(`Unknown method: ${method}`);
 
-    this.lastOpcode = opcode;
-    this.lastArgs = this.encodeArgs(args);
+    this.currentContextBytes = this.serializeContext(opcode, args);
 
-    console.log("Inspecting memory before execute");
-
-    let ptr: number | undefined;
+    let ptr: number;
     try {
       ptr = (executeFn as () => number)();
-      console.log("Returned ptr:", ptr);
-    } catch (err) {
-      console.error("❌ WASM trapped:", err);
-      return;
+    } catch (e) {
+      console.error("❌ WASM trapped:", e);
+      throw e;
     }
-
-    console.log("Inspecting memory after execute");
-
-    const result = this.readArrayBufferLayout(ptr);
-
-    console.log(`🧾 Result from ${method}:`, result);
-    return result;
+    return this.readResponse(ptr, method);
   }
 
-  /**
-   * Helper to read a string return value from WASM memory
-   * Use this when a contract method returns a String
-   * Also handles CallResponse structures
-   */
-  public readStringFromMemory(ptr: number): string {
-    // First try reading as CallResponse
-    const response = this.readCallResponse(ptr);
-    if (response.data) {
-      return response.data;
+  private decodeResponse(ptr: number): {
+    parcel: Array<{ block: bigint; tx: bigint; value: bigint }>;
+    data: Uint8Array;
+    dataText: string;
+  } {
+    if (!this.memory || ptr === 0) {
+      return { parcel: [], data: new Uint8Array(0), dataText: "" };
     }
-    // Fall back to direct string reading
+
+    const lenPtr = ptr - 4;
+    const view = new DataView(this.memory.buffer);
+    const totalLen = view.getUint32(lenPtr, true);
+    const bytes = new Uint8Array(this.memory.buffer, ptr, totalLen);
+
+    let off = 0;
+    // parcel_len
+    const [parcelLenBI, off1] = this.readU128LE(bytes, off);
+    off = off1;
+
+    const parcel: Array<{ block: bigint; tx: bigint; value: bigint }> = [];
+    for (let i = 0n; i < parcelLenBI; i++) {
+      const [b, o1] = this.readU128LE(bytes, off);
+      const [t, o2] = this.readU128LE(bytes, o1);
+      const [v, o3] = this.readU128LE(bytes, o2);
+      off = o3;
+      parcel.push({ block: b, tx: t, value: v });
+    }
+
+    // The rest is **exactly** the data payload
+    const data = bytes.slice(off);
+    const dataText = new TextDecoder().decode(data);
+
+    return { parcel, data, dataText };
+  }
+
+  public readStringFromMemory(ptr: number): string {
+    const response = this.readCallResponse(ptr);
+    if (response.data) return response.data;
     return this.readString(ptr);
+  }
+
+  private methodReturnsString(method: string): boolean {
+    const m = this.abi?.methods?.find((x) => x.name === method);
+    const ret = m?.outputs?.[0] ?? "";
+    // match exactly `String` (allow whitespace)
+    return ret.replace(/\s+/g, "") === "String";
+  }
+
+  private decodeUTF8WithoutPrefix(data: Uint8Array): string {
+    let view = data;
+    // Drop optional 4-byte prefix (often a vec length or placeholder)
+    if (
+      view.length >= 4 &&
+      view[0] === 0 &&
+      view[1] === 0 &&
+      view[2] === 0 &&
+      view[3] === 0
+    ) {
+      view = view.slice(4);
+    }
+    // Decode and trim trailing NULs
+    return new TextDecoder().decode(view).replace(/\0+$/, "");
+  }
+
+  private readResponse(ptr: number, method: string) {
+    if (!this.memory || ptr === 0)
+      return { parcel: [], data: new Uint8Array(), dataText: "" };
+
+    const lenPtr = ptr - 4;
+    const view = new DataView(this.memory.buffer);
+    const totalLen = view.getUint32(lenPtr, true);
+    const bytes = new Uint8Array(this.memory.buffer, ptr, totalLen);
+
+    // --- incoming parcel ---
+    let off = 0;
+    const parcel: Array<{ block: bigint; tx: bigint; value: bigint }> = [];
+    let nItems: bigint;
+    [nItems, off] = this.readU128LE(bytes, off);
+    for (let i = 0n; i < nItems; i++) {
+      let b, t, v;
+      [b, off] = this.readU128LE(bytes, off);
+      [t, off] = this.readU128LE(bytes, off);
+      [v, off] = this.readU128LE(bytes, off);
+      parcel.push({ block: b, tx: t, value: v });
+    }
+
+    // The rest is the data payload
+    const data = bytes.slice(off);
+    const dataText = this.decodeUTF8WithoutPrefix(data);
+
+    return { parcel, data, dataText };
   }
 
   public readResponseFromContext(): string {
@@ -453,8 +596,7 @@ export class TestRuntime {
 
     const bytes = this.lastResponseData;
     const decoder = new TextDecoder();
-    const text = decoder.decode(bytes).replace(/\0+$/, ""); // trim trailing zeros
-
+    const text = decoder.decode(bytes).replace(/\0+$/, "");
     console.log(`📝 Response from context: ${text}`);
     return text.trim();
   }
@@ -468,73 +610,84 @@ export class TestRuntime {
     const totalLen = 4 + args.length * 8;
     const ptr = buffer.length - totalLen;
 
-    // First word: opcode (u32)
     view.setUint32(ptr, opcode, true);
-
-    // Following words: args as u64 (aligned)
     for (let i = 0; i < args.length; i++) {
       view.setBigUint64(ptr + 4 + i * 8, BigInt(args[i]), true);
     }
 
-    // Save for debug
-    this.lastContextPtr = ptr;
-    this.lastContextSize = totalLen;
     return ptr;
   }
 
   /**
    * Reads an Alkanes-style return value produced by response_to_i32()
+   * Layout inside the returned slice (ptr..ptr+len):
+   *   incoming_alkanes:
+   *     - parcel_len: u128
+   *     - for each of parcel_len: id.block u128, id.tx u128, value u128
+   *   data: UTF-8 bytes (the message you set in CallResponse.data)
    */
   public readArrayBufferLayout(ptr: number): string {
     if (!this.memory || ptr === 0) return "";
 
     const lenPtr = ptr - 4;
     const view = new DataView(this.memory.buffer);
-    const len = view.getUint32(lenPtr, true);
-    if (len === 0 || len > this.memory.buffer.byteLength) return "";
+    const totalLen = view.getUint32(lenPtr, true);
+    if (totalLen === 0 || totalLen > this.memory.buffer.byteLength) return "";
 
-    const bytes = new Uint8Array(this.memory.buffer, ptr, len);
+    const bytes = new Uint8Array(this.memory.buffer, ptr, totalLen);
 
-    // 🧠 Skip the CallResponse header (usually 64 bytes before data)
-    // Find printable text region heuristically:
-    let textStart = 0;
-    for (let i = 0; i < bytes.length; i++) {
-      const b = bytes[i];
-      if (b >= 32 && b <= 126) {
-        textStart = i;
-        break;
-      }
+    // --- Skip the incoming_alkanes parcel ---
+    if (bytes.length < 16) return "";
+    let off = 0;
+
+    // parcel_len (u128)
+    let parcelLen: bigint;
+    [parcelLen, off] = this.readU128LE(bytes, off);
+
+    // expected header bytes to skip: 16 (len) + parcelLen * 48 (three u128s)
+    const headerBytes = 16 + Number(parcelLen) * 48;
+    if (headerBytes > bytes.length) {
+      // Defensive fallback: decode whole slice
+      const fallback = new TextDecoder().decode(bytes).replace(/\0+$/, "");
+      console.log("🧾 Raw bytes:", bytes);
+      console.log("🧾 Fallback decoded:", fallback);
+      return fallback;
     }
 
-    const textBytes = bytes.slice(textStart);
+    off = headerBytes;
+
+    let textBytes = bytes.slice(off);
+
+    if (
+      textBytes.length >= 4 &&
+      textBytes[0] === 0 &&
+      textBytes[1] === 0 &&
+      textBytes[2] === 0 &&
+      textBytes[3] === 0
+    ) {
+      textBytes = textBytes.slice(4);
+    }
+
     const text = new TextDecoder().decode(textBytes).replace(/\0+$/, "");
     console.log("🧾 Raw bytes:", bytes);
+    console.log("🧾 Skipped parcel bytes:", off);
     console.log("🧾 Decoded:", text);
     return text;
   }
 
-  /**
-   * Debug helper to inspect memory at a pointer
-   * Useful for understanding return value structures
-   */
   public inspectMemory(ptr: number, bytes: number = 64): string {
-    if (!this.memory || ptr === 0) {
-      return "Invalid pointer";
-    }
+    if (!this.memory || ptr === 0) return "Invalid pointer";
 
     const buffer = new Uint8Array(this.memory.buffer);
     const view = new DataView(this.memory.buffer);
 
-    if (ptr + bytes > buffer.length) {
-      bytes = buffer.length - ptr;
-    }
+    if (ptr + bytes > buffer.length) bytes = buffer.length - ptr;
 
     let output = `Memory at ${ptr} (${bytes} bytes):\n`;
     output += `  Raw bytes: [${Array.from(
       buffer.slice(ptr, ptr + Math.min(bytes, 32))
     ).join(", ")}]\n`;
 
-    // Try reading as various formats
     if (ptr + 4 <= buffer.length) {
       const u32 = view.getUint32(ptr, true);
       output += `  As U32: ${u32}\n`;
@@ -543,8 +696,6 @@ export class TestRuntime {
       const u32_0 = view.getUint32(ptr, true);
       const u32_1 = view.getUint32(ptr + 4, true);
       output += `  As (U32, U32): (${u32_0}, ${u32_1})\n`;
-
-      // If second value looks like a length, try reading as Vec
       if (u32_1 > 0 && u32_1 < 10000 && u32_0 + u32_1 <= buffer.length) {
         const vecBytes = buffer.slice(u32_0, u32_0 + u32_1);
         const decoder = new TextDecoder();
@@ -555,16 +706,13 @@ export class TestRuntime {
       }
     }
 
-    // Try reading as null-terminated string
     let nullTerminated = "";
     for (let i = 0; i < Math.min(bytes, 100); i++) {
       const byte = buffer[ptr + i];
       if (byte === 0) break;
-      if (byte >= 32 && byte <= 126) {
+      if (byte >= 32 && byte <= 126)
         nullTerminated += String.fromCharCode(byte);
-      } else {
-        break;
-      }
+      else break;
     }
     if (nullTerminated.length > 0) {
       output += `  As null-terminated string: "${nullTerminated}"\n`;
@@ -574,25 +722,21 @@ export class TestRuntime {
   }
 
   public getAvailableExports(): string[] {
-    if (!this.instance) {
+    if (!this.instance)
       throw new Error("Runtime not instantiated. Call instantiate() first.");
-    }
     return Object.keys(this.instance.exports).filter(
       (key) => typeof this.instance!.exports[key] === "function"
     );
   }
 
   public getExports() {
-    if (!this.instance) {
+    if (!this.instance)
       throw new Error("Runtime not instantiated. Call instantiate() first.");
-    }
     return this.instance.exports;
   }
 
   public getMemory() {
-    if (!this.memory) {
-      throw new Error("Contract memory is not available");
-    }
+    if (!this.memory) throw new Error("Contract memory is not available");
     return this.memory;
   }
 }
@@ -630,7 +774,10 @@ function extractTests(module: TestFileModule): TestDefinition[] {
       }
     }
   } else if (typeof defaultExport === "function") {
-    tests.push({ name: defaultExport.name || "default", fn: defaultExport });
+    tests.push({
+      name: defaultExport.name || "default",
+      fn: defaultExport as (context: TestContext) => unknown,
+    });
   }
 
   const seen = new Set(tests.map((test) => test.name));
@@ -647,7 +794,7 @@ function extractTests(module: TestFileModule): TestDefinition[] {
     }
 
     if (typeof exported === "function" && !seen.has(name)) {
-      tests.push({ name, fn: exported });
+      tests.push({ name, fn: exported as (context: TestContext) => unknown });
       seen.add(name);
     }
   }
@@ -660,6 +807,24 @@ export async function runContractTests(
 ): Promise<ContractTestSummary> {
   const { projectRoot, wasmPath, abi } = options;
   const runtime = new TestRuntime(wasmPath, abi);
+
+  const expectEqual = (a: any, b: any, msg?: string) =>
+    expect(a).to.equal(b, msg);
+
+  const expectRevert = async (fn: () => Promise<any>, msg?: string) => {
+    try {
+      await fn();
+      throw new Error("Expected function to revert, but it succeeded");
+    } catch (err: any) {
+      if (!msg) return;
+      const message = err?.message ?? "";
+      if (!message.includes(msg)) {
+        throw new Error(
+          `Expected error message to include "${msg}" but got "${message}"`
+        );
+      }
+    }
+  };
 
   const files = await discoverTestFiles(projectRoot);
   if (files.length === 0) {
@@ -723,20 +888,20 @@ export async function runContractTests(
     }
 
     // Log available exports for debugging (only once per file)
-    try {
-      await runtime.instantiate();
-      const exports = runtime.getAvailableExports();
-      if (exports.length > 0) {
-        console.log(
-          `${COLOR_DIM}  📦 Available WASM exports: ${exports.join(
-            ", "
-          )}${COLOR_RESET}`
-        );
-      }
-      await runtime.reset();
-    } catch (error) {
-      // If instantiation fails, continue anyway - the test will handle it
-    }
+    // try {
+    //   await runtime.instantiate();
+    //   const exports = runtime.getAvailableExports();
+    //   if (exports.length > 0) {
+    //     console.log(
+    //       `${COLOR_DIM}  📦 Available WASM exports: ${exports.join(
+    //         ", "
+    //       )}${COLOR_RESET}`
+    //     );
+    //   }
+    //   await runtime.reset();
+    // } catch (error) {
+    //   // If instantiation fails, continue anyway - the test will handle it
+    // }
 
     for (const test of tests) {
       if (typeof beforeEach === "function") {
