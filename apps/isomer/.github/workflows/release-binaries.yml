@@ -109,11 +109,11 @@ jobs:
   build-flextrs-macos-arm64:
     runs-on: macos-14
     steps:
-      - name: Checkout electrs (flextrs fork)
+      - name: Checkout flextrs
         uses: actions/checkout@v4
         with:
-          repository: sandshrewmetaprotocols/electrs
-          ref: master
+          repository: kungfuflex/flextrs
+          ref: 504bd533cf5fb6442f3962ed0d8f0c296e45ef37
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -130,11 +130,11 @@ jobs:
   build-flextrs-macos-x64:
     runs-on: macos-13
     steps:
-      - name: Checkout electrs (flextrs fork)
+      - name: Checkout flextrs
         uses: actions/checkout@v4
         with:
-          repository: sandshrewmetaprotocols/electrs
-          ref: master
+          repository: kungfuflex/flextrs
+          ref: 504bd533cf5fb6442f3962ed0d8f0c296e45ef37
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -151,11 +151,11 @@ jobs:
   build-flextrs-linux:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout electrs (flextrs fork)
+      - name: Checkout flextrs
         uses: actions/checkout@v4
         with:
-          repository: sandshrewmetaprotocols/electrs
-          ref: master
+          repository: kungfuflex/flextrs
+          ref: 504bd533cf5fb6442f3962ed0d8f0c296e45ef37
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
