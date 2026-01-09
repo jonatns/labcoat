@@ -51,6 +51,12 @@ export const api = {
    */
   updateConfig: (config: IsomerConfig) =>
     invoke<void>("update_config", { config }),
+
+  /**
+   * Check health of a specific service
+   */
+  checkServiceHealth: (service: string) =>
+    invoke<boolean>("check_service_health", { service }),
 };
 
 export default api;

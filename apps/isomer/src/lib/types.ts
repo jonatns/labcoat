@@ -7,6 +7,7 @@ export type ServiceStatus =
   | { error: string };
 
 export interface ServiceInfo {
+  id: string;
   name: string;
   status: ServiceStatus;
   port: number;

@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
+use std::process::Command;
 
 /// Status of a binary
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,16 +90,31 @@ impl BinaryManager {
         let (os, arch) = Self::get_platform();
 
         // Bitcoin Core - official releases
-        let btc_url = if os == "darwin" && arch == "arm64" {
-            "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-arm64-apple-darwin.tar.gz"
+        let (btc_url, btc_sha) = if os == "darwin" && arch == "arm64" {
+            (
+                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-arm64-apple-darwin.tar.gz",
+                "c8108f30dfcc7ddffab33f5647d745414ef9d3298bfe67d243fe9b9cb4df4c12",
+            )
         } else if os == "darwin" && arch == "x86_64" {
-            "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-apple-darwin.tar.gz"
+            (
+                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-apple-darwin.tar.gz",
+                "77e931bbaaf47771a10c376230bf53223f5380864bad3568efc7f4d02e40a0f7",
+            )
         } else if os == "linux" && arch == "x86_64" {
-            "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz"
+            (
+                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz",
+                "7fe294b02b25b51acb8e8e0a0eb5af6bbafa7cd0c5b0e5fcbb61263104a82fbc",
+            )
         } else if os == "linux" && arch == "arm64" {
-            "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-aarch64-linux-gnu.tar.gz"
+            (
+                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-aarch64-linux-gnu.tar.gz",
+                "7fa582d99a25c354d23e371a5848bd9e6a79702870f9cbbf1292b86e647d0f4e",
+            )
         } else {
-            "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz"
+            (
+                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz",
+                "7fe294b02b25b51acb8e8e0a0eb5af6bbafa7cd0c5b0e5fcbb61263104a82fbc",
+            )
         };
 
         releases.insert(
@@ -106,7 +122,7 @@ impl BinaryManager {
             BinaryRelease {
                 version: "28.0".to_string(),
                 url: btc_url.to_string(),
-                sha256: "".to_string(), // Would verify in production
+                sha256: btc_sha.to_string(),
                 size_bytes: 45_000_000,
                 archive_path: Some("bitcoin-28.0/bin/bitcoind".to_string()),
                 is_archive: true,
@@ -114,14 +130,27 @@ impl BinaryManager {
         );
 
         // Ord - official releases from ordinals/ord
-        let ord_url = if os == "darwin" && arch == "arm64" {
-            "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-aarch64-apple-darwin.tar.gz"
+        // Ord - official releases from ordinals/ord
+        let (ord_url, ord_sha) = if os == "darwin" && arch == "arm64" {
+            (
+                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-aarch64-apple-darwin.tar.gz",
+                "f4a6c9e1bdbc00b0fb01e053078ce9577aa83495dbcd396e8c9df1ad66064037",
+            )
         } else if os == "darwin" && arch == "x86_64" {
-            "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-apple-darwin.tar.gz"
+            (
+                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-apple-darwin.tar.gz",
+                "",
+            )
         } else if os == "linux" && arch == "x86_64" {
-            "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz"
+            (
+                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz",
+                "",
+            )
         } else {
-            "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz"
+            (
+                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz",
+                "",
+            )
         };
 
         releases.insert(
@@ -129,7 +158,7 @@ impl BinaryManager {
             BinaryRelease {
                 version: "0.22.1".to_string(),
                 url: ord_url.to_string(),
-                sha256: "".to_string(),
+                sha256: ord_sha.to_string(),
                 size_bytes: 15_000_000,
                 archive_path: Some("ord".to_string()),
                 is_archive: true,
@@ -137,40 +166,61 @@ impl BinaryManager {
         );
 
         // For metashrew binaries (rockshrew-mono, memshrew-p2p, flextrs),
-        // these need to be pre-built and hosted. Using placeholder URLs that 
+        // these need to be pre-built and hosted. Using placeholder URLs that
         // would point to your release infrastructure.
-        let isomer_release_base = "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.0";
+        let isomer_release_base =
+            "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.0";
+
+        // Determine SHA based on platform
+        // Currently only Mac ARM64 is populated
+        let rockshrew_sha = if os == "darwin" && arch == "arm64" {
+            "c930a6a786d7491c5cf418c260ce7f0e230eaad810df7fd2b53945c772e54fef"
+        } else {
+            ""
+        };
 
         releases.insert(
             ServiceId::Metashrew,
             BinaryRelease {
                 version: "8.8.4".to_string(),
                 url: format!("{}/rockshrew-mono-{}-{}", isomer_release_base, os, arch),
-                sha256: "".to_string(),
+                sha256: rockshrew_sha.to_string(),
                 size_bytes: 25_000_000,
                 archive_path: None,
                 is_archive: false,
             },
         );
 
+        let memshrew_sha = if os == "darwin" && arch == "arm64" {
+            "30dd4c989e7472e7a011777ccdf5ab8d43b7c42092ab6f85a72a7127f8fb6601"
+        } else {
+            ""
+        };
+
         releases.insert(
             ServiceId::Memshrew,
             BinaryRelease {
                 version: "8.8.4".to_string(),
                 url: format!("{}/memshrew-p2p-{}-{}", isomer_release_base, os, arch),
-                sha256: "".to_string(),
+                sha256: memshrew_sha.to_string(),
                 size_bytes: 20_000_000,
                 archive_path: None,
                 is_archive: false,
             },
         );
 
+        let flextrs_sha = if os == "darwin" && arch == "arm64" {
+            "ae38e7a5bc3b10b7b0fd74f84288ae2470972cb1f227029c8d9d54682119cafe"
+        } else {
+            ""
+        };
+
         releases.insert(
             ServiceId::Esplora,
             BinaryRelease {
                 version: "0.1.0".to_string(),
                 url: format!("{}/flextrs-{}-{}", isomer_release_base, os, arch),
-                sha256: "".to_string(),
+                sha256: flextrs_sha.to_string(),
                 size_bytes: 15_000_000,
                 archive_path: None,
                 is_archive: false,
@@ -183,7 +233,8 @@ impl BinaryManager {
             BinaryRelease {
                 version: "0.1.0".to_string(),
                 url: format!("{}/alkanes-jsonrpc-bundle.tar.gz", isomer_release_base),
-                sha256: "".to_string(),
+                sha256: "ae4016c6507e1a7c82f74db228f1b5fb813a8a85ef6469b11c4f7e58247a5a9e"
+                    .to_string(),
                 size_bytes: 10_000_000,
                 archive_path: None,
                 is_archive: true,
@@ -296,10 +347,7 @@ impl BinaryManager {
             }
         }
 
-        Err(format!(
-            "Binary '{}' not found in archive",
-            archive_path
-        ))
+        Err(format!("Binary '{}' not found in archive", archive_path))
     }
 
     /// Download a binary
@@ -341,7 +389,7 @@ impl BinaryManager {
             ));
         }
 
-        let total_size = response.content_length().unwrap_or(release.size_bytes);
+        let _total_size = response.content_length().unwrap_or(release.size_bytes);
 
         let bytes = response
             .bytes()
@@ -349,6 +397,28 @@ impl BinaryManager {
             .map_err(|e| format!("Failed to read response: {}", e))?;
 
         progress_callback(0.5);
+
+        if !release.sha256.is_empty() {
+            tracing::info!("Verifying checksum for {}...", service.display_name());
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            let result = hasher.finalize();
+            let digest = hex::encode(result);
+
+            if digest != release.sha256 {
+                tracing::error!(
+                    "Checksum mismatch for {}: expected {}, got {}",
+                    service.display_name(),
+                    release.sha256,
+                    digest
+                );
+                return Err(format!(
+                    "Checksum verification failed for {}",
+                    service.display_name()
+                ));
+            }
+            tracing::info!("Checksum verified for {}", service.display_name());
+        }
 
         if release.is_archive {
             if let Some(ref archive_path) = release.archive_path {
@@ -384,6 +454,25 @@ impl BinaryManager {
             }
         }
 
+        // Ad-hoc sign on macOS to prevent SIGKILL
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            tracing::info!("Applying ad-hoc signature to {}", dest_path.display());
+            let status = Command::new("codesign")
+                .arg("-s")
+                .arg("-")
+                .arg("-f") // Force
+                .arg(&dest_path)
+                .status()
+                .map_err(|e| format!("Failed to run codesign: {}", e))?;
+
+            if !status.success() {
+                tracing::warn!("codesign failed for {}", dest_path.display());
+                // We don't error out, as it might work anyway or be a dev environment issue
+            }
+        }
+
         progress_callback(1.0);
         tracing::info!("{} downloaded successfully", service.display_name());
         Ok(())
@@ -403,19 +492,6 @@ impl BinaryManager {
         Ok(())
     }
 
-    /// Verify a binary's checksum
-    pub fn verify_checksum(service: ServiceId, expected: &str) -> Result<bool, String> {
-        let path = Self::get_binary_path(service);
-        let data = std::fs::read(&path).map_err(|e| format!("Failed to read binary: {}", e))?;
-
-        let mut hasher = Sha256::new();
-        hasher.update(&data);
-        let result = hasher.finalize();
-        let actual = hex::encode(result);
-
-        Ok(actual == expected)
-    }
-
     /// Download the alkanes.wasm file needed for metashrew
     pub async fn download_alkanes_wasm() -> Result<(), String> {
         let wasm_path = get_bin_dir().join("alkanes.wasm");
@@ -431,8 +507,9 @@ impl BinaryManager {
                 .map_err(|e| format!("Failed to create bin directory: {}", e))?;
         }
 
-        let wasm_url = "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.0/alkanes.wasm";
-        
+        let wasm_url =
+            "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.0/alkanes.wasm";
+
         tracing::info!("Downloading alkanes.wasm from {}", wasm_url);
 
         let response = reqwest::get(wasm_url)

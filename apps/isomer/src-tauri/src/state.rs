@@ -20,6 +20,7 @@ pub enum ServiceStatus {
 /// Information about a single service
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceInfo {
+    pub id: String,
     pub name: String,
     pub status: ServiceStatus,
     pub port: u16,
@@ -68,7 +69,7 @@ impl AppState {
     }
 
     /// Get the current system status
-    pub fn get_status(&self) -> SystemStatus {
+    pub fn get_status(&mut self) -> SystemStatus {
         let services = self.process_manager.get_all_status();
         let is_ready = services.iter().all(|s| s.status == ServiceStatus::Running);
 

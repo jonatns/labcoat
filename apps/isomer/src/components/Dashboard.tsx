@@ -1,20 +1,42 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ServiceCard } from './ServiceCard';
 import { MiningPanel } from './MiningPanel';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
+import { useBinaries } from '../hooks/useStatus';
 
 export function Dashboard() {
-    const { status, error } = useStore();
+    const { status, error, setError } = useStore();
     const [isStarting, setIsStarting] = useState(false);
     const [isStopping, setIsStopping] = useState(false);
+    const { binaries, checkBinaries, downloadBinaries } = useBinaries();
+    const [isDownloading, setIsDownloading] = useState(false);
+
+    useEffect(() => {
+        checkBinaries();
+    }, []);
+
+    const missingBinaries = binaries.some(b => b.status === 'notinstalled');
+
+    const handleDownload = async () => {
+        setIsDownloading(true);
+        try {
+            await downloadBinaries();
+        } catch (err) {
+            console.error('Failed to download binaries:', err);
+        } finally {
+            setIsDownloading(false);
+        }
+    };
 
     const handleStart = async () => {
         setIsStarting(true);
+        setError(null);
         try {
             await api.startServices();
         } catch (err) {
             console.error('Failed to start services:', err);
+            setError(err instanceof Error ? err.message : String(err));
         } finally {
             setIsStarting(false);
         }
@@ -57,6 +79,17 @@ export function Dashboard() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {missingBinaries && (
+                        <button
+                            onClick={handleDownload}
+                            disabled={isDownloading}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 
+                            disabled:cursor-not-allowed rounded-lg text-white font-medium 
+                            transition-colors"
+                        >
+                            {isDownloading ? 'Downloading...' : 'Download Binaries'}
+                        </button>
+                    )}
                     <button
                         onClick={handleStop}
                         disabled={allStopped || isStopping}
@@ -68,7 +101,7 @@ export function Dashboard() {
                     </button>
                     <button
                         onClick={handleStart}
-                        disabled={allRunning || isStarting}
+                        disabled={allRunning || isStarting || missingBinaries}
                         className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 
                        disabled:cursor-not-allowed rounded-lg text-white font-medium 
                        transition-colors"

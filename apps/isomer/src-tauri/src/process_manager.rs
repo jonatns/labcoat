@@ -4,6 +4,7 @@
 
 use crate::config::{get_bin_dir, get_logs_dir, get_runtime_dir, IsomerConfig};
 use crate::state::{ServiceInfo, ServiceStatus};
+use reqwest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -63,7 +64,7 @@ impl ServiceId {
             ServiceId::Memshrew => "memshrew-p2p",
             ServiceId::Ord => "ord",
             ServiceId::Esplora => "flextrs",
-            ServiceId::JsonRpc => "alkanes-jsonrpc",
+            ServiceId::JsonRpc => "jsonrpc",
         }
     }
 
@@ -191,7 +192,10 @@ impl ProcessManager {
                 "--auth".to_string(),
                 format!("{}:{}", btc.rpc_user, btc.rpc_password),
             ],
-            ServiceId::JsonRpc => vec![], // Configured via environment variables
+            ServiceId::JsonRpc => vec![get_bin_dir()
+                .join("jsonrpc/bin/jsonrpc")
+                .display()
+                .to_string()],
         }
     }
 
@@ -261,11 +265,17 @@ impl ProcessManager {
 
         tracing::info!("Starting {} with args: {:?}", service.display_name(), args);
 
-        let mut cmd = Command::new(&binary_path);
+        let mut cmd = if service == ServiceId::JsonRpc {
+            // For JsonRpc, we expect 'node' to be in the PATH
+            Command::new("node")
+        } else {
+            Command::new(&binary_path)
+        };
+
         cmd.args(&args)
             .envs(&env)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
 
         match cmd.spawn() {
             Ok(child) => {
@@ -362,7 +372,7 @@ impl ProcessManager {
     }
 
     /// Get status of all services
-    pub fn get_all_status(&self) -> Vec<ServiceInfo> {
+    pub fn get_all_status(&mut self) -> Vec<ServiceInfo> {
         ServiceId::all()
             .into_iter()
             .map(|id| self.get_service_info(id))
@@ -370,18 +380,42 @@ impl ProcessManager {
     }
 
     /// Get info about a specific service
-    fn get_service_info(&self, service: ServiceId) -> ServiceInfo {
-        let (status, pid, uptime) = if let Some(info) = self.processes.get(&service) {
-            (
-                info.status.clone(),
-                Some(info.child.id()),
-                Some(info.started_at.elapsed().as_secs()),
-            )
+    fn get_service_info(&mut self, service: ServiceId) -> ServiceInfo {
+        let (status, pid, uptime) = if let Some(info) = self.processes.get_mut(&service) {
+            // Check if process is still running
+            match info.child.try_wait() {
+                Ok(Some(exit_status)) => {
+                    // Process has exited
+                    let status = if exit_status.success() {
+                        ServiceStatus::Stopped
+                    } else {
+                        ServiceStatus::Error(format!("Exited with code: {:?}", exit_status.code()))
+                    };
+                    (status, None, None)
+                }
+                Ok(None) => {
+                    // Process is still running
+                    (
+                        ServiceStatus::Running,
+                        Some(info.child.id()),
+                        Some(info.started_at.elapsed().as_secs()),
+                    )
+                }
+                Err(e) => {
+                    // Error checking status
+                    (
+                        ServiceStatus::Error(format!("Status check failed: {}", e)),
+                        None,
+                        None,
+                    )
+                }
+            }
         } else {
             (ServiceStatus::Stopped, None, None)
         };
 
         ServiceInfo {
+            id: service.name().to_string(),
             name: service.display_name().to_string(),
             status,
             port: self.get_port_for_service(service),
@@ -399,6 +433,43 @@ impl ProcessManager {
             ServiceId::Ord => 8090,
             ServiceId::Esplora => 50010,
             ServiceId::JsonRpc => 18888,
+        }
+    }
+
+    /// Check if a service is healthy (responding to HTTP/RPC)
+    pub async fn check_health(&self, service: ServiceId, config: &IsomerConfig) -> bool {
+        // First check if process is running
+        if !self.processes.contains_key(&service) {
+            return false;
+        }
+
+        let ports = &config.ports;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap_or_default();
+
+        let url = match service {
+            ServiceId::Bitcoind => format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
+            ServiceId::Metashrew => format!("http://127.0.0.1:{}", ports.metashrew),
+            ServiceId::Memshrew => format!("http://127.0.0.1:{}", ports.memshrew),
+            ServiceId::Ord => format!("http://127.0.0.1:{}/status", ports.ord),
+            ServiceId::Esplora => {
+                format!("http://127.0.0.1:{}/blocks/tip/height", ports.esplora_http)
+            }
+            ServiceId::JsonRpc => format!("http://127.0.0.1:{}", ports.jsonrpc),
+        };
+
+        match client.get(&url).send().await {
+            Ok(res) => {
+                // Accept success (2xx) or Unauthorized (401) as sign of life
+                // Some services might return 404 or 405 for root path but still be running
+                res.status().is_success()
+                    || res.status() == reqwest::StatusCode::UNAUTHORIZED
+                    || res.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED
+                    || res.status() == reqwest::StatusCode::NOT_FOUND
+            }
+            Err(_) => false,
         }
     }
 }

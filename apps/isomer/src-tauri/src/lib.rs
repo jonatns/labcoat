@@ -44,7 +44,8 @@ pub fn run() {
             commands::download_wasm,
             commands::get_config,
             commands::update_config,
+            commands::check_service_health,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Isomer");
+        .expect("error while running tauri application");
 }

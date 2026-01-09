@@ -1,4 +1,5 @@
 import type { ServiceInfo } from '../lib/types';
+import { useStore } from '../lib/store';
 import { StatusIndicator } from './StatusIndicator';
 
 interface ServiceCardProps {
@@ -6,6 +7,9 @@ interface ServiceCardProps {
 }
 
 export function ServiceCard({ service }: ServiceCardProps) {
+    const { serviceHealth } = useStore();
+    const isHealthy = serviceHealth[service.id];
+
     const formatUptime = (secs: number | null) => {
         if (secs === null) return '--';
         const hours = Math.floor(secs / 3600);
@@ -36,6 +40,17 @@ export function ServiceCard({ service }: ServiceCardProps) {
                     <span className="text-zinc-500">Uptime</span>
                     <p className="text-zinc-300 text-base">{formatUptime(service.uptime_secs)}</p>
                 </div>
+                {service.status === 'running' && (
+                    <div className="col-span-2 mt-1">
+                        <span className="text-zinc-500">Health</span>
+                        <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${isHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
+                            <p className="text-zinc-300 text-base">
+                                {isHealthy ? 'Healthy (Responding)' : 'Unhealthy (Not Responding)'}
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

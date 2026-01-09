@@ -7,7 +7,8 @@ import { useStore } from "../lib/store";
  * Hook to poll system status and listen for events
  */
 export function useSystemStatus(pollInterval = 2000) {
-  const { setStatus, setError, setDownloadProgress } = useStore();
+  const { setStatus, setError, setDownloadProgress, setServiceHealth } =
+    useStore();
 
   useEffect(() => {
     let mounted = true;
@@ -19,6 +20,21 @@ export function useSystemStatus(pollInterval = 2000) {
         if (mounted) {
           setStatus(status);
           setError(null);
+
+          // Poll health for running services
+          status.services.forEach(async (service) => {
+            if (service.status === "running") {
+              try {
+                const isHealthy = await api.checkServiceHealth(service.id);
+                if (mounted) setServiceHealth(service.id, isHealthy);
+              } catch (e) {
+                console.warn(`Health check failed for ${service.name}`, e);
+                if (mounted) setServiceHealth(service.id, false);
+              }
+            } else {
+              if (mounted) setServiceHealth(service.id, false);
+            }
+          });
         }
       } catch (err) {
         if (mounted) {
@@ -45,7 +61,13 @@ export function useSystemStatus(pollInterval = 2000) {
       clearInterval(interval);
       unlisten.then((fn) => fn());
     };
-  }, [pollInterval, setStatus, setError, setDownloadProgress]);
+  }, [
+    pollInterval,
+    setStatus,
+    setError,
+    setDownloadProgress,
+    setServiceHealth,
+  ]);
 }
 
 /**

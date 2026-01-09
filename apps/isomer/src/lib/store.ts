@@ -14,6 +14,9 @@ interface IsomerState {
   binaries: BinaryInfo[];
   downloadProgress: Record<string, number>;
 
+  // Health
+  serviceHealth: Record<string, boolean>;
+
   // Config
   config: IsomerConfig | null;
 
@@ -24,6 +27,7 @@ interface IsomerState {
   setAccounts: (accounts: Account[]) => void;
   setBinaries: (binaries: BinaryInfo[]) => void;
   setDownloadProgress: (service: string, progress: number) => void;
+  setServiceHealth: (service: string, isHealthy: boolean) => void;
   setConfig: (config: IsomerConfig) => void;
 }
 
@@ -35,6 +39,7 @@ export const useStore = create<IsomerState>((set) => ({
   accounts: [],
   binaries: [],
   downloadProgress: {},
+  serviceHealth: {},
   config: null,
 
   // Actions
@@ -46,6 +51,10 @@ export const useStore = create<IsomerState>((set) => ({
   setDownloadProgress: (service, progress) =>
     set((state) => ({
       downloadProgress: { ...state.downloadProgress, [service]: progress },
+    })),
+  setServiceHealth: (service, isHealthy) =>
+    set((state) => ({
+      serviceHealth: { ...state.serviceHealth, [service]: isHealthy },
     })),
   setConfig: (config) => set({ config }),
 }));
