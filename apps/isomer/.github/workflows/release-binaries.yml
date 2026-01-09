@@ -52,41 +52,7 @@ jobs:
           name: memshrew-p2p-darwin-arm64
           path: target/release/memshrew-p2p
 
-  build-metashrew-macos-x64:
-    runs-on: macos-13 # Intel runner
-    steps:
-      - name: Checkout metashrew
-        uses: actions/checkout@v4
-        with:
-          repository: sandshrewmetaprotocols/metashrew
-          ref: master
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install protoc
-        run: brew install protobuf
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build rockshrew-mono
-        run: cargo build --release -p rockshrew-mono
-
-      - name: Build memshrew-p2p
-        run: cargo build --release -p memshrew-p2p
-
-      - name: Upload rockshrew-mono
-        uses: actions/upload-artifact@v4
-        with:
-          name: rockshrew-mono-darwin-x86_64
-          path: target/release/rockshrew-mono
-
-      - name: Upload memshrew-p2p
-        uses: actions/upload-artifact@v4
-        with:
-          name: memshrew-p2p-darwin-x86_64
-          path: target/release/memshrew-p2p
 
   build-metashrew-linux:
     runs-on: ubuntu-latest
@@ -148,29 +114,7 @@ jobs:
           name: flextrs-darwin-arm64
           path: target/release/electrs
 
-  build-flextrs-macos-x64:
-    runs-on: macos-13
-    steps:
-      - name: Checkout flextrs
-        uses: actions/checkout@v4
-        with:
-          repository: kungfuflex/flextrs
-          ref: 504bd533cf5fb6442f3962ed0d8f0c296e45ef37
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build flextrs
-        run: cargo build --release
-
-      - name: Upload flextrs
-        uses: actions/upload-artifact@v4
-        with:
-          name: flextrs-darwin-x86_64
-          path: target/release/electrs
 
   build-flextrs-linux:
     runs-on: ubuntu-latest
@@ -265,10 +209,10 @@ jobs:
   create-release:
     needs:
       - build-metashrew-macos-arm64
-      - build-metashrew-macos-x64
+
       - build-metashrew-linux
       - build-flextrs-macos-arm64
-      - build-flextrs-macos-x64
+
       - build-flextrs-linux
       - build-alkanes-wasm
       - bundle-jsonrpc
@@ -287,16 +231,16 @@ jobs:
 
           # Metashrew binaries
           cp artifacts/rockshrew-mono-darwin-arm64/rockshrew-mono release/rockshrew-mono-darwin-arm64
-          cp artifacts/rockshrew-mono-darwin-x86_64/rockshrew-mono release/rockshrew-mono-darwin-x86_64
+
           cp artifacts/rockshrew-mono-linux-x86_64/rockshrew-mono release/rockshrew-mono-linux-x86_64
 
           cp artifacts/memshrew-p2p-darwin-arm64/memshrew-p2p release/memshrew-p2p-darwin-arm64
-          cp artifacts/memshrew-p2p-darwin-x86_64/memshrew-p2p release/memshrew-p2p-darwin-x86_64
+
           cp artifacts/memshrew-p2p-linux-x86_64/memshrew-p2p release/memshrew-p2p-linux-x86_64
 
           # Flextrs binaries
           cp artifacts/flextrs-darwin-arm64/electrs release/flextrs-darwin-arm64
-          cp artifacts/flextrs-darwin-x86_64/electrs release/flextrs-darwin-x86_64
+
           cp artifacts/flextrs-linux-x86_64/electrs release/flextrs-linux-x86_64
 
           # WASM and JSON-RPC bundle
@@ -339,7 +283,7 @@ jobs:
 
             ### Platform Suffixes
             - `darwin-arm64`: macOS Apple Silicon (M1/M2/M3)
-            - `darwin-x86_64`: macOS Intel
+
             - `linux-x86_64`: Linux x64
 
             ### Note
