@@ -28,6 +28,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
       - name: Build rockshrew-mono
         run: cargo build --release -p rockshrew-mono
 
@@ -57,6 +60,9 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
 
       - name: Build rockshrew-mono
         run: cargo build --release -p rockshrew-mono
@@ -88,6 +94,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
       - name: Build rockshrew-mono
         run: cargo build --release -p rockshrew-mono
 
@@ -118,6 +127,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
       - name: Build flextrs
         run: cargo build --release
 
@@ -139,6 +151,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
       - name: Build flextrs
         run: cargo build --release
 
@@ -159,6 +174,9 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
 
       - name: Build flextrs
         run: cargo build --release
@@ -182,6 +200,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-opt
         run: |
