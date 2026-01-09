@@ -194,7 +194,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kungfuflex/alkanes-rs
-          ref: development
+          ref: develop
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -227,7 +227,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kungfuflex/alkanes
-          ref: development
+          ref: main
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
