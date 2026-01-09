@@ -112,7 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flextrs-darwin-arm64
-          path: target/release/electrs
+          path: target/release/flextrs
 
 
 
@@ -138,7 +138,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flextrs-linux-x86_64
-          path: target/release/electrs
+          path: target/release/flextrs
 
   build-alkanes-wasm:
     runs-on: ubuntu-latest
@@ -239,9 +239,9 @@ jobs:
           cp artifacts/memshrew-p2p-linux-x86_64/memshrew-p2p release/memshrew-p2p-linux-x86_64
 
           # Flextrs binaries
-          cp artifacts/flextrs-darwin-arm64/electrs release/flextrs-darwin-arm64
+          cp artifacts/flextrs-darwin-arm64/flextrs release/flextrs-darwin-arm64
 
-          cp artifacts/flextrs-linux-x86_64/electrs release/flextrs-linux-x86_64
+          cp artifacts/flextrs-linux-x86_64/flextrs release/flextrs-linux-x86_64
 
           # WASM and JSON-RPC bundle
           cp artifacts/alkanes-wasm/alkanes.wasm release/alkanes.wasm
