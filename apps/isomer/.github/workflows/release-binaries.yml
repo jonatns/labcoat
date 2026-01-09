@@ -28,6 +28,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install protoc
+        run: brew install protobuf
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
@@ -61,6 +64,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install protoc
+        run: brew install protobuf
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
@@ -93,6 +99,9 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
@@ -204,10 +213,10 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Install wasm-opt
+      - name: Install wasm-opt and protoc
         run: |
           sudo apt-get update
-          sudo apt-get install -y binaryen
+          sudo apt-get install -y binaryen protobuf-compiler
 
       - name: Build alkanes WASM
         run: |
