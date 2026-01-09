@@ -128,6 +128,10 @@ pub async fn check_binaries() -> Result<Vec<BinaryInfo>, String> {
 pub async fn download_binaries(app: tauri::AppHandle) -> Result<(), String> {
     let manager = BinaryManager::new();
 
+    // First download alkanes.wasm for metashrew
+    BinaryManager::download_alkanes_wasm().await?;
+
+    // Then download all service binaries
     manager
         .download_all(move |service, progress| {
             let _ = app.emit("download-progress", serde_json::json!({
@@ -136,6 +140,12 @@ pub async fn download_binaries(app: tauri::AppHandle) -> Result<(), String> {
             }));
         })
         .await
+}
+
+/// Download just the alkanes.wasm file
+#[tauri::command]
+pub async fn download_wasm() -> Result<(), String> {
+    BinaryManager::download_alkanes_wasm().await
 }
 
 /// Get current configuration

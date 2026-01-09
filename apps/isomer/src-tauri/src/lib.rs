@@ -41,6 +41,7 @@ pub fn run() {
             commands::get_accounts,
             commands::check_binaries,
             commands::download_binaries,
+            commands::download_wasm,
             commands::get_config,
             commands::update_config,
         ])

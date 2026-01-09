@@ -1,0 +1,320 @@
+name: Build and Release Binaries
+
+on:
+  push:
+    tags:
+      - "binaries-v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name for the release (e.g., binaries-v0.1.0)"
+        required: true
+        default: "binaries-v0.1.0"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-metashrew-macos-arm64:
+    runs-on: macos-14 # M1/M2 runner
+    steps:
+      - name: Checkout metashrew
+        uses: actions/checkout@v4
+        with:
+          repository: sandshrewmetaprotocols/metashrew
+          ref: master
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build rockshrew-mono
+        run: cargo build --release -p rockshrew-mono
+
+      - name: Build memshrew-p2p
+        run: cargo build --release -p memshrew-p2p
+
+      - name: Upload rockshrew-mono
+        uses: actions/upload-artifact@v4
+        with:
+          name: rockshrew-mono-darwin-arm64
+          path: target/release/rockshrew-mono
+
+      - name: Upload memshrew-p2p
+        uses: actions/upload-artifact@v4
+        with:
+          name: memshrew-p2p-darwin-arm64
+          path: target/release/memshrew-p2p
+
+  build-metashrew-macos-x64:
+    runs-on: macos-13 # Intel runner
+    steps:
+      - name: Checkout metashrew
+        uses: actions/checkout@v4
+        with:
+          repository: sandshrewmetaprotocols/metashrew
+          ref: master
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build rockshrew-mono
+        run: cargo build --release -p rockshrew-mono
+
+      - name: Build memshrew-p2p
+        run: cargo build --release -p memshrew-p2p
+
+      - name: Upload rockshrew-mono
+        uses: actions/upload-artifact@v4
+        with:
+          name: rockshrew-mono-darwin-x86_64
+          path: target/release/rockshrew-mono
+
+      - name: Upload memshrew-p2p
+        uses: actions/upload-artifact@v4
+        with:
+          name: memshrew-p2p-darwin-x86_64
+          path: target/release/memshrew-p2p
+
+  build-metashrew-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout metashrew
+        uses: actions/checkout@v4
+        with:
+          repository: sandshrewmetaprotocols/metashrew
+          ref: master
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build rockshrew-mono
+        run: cargo build --release -p rockshrew-mono
+
+      - name: Build memshrew-p2p
+        run: cargo build --release -p memshrew-p2p
+
+      - name: Upload rockshrew-mono
+        uses: actions/upload-artifact@v4
+        with:
+          name: rockshrew-mono-linux-x86_64
+          path: target/release/rockshrew-mono
+
+      - name: Upload memshrew-p2p
+        uses: actions/upload-artifact@v4
+        with:
+          name: memshrew-p2p-linux-x86_64
+          path: target/release/memshrew-p2p
+
+  build-flextrs-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - name: Checkout electrs (flextrs fork)
+        uses: actions/checkout@v4
+        with:
+          repository: sandshrewmetaprotocols/electrs
+          ref: master
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build flextrs
+        run: cargo build --release
+
+      - name: Upload flextrs
+        uses: actions/upload-artifact@v4
+        with:
+          name: flextrs-darwin-arm64
+          path: target/release/electrs
+
+  build-flextrs-macos-x64:
+    runs-on: macos-13
+    steps:
+      - name: Checkout electrs (flextrs fork)
+        uses: actions/checkout@v4
+        with:
+          repository: sandshrewmetaprotocols/electrs
+          ref: master
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build flextrs
+        run: cargo build --release
+
+      - name: Upload flextrs
+        uses: actions/upload-artifact@v4
+        with:
+          name: flextrs-darwin-x86_64
+          path: target/release/electrs
+
+  build-flextrs-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout electrs (flextrs fork)
+        uses: actions/checkout@v4
+        with:
+          repository: sandshrewmetaprotocols/electrs
+          ref: master
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build flextrs
+        run: cargo build --release
+
+      - name: Upload flextrs
+        uses: actions/upload-artifact@v4
+        with:
+          name: flextrs-linux-x86_64
+          path: target/release/electrs
+
+  build-alkanes-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alkanes
+        uses: actions/checkout@v4
+        with:
+          repository: kungfuflex/alkanes-rs
+          ref: master
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-opt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+
+      - name: Build alkanes WASM
+        run: |
+          cargo build --release --target wasm32-unknown-unknown -p alkanes
+          wasm-opt -O3 target/wasm32-unknown-unknown/release/alkanes.wasm -o alkanes.wasm
+
+      - name: Upload alkanes.wasm
+        uses: actions/upload-artifact@v4
+        with:
+          name: alkanes-wasm
+          path: alkanes.wasm
+
+  bundle-jsonrpc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout alkanes
+        uses: actions/checkout@v4
+        with:
+          repository: kungfuflex/alkanes
+          ref: master
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies and bundle
+        run: |
+          cd jsonrpc
+          pnpm install
+          # Create a tarball of the jsonrpc directory
+          cd ..
+          tar -czvf alkanes-jsonrpc-bundle.tar.gz jsonrpc
+
+      - name: Upload jsonrpc bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: alkanes-jsonrpc-bundle
+          path: alkanes-jsonrpc-bundle.tar.gz
+
+  create-release:
+    needs:
+      - build-metashrew-macos-arm64
+      - build-metashrew-macos-x64
+      - build-metashrew-linux
+      - build-flextrs-macos-arm64
+      - build-flextrs-macos-x64
+      - build-flextrs-linux
+      - build-alkanes-wasm
+      - bundle-jsonrpc
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+
+          # Metashrew binaries
+          cp artifacts/rockshrew-mono-darwin-arm64/rockshrew-mono release/rockshrew-mono-darwin-arm64
+          cp artifacts/rockshrew-mono-darwin-x86_64/rockshrew-mono release/rockshrew-mono-darwin-x86_64
+          cp artifacts/rockshrew-mono-linux-x86_64/rockshrew-mono release/rockshrew-mono-linux-x86_64
+
+          cp artifacts/memshrew-p2p-darwin-arm64/memshrew-p2p release/memshrew-p2p-darwin-arm64
+          cp artifacts/memshrew-p2p-darwin-x86_64/memshrew-p2p release/memshrew-p2p-darwin-x86_64
+          cp artifacts/memshrew-p2p-linux-x86_64/memshrew-p2p release/memshrew-p2p-linux-x86_64
+
+          # Flextrs binaries
+          cp artifacts/flextrs-darwin-arm64/electrs release/flextrs-darwin-arm64
+          cp artifacts/flextrs-darwin-x86_64/electrs release/flextrs-darwin-x86_64
+          cp artifacts/flextrs-linux-x86_64/electrs release/flextrs-linux-x86_64
+
+          # WASM and JSON-RPC bundle
+          cp artifacts/alkanes-wasm/alkanes.wasm release/alkanes.wasm
+          cp artifacts/alkanes-jsonrpc-bundle/alkanes-jsonrpc-bundle.tar.gz release/
+
+          # Make binaries executable
+          chmod +x release/*-darwin-* release/*-linux-*
+
+          ls -la release/
+
+      - name: Get tag name
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          name: "Isomer Binaries ${{ steps.get_tag.outputs.tag }}"
+          body: |
+            ## Binary Assets for Isomer
+
+            This release contains pre-built binaries for the Isomer development environment.
+
+            ### Included Binaries
+
+            | Binary | Description |
+            |--------|-------------|
+            | `rockshrew-mono-*` | Metashrew indexer (combined indexer + view server) |
+            | `memshrew-p2p-*` | Mempool indexer for Metashrew |
+            | `flextrs-*` | Esplora-compatible Electrum server |
+            | `alkanes.wasm` | Alkanes WASM indexer module |
+            | `alkanes-jsonrpc-bundle.tar.gz` | Alkanes JSON-RPC server (Node.js) |
+
+            ### Platform Suffixes
+            - `darwin-arm64`: macOS Apple Silicon (M1/M2/M3)
+            - `darwin-x86_64`: macOS Intel
+            - `linux-x86_64`: Linux x64
+
+            ### Note
+            Bitcoin Core and Ord are downloaded directly from their official releases.
+          files: |
+            release/*
+          draft: false
+          prerelease: false
