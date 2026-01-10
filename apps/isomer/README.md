@@ -3,10 +3,9 @@
 <br />
 <div align="center">
   <img src="src-tauri/icons/isomer-logo.svg" alt="Isomer Logo" width="128" height="128">
+  <h3 align="center">One-click Alkanes development environment.</h3>
 </div>
 <br />
-
-**One-click Alkanes development environment.**
 
 <div align="center">
   <img src="assets/dashboard.png" alt="Isomer Dashboard" width="600">
