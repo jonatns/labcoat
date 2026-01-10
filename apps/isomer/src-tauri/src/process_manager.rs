@@ -760,39 +760,69 @@ impl ProcessManager {
 
     /// Reset all data - stops services and clears data directories
     pub fn reset_data(&mut self) -> Result<(), String> {
-        // First, stop all services
-        tracing::info!("Stopping all services before reset...");
-        let _ = self.stop_all(); // Ignore errors, we'll force kill anyway
+        tracing::info!("Starting chain reset procedure...");
 
-        // Give processes time to fully terminate
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        // First, stop all services
+        tracing::info!("Stopping all services...");
+        if let Err(e) = self.stop_all() {
+            tracing::warn!("Error stopping services (will attempt force kill): {}", e);
+        }
+
+        // Give processes time to fully terminate and release locks
+        tracing::info!("Waiting for processes to terminate...");
+        std::thread::sleep(std::time::Duration::from_secs(2));
 
         // Use our robust kill logic to ensure files aren't locked
+        tracing::info!("Force killing any orphaned processes...");
         Self::kill_orphans();
+
+        // Wait again after force kill
+        std::thread::sleep(std::time::Duration::from_millis(500));
 
         // Clear data directories
         let data_dirs = vec![
             get_runtime_dir().join("bitcoin"),
             get_runtime_dir().join("metashrew"),
             get_runtime_dir().join("esplora"),
-            get_runtime_dir().join("ord"), // Add ord directory
+            get_runtime_dir().join("ord"),
         ];
 
         for dir in data_dirs {
             if dir.exists() {
                 tracing::info!("Removing data directory: {}", dir.display());
-                if let Err(e) = std::fs::remove_dir_all(&dir) {
-                    tracing::error!("Failed to remove {}: {}", dir.display(), e);
-                    return Err(format!(
-                        "Failed to remove data directory {}: {}",
-                        dir.display(),
-                        e
-                    ));
+                // Retry logic for directory deletion
+                let mut attempts = 3;
+                while attempts > 0 {
+                    if let Err(e) = std::fs::remove_dir_all(&dir) {
+                        tracing::warn!(
+                            "Failed to remove {} (attempts left: {}): {}",
+                            dir.display(),
+                            attempts - 1,
+                            e
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        attempts -= 1;
+                        if attempts == 0 {
+                            return Err(format!(
+                                "Failed to remove data directory {} after retries: {}",
+                                dir.display(),
+                                e
+                            ));
+                        }
+                    } else {
+                        tracing::info!("Successfully removed {}", dir.display());
+                        break;
+                    }
                 }
+            } else {
+                tracing::info!(
+                    "Data directory does not exist (skipping): {}",
+                    dir.display()
+                );
             }
         }
 
-        tracing::info!("Chain data reset complete. Restart services to create a fresh chain.");
+        tracing::info!("Chain data reset complete. Services are ready to restart.");
         Ok(())
     }
 

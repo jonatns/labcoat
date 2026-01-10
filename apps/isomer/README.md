@@ -1,5 +1,11 @@
 # Isomer
 
+<br />
+<div align="center">
+  <img src="src-tauri/icons/isomer-logo.svg" alt="Isomer Logo" width="128" height="128">
+</div>
+<br />
+
 **One-click Alkanes development environment.**
 
 Isomer is a desktop application powered by [Tauri](https://tauri.app/), [React](https://react.dev/), and [Rust](https://www.rust-lang.org/) that simplifies managing a local Bitcoin Regtest environment with full Alkanes support.

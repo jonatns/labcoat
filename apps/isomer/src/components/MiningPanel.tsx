@@ -7,14 +7,16 @@ interface MiningPanelProps {
 }
 
 export function MiningPanel({ blockHeight, onMined }: MiningPanelProps) {
-    const [count, setCount] = useState(1);
+    const [count, setCount] = useState<string>('1');
     const [isMining, setIsMining] = useState(false);
 
     const handleMine = async () => {
         setIsMining(true);
         try {
-            const newHeight = await api.mineBlocks(count);
+            const blocksToMine = Math.max(1, parseInt(count) || 1);
+            const newHeight = await api.mineBlocks(blocksToMine);
             onMined?.(newHeight);
+            // Dont reset input to allow repeated mining
         } catch (error) {
             console.error('Mining failed:', error);
         } finally {
@@ -25,7 +27,10 @@ export function MiningPanel({ blockHeight, onMined }: MiningPanelProps) {
     return (
         <div className="glass rounded-xl p-6">
             <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-semibold text-white">Mining Controls</h2>
+                <div className="flex items-center gap-2">
+                    <span className="text-xl">⛏️</span>
+                    <h2 className="text-lg font-semibold text-white">Mining Controls</h2>
+                </div>
                 <div className="flex items-center gap-2">
                     <span className="text-zinc-500 text-sm">Block Height</span>
                     <span className="font-mono text-xl text-indigo-400">{blockHeight}</span>
@@ -40,7 +45,15 @@ export function MiningPanel({ blockHeight, onMined }: MiningPanelProps) {
                         min={1}
                         max={1000}
                         value={count}
-                        onChange={(e) => setCount(Math.max(1, parseInt(e.target.value) || 1))}
+                        onChange={(e) => setCount(e.target.value)}
+                        onBlur={() => {
+                            // Validate on blur
+                            if (!count || parseInt(count) < 1) {
+                                setCount('1');
+                            } else if (parseInt(count) > 1000) {
+                                setCount('1000');
+                            }
+                        }}
                         className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 
                        text-white font-mono focus:outline-none focus:border-indigo-500"
                     />

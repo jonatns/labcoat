@@ -206,6 +206,10 @@ pub async fn mine_blocks(
     let state = state.read().await;
     let config = &state.config;
 
+    if count > 1000 {
+        return Err("Cannot mine more than 1000 blocks at once.".to_string());
+    }
+
     // Use first account address if none specified
     let mine_to = address.unwrap_or_else(|| {
         state
