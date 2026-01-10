@@ -65,7 +65,7 @@ get_download_url() {
     # Get all releases (including drafts if we have permissions, otherwise just published ones)
     local api_url="https://api.github.com/repos/${REPO}/releases"
     
-    echo -e "${BLUE}Fetching latest release info...${NC}"
+    echo -e "${BLUE}Fetching latest release info...${NC}" >&2
     
     local release_info
     release_info=$(curl -sS "$api_url")
