@@ -10,25 +10,13 @@ export function Dashboard() {
     const { status, error, setError } = useStore();
     const [isStarting, setIsStarting] = useState(false);
     const [isStopping, setIsStopping] = useState(false);
-    const { binaries, checkBinaries, downloadBinaries } = useBinaries();
-    const [isDownloading, setIsDownloading] = useState(false);
+    const { binaries, checkBinaries } = useBinaries();
 
     useEffect(() => {
         checkBinaries();
     }, []);
 
     const missingBinaries = binaries.some(b => b.status === 'notinstalled');
-
-    const handleDownload = async () => {
-        setIsDownloading(true);
-        try {
-            await downloadBinaries();
-        } catch (err) {
-            console.error('Failed to download binaries:', err);
-        } finally {
-            setIsDownloading(false);
-        }
-    };
 
     const handleStart = async () => {
         setIsStarting(true);
@@ -82,17 +70,7 @@ export function Dashboard() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    {missingBinaries && (
-                        <button
-                            onClick={handleDownload}
-                            disabled={isDownloading}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 
-                            disabled:cursor-not-allowed rounded-lg text-white font-medium 
-                            transition-colors"
-                        >
-                            {isDownloading ? 'Downloading...' : 'Download Binaries'}
-                        </button>
-                    )}
+
                     <button
                         onClick={handleStop}
                         disabled={allStopped || isStopping}

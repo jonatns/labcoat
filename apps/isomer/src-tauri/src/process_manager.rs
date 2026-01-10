@@ -335,7 +335,7 @@ impl ProcessManager {
                 format!("{}:{}", btc.rpc_user, btc.rpc_password),
             ],
             ServiceId::JsonRpc => vec![get_bin_dir()
-                .join("jsonrpc/bin/jsonrpc")
+                .join("jsonrpc/bin/jsonrpc.js")
                 .display()
                 .to_string()],
         }
