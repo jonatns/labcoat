@@ -145,9 +145,9 @@ install_isomer() {
             # Mount and capture output
             hdiutil attach "$filename" -nobrowse
             
-            # Find the mount point (Isomer volume)
+            # Find the mount point (Isomer volume) - use tail to get latest if multiple exist
             local mount_point
-            mount_point=$(ls -d /Volumes/Isomer* 2>/dev/null | head -1)
+            mount_point=$(ls -d /Volumes/Isomer* 2>/dev/null | tail -1)
             
             if [ -z "$mount_point" ] || [ ! -d "$mount_point" ]; then
                 echo -e "${RED}Failed to find mounted DMG${NC}"
