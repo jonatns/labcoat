@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ServiceCard } from './ServiceCard';
 import { MiningPanel } from './MiningPanel';
+import { FaucetPanel } from './FaucetPanel';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { useBinaries } from '../hooks/useStatus';
@@ -53,6 +54,8 @@ export function Dashboard() {
         }
     };
 
+
+
     if (!status) {
         return (
             <div className="flex items-center justify-center h-full">
@@ -99,6 +102,7 @@ export function Dashboard() {
                     >
                         {isStopping ? 'Stopping...' : 'Stop All'}
                     </button>
+
                     <button
                         onClick={handleStart}
                         disabled={allRunning || isStarting || missingBinaries}
@@ -142,8 +146,11 @@ export function Dashboard() {
                 </div>
             </div>
 
-            {/* Mining Panel */}
-            <MiningPanel blockHeight={status.block_height} />
+            {/* Mining & Faucet */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <MiningPanel blockHeight={status.block_height} />
+                <FaucetPanel disabled={!status.is_ready} />
+            </div>
 
             {/* Services Grid */}
             <div>

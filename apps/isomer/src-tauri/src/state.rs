@@ -22,10 +22,11 @@ pub enum ServiceStatus {
 pub struct ServiceInfo {
     pub id: String,
     pub name: String,
-    pub status: ServiceStatus,
-    pub port: u16,
+    pub status: String, // "stopped", "running", "error" // Simplified for frontend
     pub pid: Option<u32>,
+    pub port: u16,
     pub uptime_secs: Option<u64>,
+    pub version: Option<String>,
 }
 
 /// Pre-funded development account
@@ -71,7 +72,7 @@ impl AppState {
     /// Get the current system status
     pub fn get_status(&mut self) -> SystemStatus {
         let services = self.process_manager.get_all_status();
-        let is_ready = services.iter().all(|s| s.status == ServiceStatus::Running);
+        let is_ready = services.iter().all(|s| s.status == "running");
 
         SystemStatus {
             services,

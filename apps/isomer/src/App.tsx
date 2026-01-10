@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
+import { LogsPanel } from './components/LogsPanel';
+import { SettingsPanel } from './components/SettingsPanel';
 import { useSystemStatus } from './hooks/useStatus';
 
 function App() {
@@ -18,8 +20,8 @@ function App() {
         {activeView === 'accounts' && <PlaceholderView title="Accounts" />}
         {activeView === 'blocks' && <PlaceholderView title="Blocks" />}
         {activeView === 'contracts' && <PlaceholderView title="Contracts" />}
-        {activeView === 'logs' && <PlaceholderView title="Logs" />}
-        {activeView === 'settings' && <PlaceholderView title="Settings" />}
+        {activeView === 'logs' && <LogsPanel />}
+        {activeView === 'settings' && <SettingsPanel />}
       </main>
     </div>
   );

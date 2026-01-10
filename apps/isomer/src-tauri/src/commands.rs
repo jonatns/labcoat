@@ -26,7 +26,7 @@ pub async fn get_status(state: State<'_, SharedState>) -> Result<SystemStatus, S
     let bitcoind_running = system_status
         .services
         .iter()
-        .any(|s| s.id == "bitcoind" && matches!(s.status, ServiceStatus::Running));
+        .any(|s| s.id == "bitcoind" && s.status == "running");
 
     if bitcoind_running {
         let rpc_url = format!("http://127.0.0.1:{}", config.ports.bitcoind_rpc);
@@ -100,6 +100,100 @@ pub async fn start_services(state: State<'_, SharedState>) -> Result<(), String>
 pub async fn stop_services(state: State<'_, SharedState>) -> Result<(), String> {
     let mut state = state.write().await;
     state.process_manager.stop_all()
+}
+
+/// Reset chain - stops services and clears all data
+#[tauri::command]
+pub async fn reset_chain(state: State<'_, SharedState>) -> Result<(), String> {
+    let mut state = state.write().await;
+    state.process_manager.reset_data()
+}
+
+/// Get service logs
+#[tauri::command]
+pub async fn get_logs(
+    service: Option<String>,
+    limit: Option<usize>,
+    state: State<'_, SharedState>,
+) -> Result<Vec<crate::process_manager::LogEntry>, String> {
+    let state = state.read().await;
+    Ok(state
+        .process_manager
+        .get_logs(service, limit.unwrap_or(500)))
+}
+
+/// Clear all logs
+#[tauri::command]
+pub async fn clear_logs(state: State<'_, SharedState>) -> Result<(), String> {
+    let state = state.read().await;
+    state.process_manager.clear_logs();
+    Ok(())
+}
+
+/// Faucet - send BTC from dev wallet to any address
+#[tauri::command]
+pub async fn faucet(
+    address: String,
+    amount: f64,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    let state = state.read().await;
+    let config = &state.config;
+
+    // Default to 1 BTC if not specified or 0
+    let amount_btc = if amount <= 0.0 { 1.0 } else { amount };
+
+    let rpc_url = format!("http://127.0.0.1:{}", config.ports.bitcoind_rpc);
+    let wallet_rpc_url = format!("{}/wallet/dev", rpc_url);
+
+    let client = reqwest::Client::new();
+
+    // Send from dev wallet to the target address
+    let response = client
+        .post(&wallet_rpc_url)
+        .basic_auth(
+            &config.bitcoind.rpc_user,
+            Some(&config.bitcoind.rpc_password),
+        )
+        .json(&serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "isomer",
+            "method": "sendtoaddress",
+            "params": [address, amount_btc]
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("RPC call failed: {}", e))?;
+
+    let result: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    if let Some(error) = result.get("error").and_then(|e| e.as_object()) {
+        return Err(format!(
+            "Faucet error: {}",
+            error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown")
+        ));
+    }
+
+    let txid = result
+        .get("result")
+        .and_then(|r| r.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    tracing::info!(
+        "Faucet: sent {} BTC to {} (txid: {})",
+        amount_btc,
+        address,
+        txid
+    );
+
+    Ok(txid)
 }
 
 /// Mine a specified number of blocks
