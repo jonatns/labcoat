@@ -141,12 +141,23 @@ install_isomer() {
     case "$platform" in
         macos-*)
             echo -e "${BLUE}Mounting DMG...${NC}"
-            hdiutil attach "$filename" -nobrowse -quiet
+            local mount_output
+            mount_output=$(hdiutil attach "$filename" -nobrowse 2>&1)
             
-            local mount_point=$(hdiutil info | grep -A 1 "$filename" | tail -1 | awk '{print $NF}')
+            # Extract mount point from hdiutil output (last column of last line with /Volumes)
+            local mount_point
+            mount_point=$(echo "$mount_output" | grep -o '/Volumes/[^"]*' | head -1)
+            
+            if [ -z "$mount_point" ] || [ ! -d "$mount_point" ]; then
+                echo -e "${RED}Failed to mount DMG${NC}"
+                echo "$mount_output"
+                exit 1
+            fi
+            
+            echo -e "${BLUE}Copying app from ${mount_point}...${NC}"
             cp -R "${mount_point}/Isomer.app" /Applications/
             
-            hdiutil detach "$mount_point" -quiet
+            hdiutil detach "$mount_point" -quiet 2>/dev/null || true
             echo -e "${GREEN}✓ Isomer installed to /Applications/Isomer.app${NC}"
             ;;
         linux-*)
