@@ -21,6 +21,16 @@ pub enum BinaryStatus {
     UpdateAvailable { current: String, latest: String },
 }
 
+impl BinaryStatus {
+    pub fn into_version(self) -> Option<String> {
+        match self {
+            BinaryStatus::Installed { version } => Some(version),
+            BinaryStatus::UpdateAvailable { current, .. } => Some(current),
+            _ => None,
+        }
+    }
+}
+
 /// Information about a binary
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinaryInfo {
@@ -90,41 +100,42 @@ impl BinaryManager {
         let (os, arch) = Self::get_platform();
 
         // Bitcoin Core - official releases
+        // Note: Checksums cleared for v30.0 pending release/verification
         let (btc_url, btc_sha) = if os == "darwin" && arch == "arm64" {
             (
-                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-arm64-apple-darwin.tar.gz",
-                "c8108f30dfcc7ddffab33f5647d745414ef9d3298bfe67d243fe9b9cb4df4c12",
+                "https://bitcoincore.org/bin/bitcoin-core-30.0/bitcoin-30.0-arm64-apple-darwin.tar.gz",
+                "",
             )
         } else if os == "darwin" && arch == "x86_64" {
             (
-                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-apple-darwin.tar.gz",
-                "77e931bbaaf47771a10c376230bf53223f5380864bad3568efc7f4d02e40a0f7",
+                "https://bitcoincore.org/bin/bitcoin-core-30.0/bitcoin-30.0-x86_64-apple-darwin.tar.gz",
+                "",
             )
         } else if os == "linux" && arch == "x86_64" {
             (
-                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz",
-                "7fe294b02b25b51acb8e8e0a0eb5af6bbafa7cd0c5b0e5fcbb61263104a82fbc",
+                "https://bitcoincore.org/bin/bitcoin-core-30.0/bitcoin-30.0-x86_64-linux-gnu.tar.gz",
+                "",
             )
         } else if os == "linux" && arch == "arm64" {
             (
-                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-aarch64-linux-gnu.tar.gz",
-                "7fa582d99a25c354d23e371a5848bd9e6a79702870f9cbbf1292b86e647d0f4e",
+                "https://bitcoincore.org/bin/bitcoin-core-30.0/bitcoin-30.0-aarch64-linux-gnu.tar.gz",
+                "",
             )
         } else {
             (
-                "https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz",
-                "7fe294b02b25b51acb8e8e0a0eb5af6bbafa7cd0c5b0e5fcbb61263104a82fbc",
+                "https://bitcoincore.org/bin/bitcoin-core-30.0/bitcoin-30.0-x86_64-linux-gnu.tar.gz",
+                "",
             )
         };
 
         releases.insert(
             ServiceId::Bitcoind,
             BinaryRelease {
-                version: "28.0".to_string(),
+                version: "30.0".to_string(),
                 url: btc_url.to_string(),
                 sha256: btc_sha.to_string(),
                 size_bytes: 45_000_000,
-                archive_path: Some("bitcoin-28.0/bin/bitcoind".to_string()),
+                archive_path: Some("bitcoin-30.0/bin/bitcoind".to_string()),
                 is_archive: true,
             },
         );
@@ -182,7 +193,7 @@ impl BinaryManager {
         releases.insert(
             ServiceId::Metashrew,
             BinaryRelease {
-                version: "8.8.4".to_string(),
+                version: "9.0.2-alpha.1".to_string(),
                 url: format!("{}/rockshrew-mono-{}-{}", isomer_release_base, os, arch),
                 sha256: rockshrew_sha.to_string(),
                 size_bytes: 25_000_000,
@@ -200,7 +211,7 @@ impl BinaryManager {
         releases.insert(
             ServiceId::Memshrew,
             BinaryRelease {
-                version: "8.8.4".to_string(),
+                version: "9.0.2-alpha.1".to_string(),
                 url: format!("{}/memshrew-p2p-{}-{}", isomer_release_base, os, arch),
                 sha256: memshrew_sha.to_string(),
                 size_bytes: 20_000_000,
