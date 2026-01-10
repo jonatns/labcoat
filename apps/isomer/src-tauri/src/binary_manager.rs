@@ -180,23 +180,15 @@ impl BinaryManager {
         let isomer_release_base =
             "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.0";
 
-        // Determine SHA based on platform
-        // Currently only Mac ARM64 is populated
-        let rockshrew_sha = if os == "darwin" && arch == "arm64" {
-            "c930a6a786d7491c5cf418c260ce7f0e230eaad810df7fd2b53945c772e54fef"
-        } else {
-            ""
-        };
+        // Determine SHA based on platform (placeholder, will be updated on next release)
+        let rockshrew_sha = "";
 
         releases.insert(
             ServiceId::Metashrew,
             BinaryRelease {
-                version: "9.0.1-rc.2".to_string(),
-                // Format: rockshrew-mono-v9.0.1-rc.2-darwin-arm64
-                url: format!(
-                    "{}/rockshrew-mono-v9.0.1-rc.2-{}-{}",
-                    isomer_release_base, os, arch
-                ),
+                version: "9.0.2-alpha.1".to_string(),
+                // Format: rockshrew-mono-darwin-arm64
+                url: format!("{}/rockshrew-mono-{}-{}", isomer_release_base, os, arch),
                 sha256: rockshrew_sha.to_string(),
                 size_bytes: 25_000_000,
                 archive_path: None,
@@ -204,61 +196,14 @@ impl BinaryManager {
             },
         );
 
-        let memshrew_sha = if os == "darwin" && arch == "arm64" {
-            "30dd4c989e7472e7a011777ccdf5ab8d43b7c42092ab6f85a72a7127f8fb6601"
-        } else {
-            ""
-        };
+        let memshrew_sha = "";
 
         releases.insert(
             ServiceId::Memshrew,
             BinaryRelease {
-                version: "9.0.1".to_string(),
-                // Format: memshrew-p2p-v9.0.1-darwin-arm64 (using 9.0.1-rc.2 tag for download but binary version is 9.0.1)
-                // Wait, in release-binaries.yml we used env.METASHREW_VERSION which is v9.0.2-alpha.1
-                // But here we are using 9.0.1-rc.2 to match installed binary.
-                // WE MUST MATCH what is in release-binaries.yml if we want to download NEW binaries.
-                // However, user is failing on loop because download is old.
-                // Assuming the NEXT release will have v9.0.2-alpha.1, we should probably set this to that
-                // BUT current installed is 9.0.1-rc.2
-
-                // Let's stick with the current "installed" version for now to stop the loop,
-                // but if we were to point to the NEW release, we would need to update the version here too.
-                // Since the user asked to "Add version to binary filenames", I will update the URL pattern.
-
-                // Note: The previous step I set METASHREW_VERSION: "v9.0.2-alpha.1" in yaml.
-                // So the artifact will be rockshrew-mono-v9.0.2-alpha.1-...
-                // So if we want to fix the loop, we should ideally be pointing to THAT version.
-                // But for now, to keep the UI happy with what's on disk (9.0.1-rc.2), I will use the specific version in the filename.
-                // A future update will bump the config version to 9.0.2-alpha.1 and the URL will update automatically.
-                url: format!(
-                    "{}/rockshrew-mono-v9.0.1-rc.2-{}-{}",
-                    isomer_release_base, os, arch
-                ),
-                sha256: memshrew_sha.to_string(),
-                size_bytes: 20_000_000,
-                archive_path: None,
-                is_archive: false,
-            },
-        );
-
-        // CORRECTION: The instruction is to update `url` to include version in filename.
-        // It's better to use `format!("{}/rockshrew-mono-v{}-{}-{}", ..., version, ...)` so it upgrades automatically.
-        // But `version` here ("9.0.1-rc.2") lacks the 'v' prefix if we strip it, or has it.
-        // In this file, I set version as "9.0.1-rc.2".
-        // The file on release will be `rockshrew-mono-v9.0.1-rc.2-...` (prefixed with v).
-
-        // For Memshrew: "9.0.1" -> `memshrew-p2p-v9.0.1-...`.
-        // For Esplora: "0.4.1" -> `flextrs-0.4.1-...` (no v prefix in yaml for FLEXTRS_VERSION="0.4.1").
-
-        releases.insert(
-            ServiceId::Memshrew,
-            BinaryRelease {
-                version: "9.0.1".to_string(),
-                url: format!(
-                    "{}/memshrew-p2p-v9.0.1-{}-{}",
-                    isomer_release_base, os, arch
-                ),
+                version: "9.0.2-alpha.1".to_string(),
+                // Format: memshrew-p2p-darwin-arm64
+                url: format!("{}/memshrew-p2p-{}-{}", isomer_release_base, os, arch),
                 sha256: memshrew_sha.to_string(),
                 size_bytes: 20_000_000,
                 archive_path: None,
@@ -276,7 +221,7 @@ impl BinaryManager {
             ServiceId::Esplora,
             BinaryRelease {
                 version: "0.4.1".to_string(),
-                url: format!("{}/flextrs-0.4.1-{}-{}", isomer_release_base, os, arch),
+                url: format!("{}/flextrs-{}-{}", isomer_release_base, os, arch),
                 sha256: flextrs_sha.to_string(),
                 size_bytes: 15_000_000,
                 archive_path: None,

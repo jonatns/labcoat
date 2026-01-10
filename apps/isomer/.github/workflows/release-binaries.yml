@@ -232,20 +232,20 @@ jobs:
           # MS_VER usually starts with v, e.g. v9.0.2-alpha.1
 
           # Metashrew binaries
-          # rockshrew-mono-v9.0.2-alpha.1-darwin-arm64
-          cp artifacts/rockshrew-mono-darwin-arm64/rockshrew-mono release/rockshrew-mono-${MS_VER}-darwin-arm64
+          # rockshrew-mono-darwin-arm64
+          cp artifacts/rockshrew-mono-darwin-arm64/rockshrew-mono release/rockshrew-mono-darwin-arm64
 
-          cp artifacts/rockshrew-mono-linux-x86_64/rockshrew-mono release/rockshrew-mono-${MS_VER}-linux-x86_64
+          cp artifacts/rockshrew-mono-linux-x86_64/rockshrew-mono release/rockshrew-mono-linux-x86_64
 
-          cp artifacts/memshrew-p2p-darwin-arm64/memshrew-p2p release/memshrew-p2p-${MS_VER}-darwin-arm64
+          cp artifacts/memshrew-p2p-darwin-arm64/memshrew-p2p release/memshrew-p2p-darwin-arm64
 
-          cp artifacts/memshrew-p2p-linux-x86_64/memshrew-p2p release/memshrew-p2p-${MS_VER}-linux-x86_64
+          cp artifacts/memshrew-p2p-linux-x86_64/memshrew-p2p release/memshrew-p2p-linux-x86_64
 
           # Flextrs binaries
-          # flextrs-0.4.1-darwin-arm64
-          cp artifacts/flextrs-darwin-arm64/flextrs release/flextrs-${{ env.FLEXTRS_VERSION }}-darwin-arm64
+          # flextrs-darwin-arm64
+          cp artifacts/flextrs-darwin-arm64/flextrs release/flextrs-darwin-arm64
 
-          cp artifacts/flextrs-linux-x86_64/flextrs release/flextrs-${{ env.FLEXTRS_VERSION }}-linux-x86_64
+          cp artifacts/flextrs-linux-x86_64/flextrs release/flextrs-linux-x86_64
 
           # WASM and JSON-RPC bundle
           cp artifacts/alkanes-wasm/alkanes.wasm release/alkanes.wasm
