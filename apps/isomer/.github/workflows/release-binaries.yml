@@ -152,6 +152,11 @@ jobs:
           repository: ${{ env.ESPO_REPO }}
           ref: ${{ env.ESPO_VERSION }}
 
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -175,6 +180,11 @@ jobs:
         with:
           repository: ${{ env.ESPO_REPO }}
           ref: ${{ env.ESPO_VERSION }}
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
