@@ -1,16 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { LogsPanel } from './components/LogsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ExplorerPanel } from './components/ExplorerPanel';
-import { useSystemStatus } from './hooks/useStatus';
+import { SetupScreen } from './components/SetupScreen';
+import { useSystemStatus, useBinaries } from './hooks/useStatus';
 
 function App() {
   const [activeView, setActiveView] = useState('dashboard');
+  const { binaries, checkBinaries } = useBinaries();
 
   // Start polling for system status
   useSystemStatus(2000);
+
+  // Check binaries on mount
+  useEffect(() => {
+    checkBinaries();
+  }, []);
+
+  const hasMissingBinaries = binaries.some(b => b.status === 'notinstalled');
+
+  if (hasMissingBinaries) {
+    return <SetupScreen />;
+  }
 
   return (
     <div className="flex h-screen bg-zinc-950">

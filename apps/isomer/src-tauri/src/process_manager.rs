@@ -356,16 +356,22 @@ impl ProcessManager {
             "rpc_port": ports.espo_rpc,
             "explorer_host": format!("0.0.0.0:{}", ports.espo_explorer),
             "metashrew_rpc_url": format!("http://127.0.0.1:{}", ports.metashrew),
-            "electrs_rpc_url": format!("http://127.0.0.1:{}", ports.esplora_http),
+            "readonly_metashrew_db_dir": get_runtime_dir().join("metashrew").display().to_string(),
+            "electrum_rpc_url": format!("127.0.0.1:{}", ports.esplora_electrum),
             "bitcoin_rpc_url": format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
+            "bitcoind_rpc_url": format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
             "bitcoin_rpc_user": btc.rpc_user,
+            "bitcoind_rpc_user": btc.rpc_user.clone(),
             "bitcoin_rpc_pass": btc.rpc_password,
+            "bitcoind_rpc_pass": btc.rpc_password.clone(),
             "bitcoin_blocks_dir": get_runtime_dir().join("bitcoin/regtest/blocks").display().to_string(),
+            "bitcoind_blocks_dir": get_runtime_dir().join("bitcoin/regtest/blocks").display().to_string(),
             "db_path": espo_dir.join("db").display().to_string(),
             "indexer_enabled": true,
             "mempool_enabled": true,
             "explorer_enabled": true,
-            "modules": ["ohlc", "volume", "holders"]
+            "modules": ["ohlc", "volume", "holders", "alkanes"],
+            "network": "regtest"
         });
 
         let config_path = espo_dir.join("config.json");

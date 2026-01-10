@@ -178,7 +178,7 @@ impl BinaryManager {
         // these need to be pre-built and hosted. Using placeholder URLs that
         // would point to your release infrastructure.
         let isomer_release_base =
-            "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.0";
+            "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.3";
 
         // Determine SHA based on platform (placeholder, will be updated on next release)
         let rockshrew_sha = "";
@@ -269,37 +269,21 @@ impl BinaryManager {
         let path = Self::get_binary_path(service);
         let exists = path.exists();
 
-        let latest_version = self
-            .releases
-            .get(&service)
-            .map(|r| r.version.clone())
-            .unwrap_or_else(|| "unknown".to_string());
+        // let latest_version = self
+        //     .releases
+        //     .get(&service)
+        //     .map(|r| r.version.clone())
+        //     .unwrap_or_else(|| "unknown".to_string());
 
         let status = if exists {
             let current_version = self
                 .get_binary_version(service)
                 .unwrap_or("unknown".to_string());
 
-            // Debug logging to find mismatch
-            tracing::info!(
-                "Checking {}: current='{}' vs latest='{}'",
-                service.display_name(),
-                current_version,
-                latest_version
-            );
-
-            // If we can't determine version (unknown), or if it differs from latest, assume update available
-            // Note: This relies on run_version_cmd producing a string that matches release version exactly.
-            // If formats differ, this will always show update available, which is safer than hiding updates.
-            if current_version != latest_version {
-                BinaryStatus::UpdateAvailable {
-                    current: current_version,
-                    latest: latest_version,
-                }
-            } else {
-                BinaryStatus::Installed {
-                    version: current_version,
-                }
+            // User requested to disable automatic update checks.
+            // We always return Installed if the binary exists.
+            BinaryStatus::Installed {
+                version: current_version,
             }
         } else {
             BinaryStatus::NotInstalled
