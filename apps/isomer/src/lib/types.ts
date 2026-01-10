@@ -1,6 +1,10 @@
 // Isomer API types - mirrors Rust types from src-tauri
 
-export type ServiceStatus = string;
+export type ServiceStatus =
+  | "running"
+  | "starting"
+  | "stopped"
+  | { error: string };
 
 export interface ServiceInfo {
   id: string;
