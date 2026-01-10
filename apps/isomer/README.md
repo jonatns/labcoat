@@ -58,13 +58,17 @@ Isomer orchestrates the following services with proper dependency ordering:
 
 ---
 
-## 🚀 Quick Install (Linux/WSL)
+## 🚀 Quick Install
+
+### macOS / Linux / WSL
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/jonatns/isomer/main/install.sh | bash
 ```
 
-This will install all dependencies and set up Isomer automatically.
+### Windows
+
+Download the latest `.msi` installer from [Releases](https://github.com/jonatns/isomer/releases).
 
 ---
 

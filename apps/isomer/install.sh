@@ -8,6 +8,8 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+REPO="jonatns/isomer"
+
 echo -e "${BLUE}"
 echo "  ╦┌─┐┌─┐┌┬┐┌─┐┬─┐"
 echo "  ║└─┐│ ││││├┤ ├┬┘"
@@ -16,177 +18,176 @@ echo -e "${NC}"
 echo -e "${GREEN}Alkanes Development Environment Installer${NC}"
 echo ""
 
-# Detect OS
-detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if grep -q Microsoft /proc/version 2>/dev/null; then
-            echo "wsl"
-        else
-            echo "linux"
-        fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macos"
-    else
-        echo "unknown"
-    fi
-}
-
-OS=$(detect_os)
-echo -e "${YELLOW}Detected OS: ${OS}${NC}"
-echo ""
-
-# Install system dependencies based on OS
-install_dependencies() {
-    case $OS in
-        linux|wsl)
-            echo -e "${BLUE}Installing system dependencies...${NC}"
-            
-            # Check if running with sudo or as root
-            if [ "$EUID" -ne 0 ]; then
-                SUDO="sudo"
+# Detect OS and architecture
+detect_platform() {
+    local os=""
+    local arch=""
+    
+    case "$(uname -s)" in
+        Linux*)
+            if grep -q Microsoft /proc/version 2>/dev/null; then
+                os="linux"  # WSL is treated as Linux
             else
-                SUDO=""
+                os="linux"
             fi
-            
-            # Update package list
-            $SUDO apt update
-            
-            # Install Tauri dependencies for Linux/WSL
-            # Reference: https://tauri.app/start/prerequisites/#linux
-            echo -e "${YELLOW}Installing Tauri build dependencies...${NC}"
-            $SUDO apt install -y \
-                build-essential \
-                curl \
-                wget \
-                file \
-                libglib2.0-dev \
-                libgtk-3-dev \
-                libsoup-3.0-dev \
-                libjavascriptcoregtk-4.1-dev \
-                libwebkit2gtk-4.1-dev \
-                librsvg2-dev \
-                pkg-config
-            
-            echo -e "${GREEN}✓ System dependencies installed${NC}"
             ;;
-        macos)
-            echo -e "${BLUE}Checking macOS dependencies...${NC}"
-            
-            # Check for Xcode CLI tools
-            if ! xcode-select -p &>/dev/null; then
-                echo -e "${YELLOW}Installing Xcode Command Line Tools...${NC}"
-                xcode-select --install
-            else
-                echo -e "${GREEN}✓ Xcode Command Line Tools already installed${NC}"
-            fi
-            
-            # Check for Homebrew
-            if ! command -v brew &>/dev/null; then
-                echo -e "${YELLOW}Installing Homebrew...${NC}"
-                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            else
-                echo -e "${GREEN}✓ Homebrew already installed${NC}"
-            fi
+        Darwin*)
+            os="macos"
+            ;;
+        MINGW*|MSYS*|CYGWIN*)
+            os="windows"
             ;;
         *)
-            echo -e "${RED}Unsupported OS. Please install dependencies manually.${NC}"
+            echo -e "${RED}Unsupported operating system${NC}"
             exit 1
             ;;
     esac
-}
-
-# Install Rust
-install_rust() {
-    if command -v rustc &>/dev/null; then
-        RUST_VERSION=$(rustc --version)
-        echo -e "${GREEN}✓ Rust already installed: ${RUST_VERSION}${NC}"
-    else
-        echo -e "${BLUE}Installing Rust...${NC}"
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env"
-        echo -e "${GREEN}✓ Rust installed${NC}"
-    fi
-}
-
-# Install Node.js via nvm
-install_node() {
-    if command -v node &>/dev/null; then
-        NODE_VERSION=$(node --version)
-        echo -e "${GREEN}✓ Node.js already installed: ${NODE_VERSION}${NC}"
-    else
-        echo -e "${BLUE}Installing Node.js via nvm...${NC}"
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        nvm install --lts
-        echo -e "${GREEN}✓ Node.js installed${NC}"
-    fi
-}
-
-# Install pnpm
-install_pnpm() {
-    if command -v pnpm &>/dev/null; then
-        PNPM_VERSION=$(pnpm --version)
-        echo -e "${GREEN}✓ pnpm already installed: ${PNPM_VERSION}${NC}"
-    else
-        echo -e "${BLUE}Installing pnpm...${NC}"
-        npm install -g pnpm
-        echo -e "${GREEN}✓ pnpm installed${NC}"
-    fi
-}
-
-# Clone and setup Isomer
-setup_isomer() {
-    ISOMER_DIR="$HOME/isomer"
     
-    if [ -d "$ISOMER_DIR" ]; then
-        echo -e "${YELLOW}Isomer directory already exists at ${ISOMER_DIR}${NC}"
-        echo -e "${BLUE}Pulling latest changes...${NC}"
-        cd "$ISOMER_DIR"
-        git pull
-    else
-        echo -e "${BLUE}Cloning Isomer repository...${NC}"
-        git clone https://github.com/jonatns/isomer.git "$ISOMER_DIR"
-        cd "$ISOMER_DIR"
+    case "$(uname -m)" in
+        x86_64|amd64)
+            arch="x64"
+            ;;
+        arm64|aarch64)
+            arch="arm64"
+            ;;
+        *)
+            echo -e "${RED}Unsupported architecture: $(uname -m)${NC}"
+            exit 1
+            ;;
+    esac
+    
+    echo "${os}-${arch}"
+}
+
+# Get the latest release download URL
+get_download_url() {
+    local platform=$1
+    local api_url="https://api.github.com/repos/${REPO}/releases/latest"
+    
+    echo -e "${BLUE}Fetching latest release info...${NC}"
+    
+    local release_info
+    release_info=$(curl -sS "$api_url")
+    
+    local asset_pattern=""
+    case "$platform" in
+        macos-arm64)
+            asset_pattern="aarch64.dmg"
+            ;;
+        macos-x64)
+            asset_pattern="x64.dmg"
+            ;;
+        linux-*)
+            asset_pattern=".AppImage"
+            ;;
+        windows-*)
+            asset_pattern=".msi"
+            ;;
+    esac
+    
+    local download_url
+    download_url=$(echo "$release_info" | grep -o "\"browser_download_url\": \"[^\"]*${asset_pattern}\"" | head -1 | cut -d'"' -f4)
+    
+    if [ -z "$download_url" ]; then
+        echo -e "${RED}Could not find download URL for ${platform}${NC}"
+        echo -e "${YELLOW}Available assets:${NC}"
+        echo "$release_info" | grep -o '"name": "[^"]*"' | head -10
+        exit 1
     fi
     
-    echo -e "${BLUE}Installing dependencies...${NC}"
-    pnpm install
-    
-    echo -e "${BLUE}Building Isomer...${NC}"
-    pnpm tauri build
-    
-    echo -e "${GREEN}✓ Isomer build complete${NC}"
+    echo "$download_url"
 }
 
-# Main installation flow
+# Install system dependencies for Linux/WSL
+install_linux_deps() {
+    echo -e "${BLUE}Installing system dependencies...${NC}"
+    
+    if [ "$EUID" -ne 0 ]; then
+        SUDO="sudo"
+    else
+        SUDO=""
+    fi
+    
+    $SUDO apt update
+    $SUDO apt install -y \
+        libwebkit2gtk-4.1-0 \
+        libgtk-3-0 \
+        libayatana-appindicator3-1 \
+        curl \
+        wget
+    
+    echo -e "${GREEN}✓ Dependencies installed${NC}"
+}
+
+# Download and install
+install_isomer() {
+    local platform=$1
+    local download_url=$2
+    local filename=$(basename "$download_url")
+    local install_dir="$HOME/.local/bin"
+    
+    echo -e "${BLUE}Downloading Isomer...${NC}"
+    echo -e "${YELLOW}URL: ${download_url}${NC}"
+    
+    local tmp_dir=$(mktemp -d)
+    cd "$tmp_dir"
+    
+    curl -L -o "$filename" "$download_url"
+    
+    case "$platform" in
+        macos-*)
+            echo -e "${BLUE}Mounting DMG...${NC}"
+            hdiutil attach "$filename" -nobrowse -quiet
+            
+            local mount_point=$(hdiutil info | grep -A 1 "$filename" | tail -1 | awk '{print $NF}')
+            cp -R "${mount_point}/Isomer.app" /Applications/
+            
+            hdiutil detach "$mount_point" -quiet
+            echo -e "${GREEN}✓ Isomer installed to /Applications/Isomer.app${NC}"
+            ;;
+        linux-*)
+            echo -e "${BLUE}Installing AppImage...${NC}"
+            mkdir -p "$install_dir"
+            chmod +x "$filename"
+            mv "$filename" "$install_dir/isomer"
+            echo -e "${GREEN}✓ Isomer installed to ${install_dir}/isomer${NC}"
+            echo -e "${YELLOW}Add ${install_dir} to your PATH if not already done${NC}"
+            ;;
+        windows-*)
+            echo -e "${BLUE}Running installer...${NC}"
+            start "$filename"
+            echo -e "${GREEN}✓ Installer launched${NC}"
+            ;;
+    esac
+    
+    # Cleanup
+    cd -
+    rm -rf "$tmp_dir"
+}
+
+# Main
 main() {
-    echo -e "${BLUE}Step 1/5: Installing system dependencies...${NC}"
-    install_dependencies
+    local platform=$(detect_platform)
+    echo -e "${YELLOW}Detected platform: ${platform}${NC}"
     echo ""
     
-    echo -e "${BLUE}Step 2/5: Installing Rust...${NC}"
-    install_rust
+    # Install dependencies for Linux
+    if [[ "$platform" == linux-* ]]; then
+        install_linux_deps
+        echo ""
+    fi
+    
+    # Get download URL
+    local download_url=$(get_download_url "$platform")
     echo ""
     
-    echo -e "${BLUE}Step 3/5: Installing Node.js...${NC}"
-    install_node
-    echo ""
-    
-    echo -e "${BLUE}Step 4/5: Installing pnpm...${NC}"
-    install_pnpm
-    echo ""
-    
-    echo -e "${BLUE}Step 5/5: Building Isomer...${NC}"
-    setup_isomer
+    # Download and install
+    install_isomer "$platform" "$download_url"
     echo ""
     
     echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║        Installation Complete! ⚗️            ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "The Isomer application has been built at:"
-    echo -e "  ${YELLOW}~/isomer/src-tauri/target/release/bundle/${NC}"
     echo ""
 }
 
