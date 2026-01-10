@@ -19,6 +19,8 @@ env:
   FLEXTRS_COMMIT: "504bd533cf5fb6442f3962ed0d8f0c296e45ef37"
   ALKANES_WASM_VERSION: "0.1.0"
   ALKANES_JSONRPC_VERSION: "0.1.0"
+  ESPO_VERSION: "explorer-v9.0.1-rc1-metashrew"
+  ESPO_REPO: "bitapeslabs/espo"
 
 jobs:
   build-metashrew-macos-arm64:
@@ -141,6 +143,54 @@ jobs:
           name: flextrs-linux-x86_64
           path: target/release/flextrs
 
+  build-espo-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - name: Checkout espo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ESPO_REPO }}
+          ref: ${{ env.ESPO_VERSION }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build espo
+        run: cargo build --release
+
+      - name: Upload espo
+        uses: actions/upload-artifact@v4
+        with:
+          name: espo-darwin-arm64
+          path: target/release/espo
+
+  build-espo-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout espo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ESPO_REPO }}
+          ref: ${{ env.ESPO_VERSION }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build espo
+        run: cargo build --release
+
+      - name: Upload espo
+        uses: actions/upload-artifact@v4
+        with:
+          name: espo-linux-x86_64
+          path: target/release/espo
+
   build-alkanes-wasm:
     runs-on: ubuntu-latest
     steps:
@@ -213,6 +263,8 @@ jobs:
       - build-metashrew-linux
       - build-flextrs-macos-arm64
       - build-flextrs-linux
+      - build-espo-macos-arm64
+      - build-espo-linux
       - build-alkanes-wasm
       - bundle-jsonrpc
     runs-on: ubuntu-latest
@@ -246,6 +298,10 @@ jobs:
           cp artifacts/flextrs-darwin-arm64/flextrs release/flextrs-darwin-arm64
 
           cp artifacts/flextrs-linux-x86_64/flextrs release/flextrs-linux-x86_64
+
+          # Espo binaries
+          cp artifacts/espo-darwin-arm64/espo release/espo-darwin-arm64
+          cp artifacts/espo-linux-x86_64/espo release/espo-linux-x86_64
 
           # WASM and JSON-RPC bundle
           cp artifacts/alkanes-wasm/alkanes.wasm release/alkanes.wasm

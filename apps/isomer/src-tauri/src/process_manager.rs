@@ -17,9 +17,9 @@ use std::time::Instant;
 pub enum ServiceId {
     Bitcoind,
     Metashrew,
-    Memshrew,
     Ord,
     Esplora,
+    Espo,
     JsonRpc,
 }
 
@@ -28,9 +28,9 @@ impl ServiceId {
         vec![
             ServiceId::Bitcoind,
             ServiceId::Metashrew,
-            ServiceId::Memshrew,
             ServiceId::Ord,
             ServiceId::Esplora,
+            ServiceId::Espo,
             ServiceId::JsonRpc,
         ]
     }
@@ -39,9 +39,9 @@ impl ServiceId {
         match self {
             ServiceId::Bitcoind => "bitcoind",
             ServiceId::Metashrew => "metashrew",
-            ServiceId::Memshrew => "memshrew",
             ServiceId::Ord => "ord",
             ServiceId::Esplora => "esplora",
+            ServiceId::Espo => "espo",
             ServiceId::JsonRpc => "jsonrpc",
         }
     }
@@ -51,9 +51,9 @@ impl ServiceId {
         match self {
             ServiceId::Bitcoind => "bitcoind",
             ServiceId::Metashrew => "metashrew",
-            ServiceId::Memshrew => "memshrew",
             ServiceId::Ord => "ord",
             ServiceId::Esplora => "esplora",
+            ServiceId::Espo => "espo",
             ServiceId::JsonRpc => "alkanes-jsonrpc",
         }
     }
@@ -62,9 +62,9 @@ impl ServiceId {
         match self {
             ServiceId::Bitcoind => "Bitcoin Core",
             ServiceId::Metashrew => "Metashrew (Indexer)",
-            ServiceId::Memshrew => "Memshrew (Mempool)",
             ServiceId::Ord => "Ord (Inscriptions)",
             ServiceId::Esplora => "Esplora (Explorer)",
+            ServiceId::Espo => "Espo (Indexer/Explorer)",
             ServiceId::JsonRpc => "Alkanes JSON-RPC",
         }
     }
@@ -73,9 +73,9 @@ impl ServiceId {
         match self {
             ServiceId::Bitcoind => "bitcoind",
             ServiceId::Metashrew => "rockshrew-mono",
-            ServiceId::Memshrew => "memshrew-p2p",
             ServiceId::Ord => "ord",
             ServiceId::Esplora => "flextrs",
+            ServiceId::Espo => "espo",
             ServiceId::JsonRpc => "jsonrpc",
         }
     }
@@ -85,15 +85,19 @@ impl ServiceId {
         match self {
             ServiceId::Bitcoind => vec![],
             ServiceId::Metashrew => vec![ServiceId::Bitcoind],
-            ServiceId::Memshrew => vec![ServiceId::Bitcoind],
             ServiceId::Ord => vec![ServiceId::Bitcoind],
             ServiceId::Esplora => vec![ServiceId::Bitcoind],
+            ServiceId::Espo => vec![
+                ServiceId::Bitcoind,
+                ServiceId::Metashrew,
+                ServiceId::Esplora,
+            ],
             ServiceId::JsonRpc => vec![
                 ServiceId::Bitcoind,
                 ServiceId::Metashrew,
-                ServiceId::Memshrew,
                 ServiceId::Ord,
                 ServiceId::Esplora,
+                ServiceId::Espo,
             ],
         }
     }
@@ -147,9 +151,9 @@ impl ProcessManager {
         let binaries = vec![
             "bitcoind",
             "rockshrew-mono",
-            "memshrew-p2p",
             "ord",
             "flextrs",
+            "espo",
             "jsonrpc",
         ];
 
@@ -179,9 +183,10 @@ impl ProcessManager {
             18443, // bitcoind rpc
             18444, // bitcoind p2p
             8080,  // metashrew
-            8081,  // memshrew
             8090,  // ord
             50010, // esplora http
+            8083,  // espo rpc
+            8081,  // espo explorer / UI
             18888, // jsonrpc
         ];
 
@@ -284,18 +289,6 @@ impl ProcessManager {
                 "--daemon-rpc-url".to_string(),
                 format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
             ],
-            ServiceId::Memshrew => vec![
-                "--daemon-rpc-url".to_string(),
-                format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
-                "--p2p-addr".to_string(),
-                format!("127.0.0.1:{}", ports.bitcoind_p2p),
-                "--auth".to_string(),
-                format!("{}:{}", btc.rpc_user, btc.rpc_password),
-                "--host".to_string(),
-                "0.0.0.0".to_string(),
-                "--port".to_string(),
-                ports.memshrew.to_string(),
-            ],
             ServiceId::Ord => vec![
                 "--data-dir".to_string(),
                 get_runtime_dir().join("ord").display().to_string(),
@@ -338,7 +331,50 @@ impl ProcessManager {
                 .join("jsonrpc/bin/jsonrpc.js")
                 .display()
                 .to_string()],
+            ServiceId::Espo => vec![
+                "--config-path".to_string(),
+                get_runtime_dir()
+                    .join("espo")
+                    .join("config.json")
+                    .display()
+                    .to_string(),
+            ],
         }
+    }
+
+    /// Prepare the configuration file for Espo
+    fn prepare_espo_config(&self, config: &IsomerConfig) -> Result<(), String> {
+        let espo_dir = get_runtime_dir().join("espo");
+        std::fs::create_dir_all(&espo_dir)
+            .map_err(|e| format!("Failed to create espo directory: {}", e))?;
+
+        let ports = &config.ports;
+        let btc = &config.bitcoind;
+
+        // Create the espo config matching its expected format
+        let espo_config = serde_json::json!({
+            "rpc_port": ports.espo_rpc,
+            "explorer_host": format!("0.0.0.0:{}", ports.espo_explorer),
+            "metashrew_rpc_url": format!("http://127.0.0.1:{}", ports.metashrew),
+            "electrs_rpc_url": format!("http://127.0.0.1:{}", ports.esplora_http),
+            "bitcoin_rpc_url": format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
+            "bitcoin_rpc_user": btc.rpc_user,
+            "bitcoin_rpc_pass": btc.rpc_password,
+            "bitcoin_blocks_dir": get_runtime_dir().join("bitcoin/regtest/blocks").display().to_string(),
+            "db_path": espo_dir.join("db").display().to_string(),
+            "indexer_enabled": true,
+            "mempool_enabled": true,
+            "explorer_enabled": true,
+            "modules": ["ohlc", "volume", "holders"]
+        });
+
+        let config_path = espo_dir.join("config.json");
+        let content = serde_json::to_string_pretty(&espo_config)
+            .map_err(|e| format!("Failed to serialize espo config: {}", e))?;
+        std::fs::write(config_path, content)
+            .map_err(|e| format!("Failed to write espo config: {}", e))?;
+
+        Ok(())
     }
 
     /// Build environment variables for a service
@@ -363,7 +399,7 @@ impl ProcessManager {
             );
             env.insert(
                 "MEMSHREW_URI".to_string(),
-                format!("http://127.0.0.1:{}", ports.memshrew),
+                format!("http://127.0.0.1:{}", ports.espo_rpc),
             );
             env.insert("ORD_HOST".to_string(), "127.0.0.1".to_string());
             env.insert("ORD_PORT".to_string(), ports.ord.to_string());
@@ -397,7 +433,12 @@ impl ProcessManager {
         let _ = std::fs::create_dir_all(get_runtime_dir().join("bitcoin"));
         let _ = std::fs::create_dir_all(get_runtime_dir().join("metashrew"));
         let _ = std::fs::create_dir_all(get_runtime_dir().join("esplora"));
+        let _ = std::fs::create_dir_all(get_runtime_dir().join("espo"));
         let _ = std::fs::create_dir_all(get_logs_dir());
+
+        if service == ServiceId::Espo {
+            self.prepare_espo_config(config)?;
+        }
 
         let args = self.build_args(service, config);
         let env = self.build_env(service, config);
@@ -540,9 +581,9 @@ impl ProcessManager {
         let order = vec![
             ServiceId::Bitcoind,
             ServiceId::Metashrew,
-            ServiceId::Memshrew,
             ServiceId::Ord,
             ServiceId::Esplora,
+            ServiceId::Espo,
             ServiceId::JsonRpc,
         ];
 
@@ -744,9 +785,9 @@ impl ProcessManager {
     pub fn stop_all(&mut self) -> Result<(), String> {
         let order = vec![
             ServiceId::JsonRpc,
+            ServiceId::Espo,
             ServiceId::Esplora,
             ServiceId::Ord,
-            ServiceId::Memshrew,
             ServiceId::Metashrew,
             ServiceId::Bitcoind,
         ];
@@ -784,6 +825,7 @@ impl ProcessManager {
             get_runtime_dir().join("bitcoin"),
             get_runtime_dir().join("metashrew"),
             get_runtime_dir().join("esplora"),
+            get_runtime_dir().join("espo"),
             get_runtime_dir().join("ord"),
         ];
 
@@ -902,9 +944,9 @@ impl ProcessManager {
         match service {
             ServiceId::Bitcoind => 18443,
             ServiceId::Metashrew => 8080,
-            ServiceId::Memshrew => 8081,
             ServiceId::Ord => 8090,
             ServiceId::Esplora => 50010,
+            ServiceId::Espo => 8081,
             ServiceId::JsonRpc => 18888,
         }
     }
@@ -925,11 +967,11 @@ impl ProcessManager {
         let url = match service {
             ServiceId::Bitcoind => format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
             ServiceId::Metashrew => format!("http://127.0.0.1:{}", ports.metashrew),
-            ServiceId::Memshrew => format!("http://127.0.0.1:{}", ports.memshrew),
             ServiceId::Ord => format!("http://127.0.0.1:{}/status", ports.ord),
             ServiceId::Esplora => {
                 format!("http://127.0.0.1:{}/blocks/tip/height", ports.esplora_http)
             }
+            ServiceId::Espo => format!("http://127.0.0.1:{}", ports.espo_explorer),
             ServiceId::JsonRpc => format!("http://127.0.0.1:{}", ports.jsonrpc),
         };
 

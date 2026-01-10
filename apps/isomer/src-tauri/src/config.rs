@@ -11,11 +11,12 @@ pub struct PortConfig {
     pub bitcoind_rpc: u16,
     pub bitcoind_p2p: u16,
     pub metashrew: u16,
-    pub memshrew: u16,
     pub ord: u16,
     pub esplora_http: u16,
     pub esplora_electrum: u16,
     pub jsonrpc: u16,
+    pub espo_rpc: u16,
+    pub espo_explorer: u16,
 }
 
 impl Default for PortConfig {
@@ -24,11 +25,12 @@ impl Default for PortConfig {
             bitcoind_rpc: 18443,
             bitcoind_p2p: 18444,
             metashrew: 8080,
-            memshrew: 8081,
             ord: 8090,
             esplora_http: 50010,
             esplora_electrum: 50001,
             jsonrpc: 18888,
+            espo_rpc: 8083,
+            espo_explorer: 8081,
         }
     }
 }

@@ -196,21 +196,6 @@ impl BinaryManager {
             },
         );
 
-        let memshrew_sha = "";
-
-        releases.insert(
-            ServiceId::Memshrew,
-            BinaryRelease {
-                version: "9.0.2-alpha.1".to_string(),
-                // Format: memshrew-p2p-darwin-arm64
-                url: format!("{}/memshrew-p2p-{}-{}", isomer_release_base, os, arch),
-                sha256: memshrew_sha.to_string(),
-                size_bytes: 20_000_000,
-                archive_path: None,
-                is_archive: false,
-            },
-        );
-
         let flextrs_sha = if os == "darwin" && arch == "arm64" {
             "ae38e7a5bc3b10b7b0fd74f84288ae2470972cb1f227029c8d9d54682119cafe"
         } else {
@@ -240,6 +225,21 @@ impl BinaryManager {
                 size_bytes: 10_000_000,
                 archive_path: None,
                 is_archive: true,
+            },
+        );
+
+        // Espo
+        let espo_sha = "";
+
+        releases.insert(
+            ServiceId::Espo,
+            BinaryRelease {
+                version: "0.1.0".to_string(),
+                url: format!("{}/espo-{}-{}", isomer_release_base, os, arch),
+                sha256: espo_sha.to_string(),
+                size_bytes: 30_000_000,
+                archive_path: None,
+                is_archive: false,
             },
         );
 
@@ -330,8 +330,8 @@ impl BinaryManager {
             ServiceId::Bitcoind => self.run_version_cmd(&path, "--version"),
             ServiceId::Ord => self.run_version_cmd(&path, "--version"),
             ServiceId::Metashrew => self.run_version_cmd(&path, "--version"),
-            ServiceId::Memshrew => self.run_version_cmd(&path, "--version"),
             ServiceId::Esplora => self.run_version_cmd(&path, "--version"), // flextrs
+            ServiceId::Espo => self.run_version_cmd(&path, "--version"),
             ServiceId::JsonRpc => None, // Node script, maybe --version works if executable
         }
     }

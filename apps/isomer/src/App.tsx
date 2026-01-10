@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { LogsPanel } from './components/LogsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
+import { ExplorerPanel } from './components/ExplorerPanel';
 import { useSystemStatus } from './hooks/useStatus';
 
 function App() {
@@ -18,7 +19,7 @@ function App() {
       <main className="flex-1 overflow-auto">
         {activeView === 'dashboard' && <Dashboard />}
         {activeView === 'accounts' && <PlaceholderView title="Accounts" />}
-        {activeView === 'blocks' && <PlaceholderView title="Blocks" />}
+        {activeView === 'explorer' && <ExplorerPanel />}
         {activeView === 'contracts' && <PlaceholderView title="Contracts" />}
         {activeView === 'logs' && <LogsPanel />}
         {activeView === 'settings' && <SettingsPanel />}
