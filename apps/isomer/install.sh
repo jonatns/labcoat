@@ -62,7 +62,8 @@ detect_platform() {
 # Get the latest release download URL
 get_download_url() {
     local platform=$1
-    local api_url="https://api.github.com/repos/${REPO}/releases/latest"
+    # Get all releases (including drafts if we have permissions, otherwise just published ones)
+    local api_url="https://api.github.com/repos/${REPO}/releases"
     
     echo -e "${BLUE}Fetching latest release info...${NC}"
     
@@ -72,26 +73,29 @@ get_download_url() {
     local asset_pattern=""
     case "$platform" in
         macos-arm64)
-            asset_pattern="aarch64.dmg"
+            asset_pattern="aarch64.*\\.dmg"
             ;;
         macos-x64)
-            asset_pattern="x64.dmg"
+            asset_pattern="x64.*\\.dmg"
             ;;
         linux-*)
-            asset_pattern=".AppImage"
+            asset_pattern="\\.AppImage"
             ;;
         windows-*)
-            asset_pattern=".msi"
+            asset_pattern="\\.msi"
             ;;
     esac
     
+    # Find the first release that has our desired asset (skip binaries-v* releases)
     local download_url
-    download_url=$(echo "$release_info" | grep -o "\"browser_download_url\": \"[^\"]*${asset_pattern}\"" | head -1 | cut -d'"' -f4)
+    download_url=$(echo "$release_info" | grep -E "\"browser_download_url\".*${asset_pattern}" | head -1 | grep -o 'https://[^"]*')
     
     if [ -z "$download_url" ]; then
         echo -e "${RED}Could not find download URL for ${platform}${NC}"
-        echo -e "${YELLOW}Available assets:${NC}"
-        echo "$release_info" | grep -o '"name": "[^"]*"' | head -10
+        echo -e "${YELLOW}No Isomer app release found with ${asset_pattern} assets.${NC}"
+        echo -e "${YELLOW}The release may still be in draft state.${NC}"
+        echo ""
+        echo -e "Please check: https://github.com/${REPO}/releases"
         exit 1
     fi
     
