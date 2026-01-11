@@ -2,7 +2,7 @@
   "name": "isomer",
   "productName": "Isomer",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One-click Alkanes development environment",
   "type": "module",
   "scripts": {
