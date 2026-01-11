@@ -27,6 +27,7 @@
 | Feature                   | Description                                                              |
 | ------------------------- | ------------------------------------------------------------------------ |
 | 🚀 **One-Click Launch**   | Start your entire Alkanes development stack with a single click          |
+| ⚡ **JSON RPC Server**    | Prominent RPC endpoint display with copy-to-clipboard (Ganache-style)    |
 | 🔧 **Service Management** | Easily control Bitcoin Core, Metashrew, Esplora, Ord, and JSON RPC       |
 | 🔍 **Espo Explorer**      | Built-in block explorer with Alkanes trace visualization                 |
 | 💰 **Faucet & Mining**    | Fund addresses and mine blocks directly from the UI                      |
@@ -103,6 +104,8 @@ For contributors who want to work on Isomer:
 ```bash
 pnpm tauri dev
 ```
+
+See [RELEASING.md](RELEASING.md) for details on the two-stage release process (binaries and app).
 
 ---
 
