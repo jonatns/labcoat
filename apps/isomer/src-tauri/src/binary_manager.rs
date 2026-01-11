@@ -56,7 +56,13 @@ pub struct BinaryRelease {
 /// Manages binary downloads and updates
 pub struct BinaryManager {
     releases: HashMap<ServiceId, BinaryRelease>,
+    /// Cached checksums fetched from the release
+    checksums_cache: Option<HashMap<String, String>>,
 }
+
+/// URL for the checksums.json file in the release
+const CHECKSUMS_URL: &str =
+    "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.3/checksums.json";
 
 impl Default for BinaryManager {
     fn default() -> Self {
@@ -68,7 +74,45 @@ impl BinaryManager {
     pub fn new() -> Self {
         Self {
             releases: Self::get_releases_for_platform(),
+            checksums_cache: None,
         }
+    }
+
+    /// Fetch checksums from the release
+    pub async fn fetch_checksums(&mut self) -> Result<(), String> {
+        if self.checksums_cache.is_some() {
+            return Ok(());
+        }
+
+        tracing::info!("Fetching checksums from {}", CHECKSUMS_URL);
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(CHECKSUMS_URL)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch checksums: {}", e))?;
+
+        if !response.status().is_success() {
+            tracing::warn!("Failed to fetch checksums, will skip verification");
+            return Ok(());
+        }
+
+        let checksums: HashMap<String, String> = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse checksums: {}", e))?;
+
+        tracing::info!("Loaded {} checksums", checksums.len());
+        self.checksums_cache = Some(checksums);
+        Ok(())
+    }
+
+    /// Get checksum for a filename from the cache
+    fn get_checksum_for_file(&self, filename: &str) -> Option<String> {
+        self.checksums_cache
+            .as_ref()
+            .and_then(|c| c.get(filename).cloned())
     }
 
     /// Detect the current platform
@@ -220,7 +264,7 @@ impl BinaryManager {
             BinaryRelease {
                 version: "0.1.0".to_string(),
                 url: format!("{}/alkanes-jsonrpc-bundle.tar.gz", isomer_release_base),
-                sha256: "22a3743f0fecc69a1c123bfc5dd4d30cd32a7049f56b6fd7ef1eb487dda44aca"
+                sha256: "bedc8928c7c48eb45ab51f9094b06a732ee7542e091cf4e75fd902e8aea84a55"
                     .to_string(),
                 size_bytes: 10_000_000,
                 archive_path: None,
@@ -444,8 +488,11 @@ impl BinaryManager {
 
         progress_callback(0.0);
 
-        // Download the file
-        let response = reqwest::get(&release.url)
+        // Download the file with streaming progress
+        let client = reqwest::Client::new();
+        let response = client
+            .get(&release.url)
+            .send()
             .await
             .map_err(|e| format!("Download failed: {}", e))?;
 
@@ -456,27 +503,50 @@ impl BinaryManager {
             ));
         }
 
-        let _total_size = response.content_length().unwrap_or(release.size_bytes);
+        let total_size = response.content_length().unwrap_or(release.size_bytes);
+        let mut downloaded: u64 = 0;
+        let mut bytes_vec = Vec::with_capacity(total_size as usize);
 
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+        // Stream the response and track progress
+        use futures_util::StreamExt;
+        let mut stream = response.bytes_stream();
 
-        progress_callback(0.5);
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("Failed to read chunk: {}", e))?;
+            bytes_vec.extend_from_slice(&chunk);
+            downloaded += chunk.len() as u64;
 
-        if !release.sha256.is_empty() {
+            // Report progress (download is 90% of total work, checksum is last 10%)
+            let progress = (downloaded as f32 / total_size as f32) * 0.9;
+            progress_callback(progress);
+        }
+
+        let bytes = bytes::Bytes::from(bytes_vec);
+
+        progress_callback(0.9);
+
+        // Get checksum - prefer dynamic from checksums.json, fallback to hardcoded
+        let filename = release.url.split('/').last().unwrap_or("");
+        let expected_checksum = self.get_checksum_for_file(filename).or_else(|| {
+            if !release.sha256.is_empty() {
+                Some(release.sha256.clone())
+            } else {
+                None
+            }
+        });
+
+        if let Some(expected) = expected_checksum {
             tracing::info!("Verifying checksum for {}...", service.display_name());
             let mut hasher = Sha256::new();
             hasher.update(&bytes);
             let result = hasher.finalize();
             let digest = hex::encode(result);
 
-            if digest != release.sha256 {
+            if digest != expected {
                 tracing::error!(
                     "Checksum mismatch for {}: expected {}, got {}",
                     service.display_name(),
-                    release.sha256,
+                    expected,
                     digest
                 );
                 return Err(format!(
@@ -485,6 +555,11 @@ impl BinaryManager {
                 ));
             }
             tracing::info!("Checksum verified for {}", service.display_name());
+        } else {
+            tracing::warn!(
+                "No checksum available for {}, skipping verification",
+                service.display_name()
+            );
         }
 
         if release.is_archive {
@@ -547,9 +622,12 @@ impl BinaryManager {
 
     /// Download all missing or outdated binaries
     pub async fn download_all(
-        &self,
+        &mut self,
         progress_callback: impl Fn(ServiceId, f32) + Send + Clone + 'static,
     ) -> Result<(), String> {
+        // Fetch checksums from release before downloading
+        self.fetch_checksums().await?;
+
         for service in ServiceId::all() {
             let status = self.check_binary(service).status;
             let should_download = match status {

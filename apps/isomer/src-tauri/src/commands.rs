@@ -301,7 +301,7 @@ pub async fn check_binaries() -> Result<Vec<BinaryInfo>, String> {
 /// Download missing binaries
 #[tauri::command]
 pub async fn download_binaries(app: tauri::AppHandle) -> Result<(), String> {
-    let manager = BinaryManager::new();
+    let mut manager = BinaryManager::new();
 
     // First download alkanes.wasm for metashrew
     BinaryManager::download_alkanes_wasm().await?;

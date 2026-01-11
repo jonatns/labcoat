@@ -322,6 +322,28 @@ jobs:
 
           ls -la release/
 
+      - name: Generate checksums
+        run: |
+          cd release
+          # Generate checksums.json
+          echo '{' > checksums.json
+          first=true
+          for file in *; do
+            [ "$file" = "checksums.json" ] && continue
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo ',' >> checksums.json
+            fi
+            hash=$(sha256sum "$file" | cut -d' ' -f1)
+            printf '  "%s": "%s"' "$file" "$hash" >> checksums.json
+          done
+          echo '' >> checksums.json
+          echo '}' >> checksums.json
+
+          echo "Generated checksums.json:"
+          cat checksums.json
+
       - name: Get tag name
         id: get_tag
         run: |

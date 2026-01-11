@@ -1817,8 +1817,10 @@ name = "isomer"
 version = "0.1.0"
 dependencies = [
  "async-channel",
+ "bytes",
  "dirs",
  "flate2",
+ "futures-util",
  "hex",
  "libc",
  "portable-pty",

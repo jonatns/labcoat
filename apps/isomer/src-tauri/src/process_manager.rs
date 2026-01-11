@@ -54,7 +54,7 @@ impl ServiceId {
             ServiceId::Ord => "ord",
             ServiceId::Esplora => "esplora",
             ServiceId::Espo => "espo",
-            ServiceId::JsonRpc => "alkanes-jsonrpc",
+            ServiceId::JsonRpc => "jsonrpc",
         }
     }
 
@@ -65,7 +65,7 @@ impl ServiceId {
             ServiceId::Ord => "Ord (Inscriptions)",
             ServiceId::Esplora => "Esplora (Explorer)",
             ServiceId::Espo => "Espo (Indexer/Explorer)",
-            ServiceId::JsonRpc => "Alkanes JSON-RPC",
+            ServiceId::JsonRpc => "JSON RPC",
         }
     }
 
@@ -389,8 +389,16 @@ impl ProcessManager {
         let ports = &config.ports;
         let btc = &config.bitcoind;
 
+        // Set RUST_LOG for Rust-based services
+        if matches!(
+            service,
+            ServiceId::Metashrew | ServiceId::JsonRpc | ServiceId::Esplora
+        ) {
+            env.insert("RUST_LOG".to_string(), "info".to_string());
+        }
+
         if service == ServiceId::JsonRpc {
-            // Note: alkanes-jsonrpc expects these specific env var names
+            // Note: JSON-RPC server expects these specific env var names
             env.insert("HOST".to_string(), "0.0.0.0".to_string());
             env.insert("PORT".to_string(), ports.jsonrpc.to_string());
             env.insert(
@@ -411,7 +419,6 @@ impl ProcessManager {
             env.insert("ORD_PORT".to_string(), ports.ord.to_string());
             env.insert("ESPLORA_HOST".to_string(), "127.0.0.1".to_string());
             env.insert("ESPLORA_PORT".to_string(), ports.esplora_http.to_string());
-            env.insert("RUST_LOG".to_string(), "info".to_string());
         }
 
         env
@@ -970,6 +977,22 @@ impl ProcessManager {
             .build()
             .unwrap_or_default();
 
+        // For JSON-RPC, we just need to verify it responds to a POST request
+        // Using an empty/unknown method that won't cause error spam in logs
+        if service == ServiceId::JsonRpc {
+            let url = format!("http://127.0.0.1:{}", ports.jsonrpc);
+
+            // Just do a simple GET/POST check - if the server responds at all, it's healthy
+            return match client.get(&url).send().await {
+                Ok(res) => {
+                    // JSON-RPC servers typically respond with 405 Method Not Allowed for GET
+                    // or some other response - any response means it's running
+                    res.status().as_u16() > 0
+                }
+                Err(_) => false,
+            };
+        }
+
         let url = match service {
             ServiceId::Bitcoind => format!("http://127.0.0.1:{}", ports.bitcoind_rpc),
             ServiceId::Metashrew => format!("http://127.0.0.1:{}", ports.metashrew),
@@ -978,7 +1001,7 @@ impl ProcessManager {
                 format!("http://127.0.0.1:{}/blocks/tip/height", ports.esplora_http)
             }
             ServiceId::Espo => format!("http://127.0.0.1:{}", ports.espo_explorer),
-            ServiceId::JsonRpc => format!("http://127.0.0.1:{}", ports.jsonrpc),
+            ServiceId::JsonRpc => unreachable!(), // Handled above
         };
 
         match client.get(&url).send().await {

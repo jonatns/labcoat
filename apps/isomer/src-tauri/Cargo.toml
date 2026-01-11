@@ -42,6 +42,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Async channels for event streaming
 async-channel = "2"
+futures-util = "0.3.31"
+bytes = "1.11.0"
 
 # Unix signal handling
 [target.'cfg(unix)'.dependencies]

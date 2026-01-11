@@ -5,13 +5,13 @@ import type { LogEntry } from '../lib/types';
 const SERVICE_COLORS: Record<string, string> = {
     'bitcoind': 'bg-orange-600/20 text-orange-400 border-orange-600/50',
     'metashrew': 'bg-purple-600/20 text-purple-400 border-purple-600/50',
-    'memshrew': 'bg-pink-600/20 text-pink-400 border-pink-600/50',
     'ord': 'bg-cyan-600/20 text-cyan-400 border-cyan-600/50',
     'esplora': 'bg-blue-600/20 text-blue-400 border-blue-600/50',
-    'alkanes-jsonrpc': 'bg-green-600/20 text-green-400 border-green-600/50',
+    'espo': 'bg-teal-600/20 text-teal-400 border-teal-600/50',
+    'jsonrpc': 'bg-green-600/20 text-green-400 border-green-600/50',
 };
 
-const ALL_SERVICES = ['bitcoind', 'metashrew', 'memshrew', 'ord', 'esplora', 'alkanes-jsonrpc'];
+const ALL_SERVICES = ['bitcoind', 'metashrew', 'ord', 'esplora', 'espo', 'jsonrpc'];
 
 export function LogsPanel() {
     const [enabledServices, setEnabledServices] = useState<Set<string>>(new Set(ALL_SERVICES));
@@ -71,16 +71,25 @@ export function LogsPanel() {
 
     // Filter logs by enabled services
     const filteredLogs = logs.filter(log => enabledServices.has(log.service));
+    const isScrollingRef = useRef(false);
 
     // Auto-scroll to bottom when new logs arrive
     useEffect(() => {
-        if (isAutoScroll && logsEndRef.current) {
-            logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        if (isAutoScroll && containerRef.current) {
+            isScrollingRef.current = true;
+            containerRef.current.scrollTop = containerRef.current.scrollHeight;
+            // Reset after a short delay
+            setTimeout(() => {
+                isScrollingRef.current = false;
+            }, 100);
         }
-    }, [filteredLogs, isAutoScroll]);
+    }, [filteredLogs.length, isAutoScroll]);
 
     // Detect manual scroll to disable auto-scroll
     const handleScroll = () => {
+        // Ignore scroll events during programmatic scrolling
+        if (isScrollingRef.current) return;
+
         if (containerRef.current) {
             const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
             const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
@@ -128,8 +137,8 @@ export function LogsPanel() {
 
                     <button
                         onClick={handleClear}
-                        className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 
-                                 rounded-lg text-zinc-400 text-sm transition-colors"
+                        className="px-3 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 
+                                 rounded-lg text-red-400 text-sm transition-colors"
                     >
                         Clear
                     </button>

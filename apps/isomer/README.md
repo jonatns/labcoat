@@ -24,14 +24,14 @@
 
 ## ✨ Features
 
-| Feature                   | Description                                                                |
-| ------------------------- | -------------------------------------------------------------------------- |
-| 🚀 **One-Click Launch**   | Start your entire Alkanes development stack with a single click            |
-| 🔧 **Service Management** | Easily control Bitcoin Core, Metashrew, Esplora, Ord, and Alkanes JSON-RPC |
-| 🔍 **Espo Explorer**      | Built-in block explorer with Alkanes trace visualization                   |
-| 💰 **Faucet & Mining**    | Fund addresses and mine blocks directly from the UI                        |
-| 📦 **Binary Management**  | Automatically downloads and verifies required binaries for your platform   |
-| 📋 **Integrated Logs**    | Real-time log streaming for all managed services                           |
+| Feature                   | Description                                                              |
+| ------------------------- | ------------------------------------------------------------------------ |
+| 🚀 **One-Click Launch**   | Start your entire Alkanes development stack with a single click          |
+| 🔧 **Service Management** | Easily control Bitcoin Core, Metashrew, Esplora, Ord, and JSON RPC       |
+| 🔍 **Espo Explorer**      | Built-in block explorer with Alkanes trace visualization                 |
+| 💰 **Faucet & Mining**    | Fund addresses and mine blocks directly from the UI                      |
+| 📦 **Binary Management**  | Automatically downloads and verifies required binaries for your platform |
+| 📋 **Integrated Logs**    | Real-time log streaming for all managed services                         |
 
 ---
 
@@ -44,7 +44,7 @@ Isomer orchestrates the following services with proper dependency ordering:
 │                      Isomer Dashboard                       │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Bitcoin     │  │ Metashrew   │  │ Alkanes JSON-RPC    │  │
+│  │ Bitcoin     │  │ Metashrew   │  │ JSON RPC            │  │
 │  │ Core        │──│ (Indexer)   │──│ (API Gateway)       │  │
 │  │ (Regtest)   │  │             │  │                     │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
@@ -130,7 +130,7 @@ isomer/
 | ---------------- | ------- |
 | Bitcoin RPC      | `18443` |
 | Metashrew RPC    | `8080`  |
-| Alkanes JSON-RPC | `18888` |
+| JSON RPC         | `18888` |
 | Esplora Electrum | `50001` |
 | Esplora HTTP     | `3002`  |
 | Espo Explorer    | `8081`  |
