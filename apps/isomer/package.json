@@ -1,35 +1,20 @@
 {
-  "name": "isomer",
-  "productName": "Isomer",
+  "name": "isomer-monorepo",
   "private": true,
   "version": "0.1.1",
-  "description": "One-click Alkanes development environment",
+  "description": "Isomer - One-click Alkanes development environment",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "tauri": "tauri",
-    "clean": "rm -rf ~/Library/Application\\ Support/isomer/bin/ /Applications/Isomer.app",
-    "clean:all": "rm -rf ~/Library/Application\\ Support/isomer/ /Applications/Isomer.app"
-  },
-  "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "zustand": "^5.0.0",
-    "lucide-react": "^0.500.0",
-    "react-router-dom": "^7.0.0"
+    "dev": "pnpm --filter @isomer/desktop dev",
+    "dev:desktop": "pnpm --filter @isomer/desktop tauri dev",
+    "dev:extension": "pnpm --filter @isomer/extension dev",
+    "build": "pnpm -r build",
+    "build:desktop": "pnpm --filter @isomer/desktop build",
+    "build:extension": "pnpm --filter @isomer/extension build",
+    "clean": "pnpm --filter @isomer/desktop clean",
+    "clean:all": "pnpm --filter @isomer/desktop clean:all"
   },
   "devDependencies": {
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4",
-    "@tauri-apps/cli": "^2",
-    "tailwindcss": "^4.0.0",
-    "@tailwindcss/vite": "^4.0.0"
+    "typescript": "~5.8.3"
   }
 }

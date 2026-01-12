@@ -267,6 +267,39 @@ jobs:
           name: alkanes-jsonrpc-bundle
           path: alkanes-jsonrpc-bundle.tar.gz
 
+  build-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout isomer
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build extension
+        run: pnpm --filter @isomer/extension build
+
+      - name: Zip extension dist
+        run: |
+          cd apps/extension
+          zip -r isomer-extension.zip dist/
+
+      - name: Upload extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: isomer-extension
+          path: apps/extension/isomer-extension.zip
+
   create-release:
     needs:
       - build-metashrew-macos-arm64
@@ -277,6 +310,7 @@ jobs:
       - build-espo-linux
       - build-alkanes-wasm
       - bundle-jsonrpc
+      - build-extension
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -316,6 +350,9 @@ jobs:
           # WASM and JSON-RPC bundle
           cp artifacts/alkanes-wasm/alkanes.wasm release/alkanes.wasm
           cp artifacts/alkanes-jsonrpc-bundle/alkanes-jsonrpc-bundle.tar.gz release/
+
+          # Chrome extension
+          cp artifacts/isomer-extension/isomer-extension.zip release/isomer-extension.zip
 
           # Make binaries executable
           chmod +x release/*-darwin-* release/*-linux-*

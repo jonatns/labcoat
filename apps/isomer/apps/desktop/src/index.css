@@ -1,0 +1,181 @@
+@import "tailwindcss";
+
+/* Custom CSS Variables for Isomer theme - Terminal High-Contrast */
+:root {
+  /* Chemistry/Terminal palette */
+  --isomer-bg-base: #09090b; /* zinc-950 */
+  --isomer-bg-surface: #18181b; /* zinc-900 */
+  --isomer-bg-highlight: #27272a; /* zinc-800 */
+
+  /* Accents */
+  --isomer-accent-primary: #f59e0b; /* amber-500 (Mining/Bitcoin) */
+  --isomer-accent-success: #10b981; /* emerald-500 (Running) */
+  --isomer-accent-info: #3b82f6; /* blue-500 (RPC) */
+  --isomer-accent-error: #f43f5e; /* rose-500 (Stop/Error) */
+
+  /* Text */
+  --isomer-text-primary: #fafafa;
+  --isomer-text-secondary: #a1a1aa;
+  --isomer-text-muted: #52525b;
+
+  /* Borders */
+  --isomer-border: #27272a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  background: var(--isomer-bg-base);
+  color: var(--isomer-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden; /* App should control scroll */
+}
+
+/* Typography Overrides */
+code,
+pre,
+.font-mono {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+/* Animations */
+@keyframes pulse-glow-success {
+  0%,
+  100% {
+    box-shadow: 0 0 10px -2px rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px -2px rgba(16, 185, 129, 0.3);
+    border-color: rgba(16, 185, 129, 0.6);
+  }
+}
+
+@keyframes pulse-glow-amber {
+  0%,
+  100% {
+    box-shadow: 0 0 10px -2px rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px -2px rgba(245, 158, 11, 0.3);
+    border-color: rgba(245, 158, 11, 0.6);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-glow-success {
+  animation: pulse-glow-success 3s infinite;
+}
+
+.animate-pulse-glow-amber {
+  animation: pulse-glow-amber 3s infinite;
+}
+
+.animate-rotate-slow {
+  animation: spin 12s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Advanced Animations */
+
+/* Reactor Breathing (Organic Pulse) - Optimized to avoid clipping squares */
+@keyframes reactor-breathe {
+  0%, 100% { 
+    transform: scale(1);
+    opacity: 0.8;
+    box-shadow: 0 0 30px -10px rgba(16, 185, 129, 0.4);
+  }
+  50% { 
+    transform: scale(1.03); 
+    opacity: 1;
+    box-shadow: 0 0 60px -10px rgba(16, 185, 129, 0.6);
+  }
+}
+
+/* Reactor Shockwave (Mining) */
+@keyframes shockwave-ring {
+  0% { transform: scale(0.9); opacity: 1; border-width: 4px; border-color: rgba(245, 158, 11, 0.8); }
+  100% { transform: scale(2); opacity: 0; border-width: 0px; border-color: rgba(245, 158, 11, 0); }
+}
+
+/* Particle Flight (simplified path) */
+@keyframes fly-up-fade {
+  0% { transform: translateY(0) scale(1.2); opacity: 1; }
+  100% { transform: translateY(-300px) scale(0); opacity: 0; }
+}
+
+.animate-reactor-breathe {
+  animation: reactor-breathe 4s ease-in-out infinite;
+  will-change: transform, opacity, box-shadow;
+}
+
+.animate-shockwave {
+  animation: shockwave-ring 0.6s ease-out forwards;
+}
+
+.animate-fly-particle {
+  animation: fly-up-fade 0.8s ease-out forwards;
+}
+
+@keyframes text-flash {
+  0% { color: #10b981; text-shadow: 0 0 10px rgba(16,185,129,0.5); transform: scale(1.1); }
+  100% { color: #e4e4e7; text-shadow: none; transform: scale(1); }
+}
+
+.animate-text-flash {
+  animation: text-flash 0.6s ease-out;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--isomer-bg-highlight);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
