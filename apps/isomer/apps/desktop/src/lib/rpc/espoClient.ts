@@ -1,9 +1,9 @@
 /**
  * Espo Explorer API Client
- * Connects to the local Espo instance at localhost:8081
+ * Uses Tauri commands to fetch data from the local Espo instance
  */
 
-const ESPO_BASE_URL = "http://localhost:8081";
+import { invoke } from "@tauri-apps/api/core";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -20,36 +20,23 @@ export interface CarouselResponse {
   blocks: CarouselBlock[];
 }
 
-export interface SearchGuessItem {
-  label: string;
-  value: string;
-  href: string | null;
-  icon_url: string | null;
-  fallback_letter: string | null;
-}
-
-export interface SearchGuessGroup {
-  kind: string;
-  title: string;
-  items: SearchGuessItem[];
-}
-
-export interface SearchGuessResponse {
-  query: string;
-  groups: SearchGuessGroup[];
+export interface BlockDetails {
+  height: number;
+  hash: string;
+  time: number | null;
+  transactions: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Client
 // ─────────────────────────────────────────────────────────────────────────────
 
+const ESPO_BASE_URL = "http://localhost:8081";
+
 class EspoClient {
   private static instance: EspoClient;
-  private baseUrl: string;
 
-  private constructor(baseUrl: string = ESPO_BASE_URL) {
-    this.baseUrl = baseUrl;
-  }
+  private constructor() {}
 
   public static getInstance(): EspoClient {
     if (!EspoClient.instance) {
@@ -60,6 +47,7 @@ class EspoClient {
 
   /**
    * Fetch blocks around a center height with trace counts.
+   * Uses Tauri command to avoid CORS issues.
    * @param center - Center block height (defaults to tip)
    * @param radius - Number of blocks on each side (max 50)
    */
@@ -67,67 +55,53 @@ class EspoClient {
     center?: number,
     radius: number = 10
   ): Promise<CarouselResponse> {
-    const params = new URLSearchParams();
-    if (center !== undefined) params.set("center", center.toString());
-    params.set("radius", radius.toString());
-
-    const url = `${this.baseUrl}/api/blocks/carousel?${params}`;
-
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(
-          `Espo API Error: ${response.status} ${response.statusText}`
-        );
-      }
-      return await response.json();
-    } catch (error) {
-      console.error("[EspoClient] getCarouselBlocks failed:", error);
-      throw error;
-    }
+    const response = await invoke<CarouselResponse>("get_espo_blocks", {
+      center: center ?? null,
+      radius,
+    });
+    return response;
   }
 
   /**
-   * Search for alkanes, blocks, addresses, or transactions.
-   * @param query - Search query string
+   * Get the latest block directly from Bitcoin Core for instant updates.
    */
-  async searchGuess(query: string): Promise<SearchGuessResponse> {
-    const params = new URLSearchParams({ q: query });
-    const url = `${this.baseUrl}/api/search/guess?${params}`;
+  async getLatestBlock(): Promise<CarouselBlock> {
+    return await invoke<CarouselBlock>("get_latest_block");
+  }
 
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(
-          `Espo API Error: ${response.status} ${response.statusText}`
-        );
-      }
-      return await response.json();
-    } catch (error) {
-      console.error("[EspoClient] searchGuess failed:", error);
-      throw error;
-    }
+  /**
+   * Get full block details including transactions from Bitcoin Core.
+   */
+  async getBlockDetails(height: number): Promise<BlockDetails> {
+    return await invoke<BlockDetails>("get_block_details", { height });
   }
 
   /**
    * Get the URL to open a block in the full Espo explorer.
    */
   getBlockUrl(height: number): string {
-    return `${this.baseUrl}/block/${height}`;
+    return `${ESPO_BASE_URL}/block/${height}`;
   }
 
   /**
    * Get the URL to open an alkane in the full Espo explorer.
    */
   getAlkaneUrl(id: string): string {
-    return `${this.baseUrl}/alkane/${id}`;
+    return `${ESPO_BASE_URL}/alkane/${id}`;
   }
 
   /**
    * Get the URL to open a transaction in the full Espo explorer.
    */
   getTxUrl(txid: string): string {
-    return `${this.baseUrl}/tx/${txid}`;
+    return `${ESPO_BASE_URL}/tx/${txid}`;
+  }
+
+  /**
+   * Get the base URL for the full Espo explorer.
+   */
+  getExplorerUrl(): string {
+    return ESPO_BASE_URL;
   }
 }
 

@@ -376,3 +376,236 @@ pub async fn check_extension_status() -> Result<bool, String> {
     use crate::binary_manager::BinaryManager;
     Ok(BinaryManager::is_extension_installed())
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Espo Explorer API
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, Clone)]
+pub struct EspoCarouselBlock {
+    pub height: u64,
+    pub traces: u64,
+    pub time: Option<u64>,
+}
+
+#[derive(serde::Serialize)]
+pub struct BlockDetails {
+    pub height: u64,
+    pub hash: String,
+    pub time: Option<u64>,
+    pub transactions: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct EspoCarouselResponse {
+    pub espo_tip: u64,
+    pub blocks: Vec<EspoCarouselBlock>,
+}
+
+/// Fetch carousel blocks from Espo explorer API
+#[tauri::command]
+pub async fn get_espo_blocks(
+    center: Option<u64>,
+    radius: Option<u64>,
+) -> Result<EspoCarouselResponse, String> {
+    let radius = radius.unwrap_or(10);
+    let mut url = format!("http://localhost:8081/api/blocks/carousel?radius={}", radius);
+    
+    if let Some(c) = center {
+        url.push_str(&format!("&center={}", c));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to Espo: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Espo API error: {}", response.status()));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Espo response: {}", e))?;
+
+    let espo_tip = json
+        .get("espo_tip")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    let blocks = json
+        .get("blocks")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| {
+                    Some(EspoCarouselBlock {
+                        height: b.get("height")?.as_u64()?,
+                        traces: b.get("traces")?.as_u64().unwrap_or(0),
+                        time: b.get("time").and_then(|t| t.as_u64()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(EspoCarouselResponse { espo_tip, blocks })
+}
+
+/// Get the latest block info directly from Bitcoin Core (for optimistic UI updates)
+#[tauri::command]
+pub async fn get_latest_block(state: State<'_, SharedState>) -> Result<EspoCarouselBlock, String> {
+    let state = state.read().await;
+    let config = &state.config;
+
+    let rpc_url = format!("http://127.0.0.1:{}", config.ports.bitcoind_rpc);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(500))
+        .build()
+        .map_err(|e| format!("{}", e))?;
+
+    // 1. Get block count
+    let count_res = client
+        .post(&rpc_url)
+        .basic_auth(&config.bitcoind.rpc_user, Some(&config.bitcoind.rpc_password))
+        .json(&serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "isomer-bestblock",
+            "method": "getblockcount",
+            "params": []
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to Bitcoin Core: {}", e))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    let height = count_res
+        .get("result")
+        .and_then(|v| v.as_u64())
+        .ok_or("Invalid block count response")?;
+
+    // 2. Get block hash
+    let hash_res = client
+        .post(&rpc_url)
+        .basic_auth(&config.bitcoind.rpc_user, Some(&config.bitcoind.rpc_password))
+        .json(&serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "isomer-bestblockhash",
+            "method": "getblockhash",
+            "params": [height]
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get block hash: {}", e))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    let hash = hash_res
+        .get("result")
+        .and_then(|v| v.as_str())
+        .ok_or("Invalid block hash response")?;
+
+    // 3. Get block details (time)
+    let block_res = client
+        .post(&rpc_url)
+        .basic_auth(&config.bitcoind.rpc_user, Some(&config.bitcoind.rpc_password))
+        .json(&serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "isomer-block",
+            "method": "getblock",
+            "params": [hash]
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get block details: {}", e))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    let time = block_res
+        .get("result")
+        .and_then(|r| r.get("time"))
+        .and_then(|t| t.as_u64());
+
+    Ok(EspoCarouselBlock {
+        height,
+        traces: 0, // Bitcoin Core doesn't know about traces, Espo will fill this later
+        time,
+    })
+}
+
+/// Get full block details including transactions from Bitcoin Core
+#[tauri::command]
+pub async fn get_block_details(height: u64, state: State<'_, SharedState>) -> Result<BlockDetails, String> {
+    let state = state.read().await;
+    let config = &state.config;
+
+    let rpc_url = format!("http://127.0.0.1:{}", config.ports.bitcoind_rpc);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(1000))
+        .build()
+        .map_err(|e| format!("{}", e))?;
+
+    // 1. Get block hash
+    let hash_res = client
+        .post(&rpc_url)
+        .basic_auth(&config.bitcoind.rpc_user, Some(&config.bitcoind.rpc_password))
+        .json(&serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "isomer-blockdetails",
+            "method": "getblockhash",
+            "params": [height]
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get block hash: {}", e))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse hash response: {}", e))?;
+
+    let hash = hash_res
+        .get("result")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| format!("Block not found at height {}", height))?;
+
+    // 2. Get block details
+    let block_res = client
+        .post(&rpc_url)
+        .basic_auth(&config.bitcoind.rpc_user, Some(&config.bitcoind.rpc_password))
+        .json(&serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "isomer-blockdetails",
+            "method": "getblock",
+            "params": [hash, 1] // 1 for JSON with txids
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get block details: {}", e))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse block response: {}", e))?;
+
+    let result = block_res.get("result").ok_or("No result in block details")?;
+    let time = result.get("time").and_then(|t| t.as_u64());
+    let transactions = result.get("tx")
+        .and_then(|t| t.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+
+    Ok(BlockDetails {
+        height,
+        hash: hash.to_string(),
+        time,
+        transactions,
+    })
+}

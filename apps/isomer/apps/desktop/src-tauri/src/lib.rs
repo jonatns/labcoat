@@ -50,6 +50,9 @@ pub fn run() {
             commands::update_config,
             commands::check_service_health,
             commands::get_extension_path,
+            commands::get_espo_blocks,
+            commands::get_latest_block,
+            commands::get_block_details,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

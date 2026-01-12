@@ -22,6 +22,37 @@ export function Diagnostics({ services }: DiagnosticsProps) {
         }
     }, [services]);
 
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Don't capture if user is typing in an input
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+            if (e.key === 'e' || e.key === 'E') {
+                e.preventDefault();
+                setActiveTab('explorer');
+                setIsExpanded(prev => !prev);
+                if (!isExpanded) setIsMaximized(false);
+            }
+
+            if (e.key === 'Escape') {
+                if (isMaximized) {
+                    setIsMaximized(false);
+                } else if (isExpanded) {
+                    setIsExpanded(false);
+                }
+            }
+
+            if ((e.key === 'f' || e.key === 'F') && isExpanded && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                setIsMaximized(prev => !prev);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isExpanded, isMaximized]);
+
     const hasError = services.some(s => s.status === 'error');
 
     return (

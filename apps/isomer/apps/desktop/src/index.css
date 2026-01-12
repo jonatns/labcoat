@@ -115,13 +115,14 @@ pre,
 
 /* Reactor Breathing (Organic Pulse) - Optimized to avoid clipping squares */
 @keyframes reactor-breathe {
-  0%, 100% { 
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.8;
     box-shadow: 0 0 30px -10px rgba(16, 185, 129, 0.4);
   }
-  50% { 
-    transform: scale(1.03); 
+  50% {
+    transform: scale(1.03);
     opacity: 1;
     box-shadow: 0 0 60px -10px rgba(16, 185, 129, 0.6);
   }
@@ -129,14 +130,30 @@ pre,
 
 /* Reactor Shockwave (Mining) */
 @keyframes shockwave-ring {
-  0% { transform: scale(0.9); opacity: 1; border-width: 4px; border-color: rgba(245, 158, 11, 0.8); }
-  100% { transform: scale(2); opacity: 0; border-width: 0px; border-color: rgba(245, 158, 11, 0); }
+  0% {
+    transform: scale(0.9);
+    opacity: 1;
+    border-width: 4px;
+    border-color: rgba(245, 158, 11, 0.8);
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+    border-width: 0px;
+    border-color: rgba(245, 158, 11, 0);
+  }
 }
 
 /* Particle Flight (simplified path) */
 @keyframes fly-up-fade {
-  0% { transform: translateY(0) scale(1.2); opacity: 1; }
-  100% { transform: translateY(-300px) scale(0); opacity: 0; }
+  0% {
+    transform: translateY(0) scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-300px) scale(0);
+    opacity: 0;
+  }
 }
 
 .animate-reactor-breathe {
@@ -153,8 +170,16 @@ pre,
 }
 
 @keyframes text-flash {
-  0% { color: #10b981; text-shadow: 0 0 10px rgba(16,185,129,0.5); transform: scale(1.1); }
-  100% { color: #e4e4e7; text-shadow: none; transform: scale(1); }
+  0% {
+    color: #10b981;
+    text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+    transform: scale(1.1);
+  }
+  100% {
+    color: #e4e4e7;
+    text-shadow: none;
+    transform: scale(1);
+  }
 }
 
 .animate-text-flash {
@@ -178,4 +203,38 @@ pre,
 
 ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out forwards;
 }

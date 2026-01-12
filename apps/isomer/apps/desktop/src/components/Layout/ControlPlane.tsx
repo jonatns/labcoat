@@ -37,7 +37,7 @@ export function ControlPlane({ serviceStatus, isMining, onMine, onStartStop }: C
     };
 
     return (
-        <div className="pt-24 pb-8 px-6 border-b border-zinc-800/50 bg-gradient-to-b from-zinc-900/50 to-transparent relative overflow-hidden">
+        <div className="pt-24 pb-12 px-6 border-b border-zinc-800/50 bg-gradient-to-b from-zinc-900/50 to-transparent relative overflow-visible">
 
             <div className="flex items-center justify-center gap-8 relative z-10 w-full max-w-2xl mx-auto">
 
@@ -69,7 +69,7 @@ export function ControlPlane({ serviceStatus, isMining, onMine, onStartStop }: C
 
 
                 {/* THE REACTOR (Central Status) */}
-                <div className="relative group overflow-visible flex-shrink-0">
+                <div className="relative group overflow-visible flex-shrink-0 pb-6">
                     {/* Shockwave Effect (Mining) */}
                     {shockwaveActive && (
                         <div className="absolute inset-0 rounded-full border-4 border-amber-500/50 animate-shockwave z-0 pointer-events-none will-change-transform" />

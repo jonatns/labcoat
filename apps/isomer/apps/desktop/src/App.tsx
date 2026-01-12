@@ -134,6 +134,7 @@ function App() {
     try {
       await invoke('mine_blocks', { count: 1 });
       refreshStatus();
+      window.dispatchEvent(new CustomEvent('isomer:mine'));
       setTimeout(() => setIsMiningLocally(false), 800);
     } catch (e) {
       console.error('Failed to mine block:', e);
