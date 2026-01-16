@@ -98,9 +98,7 @@ function App() {
 
   const hasMissingBinaries = binaries.some(b => b.status === 'notinstalled');
 
-  if (hasMissingBinaries) {
-    return <SetupScreen />;
-  }
+
 
   // Handlers
   const handleStartStop = useCallback(async () => {
@@ -152,36 +150,40 @@ function App() {
 
   return (
     <>
-      <AppLayout
-        header={
-          <Header
-            blockHeight={blockHeight}
-            mempoolSize={mempoolSize}
-            isSystemHealth={isSystemRunning}
-          />
-        }
-        hero={
-          <ControlPlane
-            serviceStatus={globalStatus}
-            isMining={isMining || isMiningLocally}
-            onMine={handleMine}
-            onStartStop={handleStartStop}
-          />
-        }
-        main={
-          <ServiceMatrix
-            status={globalStatus}
-            services={serviceList}
-            extensionStatus={{
-              installed: isExtensionInstalled,
-              onOpen: () => setExtensionPanelOpen(true)
-            }}
-          />
-        }
-        bottom={
-          <Diagnostics services={serviceList} isSystemRunning={isSystemRunning} />
-        }
-      />
+      {hasMissingBinaries ? (
+        <SetupScreen />
+      ) : (
+        <AppLayout
+          header={
+            <Header
+              blockHeight={blockHeight}
+              mempoolSize={mempoolSize}
+              isSystemHealth={isSystemRunning}
+            />
+          }
+          hero={
+            <ControlPlane
+              serviceStatus={globalStatus}
+              isMining={isMining || isMiningLocally}
+              onMine={handleMine}
+              onStartStop={handleStartStop}
+            />
+          }
+          main={
+            <ServiceMatrix
+              status={globalStatus}
+              services={serviceList}
+              extensionStatus={{
+                installed: isExtensionInstalled,
+                onOpen: () => setExtensionPanelOpen(true)
+              }}
+            />
+          }
+          bottom={
+            <Diagnostics services={serviceList} isSystemRunning={isSystemRunning} />
+          }
+        />
+      )}
 
       <ExtensionPanel
         isOpen={extensionPanelOpen}

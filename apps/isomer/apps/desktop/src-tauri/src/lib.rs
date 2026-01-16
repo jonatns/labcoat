@@ -50,6 +50,7 @@ pub fn run() {
             commands::update_config,
             commands::check_service_health,
             commands::get_extension_path,
+            commands::check_extension_status,
             commands::get_espo_blocks,
             commands::get_latest_block,
             commands::get_block_details,
