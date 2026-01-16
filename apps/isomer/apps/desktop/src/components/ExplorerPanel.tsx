@@ -11,44 +11,46 @@ interface BlockCardProps {
 }
 
 function BlockCard({ block, isTip, isSelected, onClick }: BlockCardProps) {
+    const hasTraces = block.traces > 0;
+    const label = `Block ${block.height}${isTip ? ', chain tip' : ''}${hasTraces ? `, ${block.traces} trace${block.traces !== 1 ? 's' : ''}` : ''}`;
+
     return (
         <button
             onClick={onClick}
+            role="option"
+            aria-selected={isSelected}
+            aria-label={label}
             className={`
-                flex-shrink-0 w-24 h-32 rounded-lg border flex flex-col items-center justify-between p-3 transition-all duration-300 relative group
+                flex-shrink-0 w-24 h-28 rounded-lg border flex flex-col items-center justify-center gap-2 transition-all duration-300 relative group
                 ${isSelected
-                    ? 'bg-amber-500/20 border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
-                    : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80'}
+                    ? 'bg-amber-500/20 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                    : hasTraces
+                        ? 'bg-amber-500/5 border-amber-500/30 hover:bg-amber-500/10 shadow-[0_0_8px_rgba(245,158,11,0.1)]'
+                        : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80'}
             `}
         >
-            <div className="text-[10px] font-mono text-zinc-500">
-                #{block.height.toLocaleString()}
+            <div className={`text-xs font-mono font-medium ${hasTraces ? 'text-amber-400' : 'text-zinc-400'}`}>
+                #{block.height}
             </div>
 
-            <div className="flex flex-col items-center gap-1 my-2">
-                <div className={`
-                    p-2 rounded-lg transition-colors
-                    ${block.traces > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-600'}
-                `}>
-                    <Zap size={16} fill={block.traces > 0 ? "currentColor" : "none"} className={block.traces > 0 ? 'animate-pulse' : ''} />
+            {hasTraces && (
+                <div className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                    {block.traces} trace{block.traces !== 1 ? 's' : ''}
                 </div>
-                <div className={`text-xs font-bold ${block.traces > 0 ? 'text-zinc-200' : 'text-zinc-500'}`}>
-                    {block.traces}
-                </div>
-            </div>
+            )}
 
             <div className="text-[9px] text-zinc-600 font-mono">
                 {block.time ? new Date(block.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
             </div>
 
             {isTip && (
-                <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-emerald-500 text-[8px] font-bold text-emerald-950 rounded uppercase tracking-tighter shadow-lg">
+                <div className="absolute -top-2 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-emerald-500 text-[9px] font-bold text-emerald-950 rounded uppercase tracking-tight shadow-lg">
                     Tip
                 </div>
             )}
 
             {isSelected && (
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-amber-500 rounded-full" />
             )}
         </button>
     );
@@ -101,7 +103,7 @@ function BlockDetail({ block, details, isTip, onViewInEspo }: BlockDetailProps) 
                         <div>
                             <div className="text-[10px] text-zinc-500 uppercase tracking-wide flex items-center gap-1">
                                 <Zap size={10} className={block.traces > 0 ? 'text-amber-500' : 'text-zinc-600'} />
-                                Alkane Ops
+                                Traces
                             </div>
                             <div className={`text-sm font-medium ${block.traces > 0 ? 'text-amber-400' : 'text-zinc-400'}`}>
                                 {block.traces}
@@ -141,41 +143,62 @@ function BlockDetail({ block, details, isTip, onViewInEspo }: BlockDetailProps) 
                         )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar min-h-[40px]">
-                        {!details ? (
-                            <div className="col-span-full h-12 flex flex-col items-center justify-center text-zinc-600 italic text-[10px] gap-2">
-                                <Loader size={16} className="animate-spin text-zinc-700" />
-                                Loading transaction data...
-                            </div>
-                        ) : details.transactions.length === 0 ? (
-                            <div className="col-span-full h-12 flex items-center justify-center text-zinc-600 italic text-[10px]">
+                    <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-2 custom-scrollbar min-h-[40px]">
+                        {details?.transactions.length === 0 ? (
+                            <div className="h-12 flex items-center justify-center text-zinc-600 italic text-[10px]">
                                 No transactions in this block.
                             </div>
-                        ) : (
-                            details.transactions.map(txid => (
-                                <div
-                                    key={txid}
-                                    className="group flex items-center gap-1 overflow-hidden"
-                                >
-                                    <div className="flex-1 flex items-center bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800/50 hover:border-amber-500/30 rounded transition-all overflow-hidden">
-                                        <button
-                                            onClick={() => openUrl(espo.getTxUrl(txid))}
-                                            className="flex-1 text-left text-[10px] font-mono text-zinc-400 hover:text-amber-400 px-2 py-1.5 truncate flex items-center justify-between"
-                                        >
-                                            <span className="truncate">{txid.slice(0, 8)}...{txid.slice(-8)}</span>
-                                            <ExternalLink size={8} className="opacity-0 group-hover:opacity-100 flex-shrink-0 ml-1" />
-                                        </button>
-                                        <button
-                                            onClick={(e) => handleCopyTx(e, txid)}
-                                            className="px-2 py-1.5 text-zinc-600 hover:text-zinc-300 border-l border-zinc-800/50 hover:bg-zinc-700/50 transition-colors"
-                                            title="Copy TXID"
-                                        >
-                                            {copiedTx === txid ? <Check size={8} className="text-green-500" /> : <Copy size={8} />}
-                                        </button>
+                        ) : details?.transactions ? (
+                            details.transactions.map((txInfo, index) => {
+                                const isCoinbase = index === 0;
+                                const isTrace = txInfo.is_trace;
+                                const txid = txInfo.txid;
+
+                                return (
+                                    <div
+                                        key={txid}
+                                        className={`
+                                            flex items-center gap-2 p-2 rounded-md transition-all cursor-pointer group
+                                            ${isTrace
+                                                ? 'bg-amber-500/5 border border-amber-500/20 hover:bg-amber-500/10 hover:border-amber-500/40'
+                                                : 'bg-zinc-900/50 border border-zinc-800/50 hover:bg-zinc-800 hover:border-zinc-700'}
+                                        `}
+                                        onClick={() => openUrl(espo.getTxUrl(txid))}
+                                    >
+                                        {/* Trace Badge */}
+                                        <div className="flex-shrink-0 w-14 flex justify-center">
+                                            {isTrace ? (
+                                                <span className="px-1.5 py-0.5 text-[8px] font-bold bg-amber-500/15 text-amber-400 rounded border border-amber-500/30 flex items-center gap-0.5">
+                                                    <Zap size={8} />
+                                                    TRACE
+                                                </span>
+                                            ) : isCoinbase ? (
+                                                <span className="text-[8px] text-zinc-600 uppercase">Coinbase</span>
+                                            ) : (
+                                                <span className="text-[8px] text-zinc-700">—</span>
+                                            )}
+                                        </div>
+
+                                        {/* TXID */}
+                                        <div className={`flex-1 font-mono text-[10px] truncate ${isTrace ? 'text-amber-300' : 'text-zinc-400'}`}>
+                                            {txid.slice(0, 12)}...{txid.slice(-12)}
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                            <button
+                                                onClick={(e) => handleCopyTx(e, txid)}
+                                                className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-zinc-700/50 rounded transition-colors"
+                                                title="Copy TXID"
+                                            >
+                                                {copiedTx === txid ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+                                            </button>
+                                            <ExternalLink size={10} className="text-zinc-700 group-hover:text-zinc-400" />
+                                        </div>
                                     </div>
-                                </div>
-                            ))
-                        )}
+                                );
+                            })
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -183,7 +206,13 @@ function BlockDetail({ block, details, isTip, onViewInEspo }: BlockDetailProps) 
     );
 }
 
-export function ExplorerPanel() {
+interface ExplorerPanelProps {
+    onBlockSelect?: () => void;
+    isVisible?: boolean;
+    isMaximized?: boolean;
+}
+
+export function ExplorerPanel({ onBlockSelect, isVisible = true, isMaximized = false }: ExplorerPanelProps) {
     const [blocks, setBlocks] = useState<CarouselBlock[]>([]);
     const [espoTip, setEspoTip] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(true);
@@ -194,6 +223,7 @@ export function ExplorerPanel() {
     const [isNewBlock, setIsNewBlock] = useState(false);
     const [hasMoreBlocks, setHasMoreBlocks] = useState(true);
     const [showScrollLatest, setShowScrollLatest] = useState(false);
+    const [focusedIndex, setFocusedIndex] = useState<number>(-1);
 
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const sentinelRef = useRef<HTMLDivElement>(null);
@@ -202,6 +232,34 @@ export function ExplorerPanel() {
     const scrollToLatest = () => {
         scrollContainerRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
     };
+
+    // Track previous visibility to detect close transitions
+    const prevVisibleRef = useRef(isVisible);
+
+    // Reset selection state when panel closes (transitions from visible to hidden)
+    useEffect(() => {
+        if (prevVisibleRef.current && !isVisible) {
+            // Panel just closed - reset selection
+            setSelectedBlock(null);
+            setSelectedBlockDetails(null);
+            setFocusedIndex(-1);
+        }
+        prevVisibleRef.current = isVisible;
+    }, [isVisible]);
+
+    // Track previous maximize state to detect un-maximize transitions
+    const prevMaximizedRef = useRef(isMaximized);
+
+    // Reset selection state when un-maximizing (maximized -> normal expanded)
+    useEffect(() => {
+        if (prevMaximizedRef.current && !isMaximized) {
+            // Panel just un-maximized - reset selection
+            setSelectedBlock(null);
+            setSelectedBlockDetails(null);
+            setFocusedIndex(-1);
+        }
+        prevMaximizedRef.current = isMaximized;
+    }, [isMaximized]);
 
     // Track scroll position to show/hide "Jump to Latest" button
     useEffect(() => {
@@ -411,6 +469,81 @@ export function ExplorerPanel() {
         return () => observer.disconnect();
     }, [fetchMoreBlocks, isLoadingMore, hasMoreBlocks]);
 
+    // Keyboard navigation for block carousel
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Don't capture if user is typing in an input
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+            // Only handle if blocks exist
+            if (blocks.length === 0) return;
+
+            const currentIndex = focusedIndex >= 0 ? focusedIndex :
+                (selectedBlock ? blocks.findIndex(b => b.height === selectedBlock.height) : -1);
+
+            switch (e.key) {
+                case 'ArrowRight':
+                    e.preventDefault();
+                    // Navigate to older block (higher index) - stop at end
+                    if (currentIndex < blocks.length - 1) {
+                        const nextIndex = currentIndex + 1;
+                        setFocusedIndex(nextIndex);
+                        setSelectedBlock(blocks[nextIndex]);
+                        onBlockSelect?.();
+                    }
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    // Navigate to newer block (lower index) - stop at tip
+                    if (currentIndex > 0) {
+                        const prevIndex = currentIndex - 1;
+                        setFocusedIndex(prevIndex);
+                        setSelectedBlock(blocks[prevIndex]);
+                        onBlockSelect?.();
+                    }
+                    break;
+                case 'Home':
+                    e.preventDefault();
+                    // Jump to tip (newest)
+                    setFocusedIndex(0);
+                    setSelectedBlock(blocks[0]);
+                    onBlockSelect?.();
+                    scrollToLatest();
+                    break;
+                case 'End':
+                    e.preventDefault();
+                    // Jump to oldest visible
+                    const lastIndex = blocks.length - 1;
+                    setFocusedIndex(lastIndex);
+                    setSelectedBlock(blocks[lastIndex]);
+                    onBlockSelect?.();
+                    break;
+                case 'Enter':
+                case ' ':
+                    if (focusedIndex >= 0 && focusedIndex < blocks.length) {
+                        e.preventDefault();
+                        const block = blocks[focusedIndex];
+                        // Toggle selection
+                        if (selectedBlock?.height === block.height) {
+                            setSelectedBlock(null);
+                        } else {
+                            setSelectedBlock(block);
+                            onBlockSelect?.();
+                        }
+                    }
+                    break;
+                case 'Escape':
+                    // Deselect
+                    setSelectedBlock(null);
+                    setFocusedIndex(-1);
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [blocks, focusedIndex, selectedBlock, onBlockSelect, scrollToLatest]);
+
     // Use live block data for the detail view to ensure hydrated traces are shown
     const liveSelectedBlock = selectedBlock
         ? blocks.find(b => b.height === selectedBlock.height) || selectedBlock
@@ -452,7 +585,7 @@ export function ExplorerPanel() {
 
                 <div className="flex items-center gap-3">
                     <span className="text-[9px] text-zinc-700 font-mono hidden sm:block">
-                        E toggle · F focus
+                        E close · M {isMaximized ? 'minimize' : 'maximize'}
                     </span>
                     <button
                         onClick={() => openInEspo()}
@@ -482,7 +615,11 @@ export function ExplorerPanel() {
 
                 <div
                     ref={scrollContainerRef}
-                    className="flex-shrink-0 h-44 flex items-center px-4 gap-3 overflow-x-auto overflow-y-hidden scrollbar-hide py-4 border-b border-zinc-800/30"
+                    role="listbox"
+                    aria-label="Block carousel"
+                    aria-orientation="horizontal"
+                    tabIndex={-1}
+                    className="flex-shrink-0 h-44 flex items-center px-4 gap-3 overflow-x-auto overflow-y-hidden scrollbar-hide py-4 border-b border-zinc-800/30 focus:outline-none"
                 >
                     {/* Reverse Sentinel for infinite scroll - loading indicator */}
                     <div ref={sentinelRef} className="flex-shrink-0 w-8 flex items-center justify-center">
@@ -495,7 +632,12 @@ export function ExplorerPanel() {
                             block={block}
                             isTip={block.height === espoTip}
                             isSelected={selectedBlock?.height === block.height}
-                            onClick={() => setSelectedBlock(selectedBlock?.height === block.height ? null : block)}
+                            onClick={() => {
+                                setSelectedBlock(selectedBlock?.height === block.height ? null : block);
+                                if (selectedBlock?.height !== block.height) {
+                                    onBlockSelect?.();
+                                }
+                            }}
                         />
                     ))}
 
@@ -506,26 +648,19 @@ export function ExplorerPanel() {
                     )}
                 </div>
 
-                {/* Inline Block Detail */}
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pt-4">
-                    {liveSelectedBlock ? (
+                {/* Inline Block Detail - only show when block is selected */}
+                {liveSelectedBlock && (
+                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pt-4">
                         <BlockDetail
                             block={liveSelectedBlock}
                             details={liveSelectedBlock?.height === selectedBlockDetails?.height ? selectedBlockDetails : null}
                             isTip={liveSelectedBlock.height === espoTip}
                             onViewInEspo={() => openInEspo(liveSelectedBlock.height)}
                         />
-                    ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-zinc-800 gap-3 opacity-40">
-                            <div className="p-5 rounded-full bg-zinc-900/30 border border-zinc-800/50">
-                                <Zap size={32} className="text-zinc-800" />
-                            </div>
-                            <div className="text-[10px] uppercase font-bold tracking-[0.2em]">Select a block to explore</div>
-                        </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
-        </div >
+        </div>
     );
 }
 

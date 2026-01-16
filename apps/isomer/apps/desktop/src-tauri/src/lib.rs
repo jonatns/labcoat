@@ -53,6 +53,9 @@ pub fn run() {
             commands::get_espo_blocks,
             commands::get_latest_block,
             commands::get_block_details,
+            commands::get_alkanes_wallets,
+            commands::get_alkane_wallet_details,
+            commands::fund_alkane_wallet,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

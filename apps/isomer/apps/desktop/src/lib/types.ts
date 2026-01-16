@@ -79,3 +79,16 @@ export interface IsomerConfig {
   mining: MiningConfig;
   mnemonic: string | null;
 }
+
+export interface AddressInfo {
+  address: string;
+  type_label: string;
+  index: number;
+}
+
+export interface AlkanesWallet {
+  name: string;
+  file_path: string;
+  balance: string | null;
+  addresses: AddressInfo[];
+}

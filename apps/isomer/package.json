@@ -5,8 +5,7 @@
   "description": "Isomer - One-click Alkanes development environment",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @isomer/desktop dev",
-    "dev:desktop": "pnpm --filter @isomer/desktop tauri dev",
+    "dev": "pnpm --filter @isomer/desktop tauri dev",
     "dev:extension": "pnpm --filter @isomer/extension dev",
     "build": "pnpm -r build",
     "build:desktop": "pnpm --filter @isomer/desktop build",

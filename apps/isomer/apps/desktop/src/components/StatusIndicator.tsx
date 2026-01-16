@@ -13,11 +13,11 @@ export function StatusIndicator({ status, size = 'md' }: StatusIndicatorProps) {
     };
 
     const getStatusColor = () => {
-        if (status === 'running') return 'bg-green-500 status-running';
+        if (status === 'running') return 'bg-emerald-500 status-running';
         if (status === 'starting') return 'bg-amber-500 status-starting';
-        if (status === 'stopped') return 'bg-gray-500';
-        if (typeof status === 'object' && 'error' in status) return 'bg-red-500';
-        return 'bg-gray-500';
+        if (status === 'stopped') return 'bg-zinc-500';
+        if (typeof status === 'object' && 'error' in status) return 'bg-rose-500';
+        return 'bg-zinc-500';
     };
 
     const getStatusText = () => {

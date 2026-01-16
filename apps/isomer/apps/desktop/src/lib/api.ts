@@ -90,6 +90,26 @@ export const api = {
    * Launch Chrome with the Isomer Companion extension loaded
    */
   launchChromeWithExtension: () => invoke<void>("launch_chrome_with_extension"),
+
+  /**
+   * Get list of Alkanes wallets
+   */
+  getAlkanesWallets: () =>
+    invoke<import("./types").AlkanesWallet[]>("get_alkanes_wallets"),
+
+  /**
+   * Get details for a specific Alkanes wallet
+   */
+  getAlkaneWalletDetails: (walletPath: string) =>
+    invoke<import("./types").AlkanesWallet>("get_alkane_wallet_details", {
+      walletPath,
+    }),
+
+  /**
+   * Fund an Alkanes wallet
+   */
+  fundAlkaneWallet: (address: string, amount: number) =>
+    invoke<string>("fund_alkane_wallet", { address, amount }),
 };
 
 export default api;

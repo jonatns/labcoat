@@ -1,24 +1,37 @@
-import { Terminal, Search, ChevronUp, ChevronDown, Maximize2, Minimize2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { LogsPanel } from '../LogsPanel'; // Reuse existing logs panel logic for now
-import { ExplorerPanel } from '../ExplorerPanel'; // Reuse explorer logic
+import { Terminal, Search, ChevronUp, ChevronDown, Maximize2, Minimize2, Wallet, Settings } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { LogsPanel } from '../LogsPanel';
+import { ExplorerPanel } from '../ExplorerPanel';
+import { WalletsPanel } from '../Wallet/WalletsPanel';
+import { SettingsPanel } from '../SettingsPanel';
 
-type Tab = 'logs' | 'explorer';
+type Tab = 'logs' | 'explorer' | 'wallets' | 'settings';
 
 interface DiagnosticsProps {
-    services: any[]; // Using any[] to match the flexible service type for now
+    services: any[];
+    isSystemRunning?: boolean;
 }
 
-export function Diagnostics({ services }: DiagnosticsProps) {
+export function Diagnostics({ services, isSystemRunning = false }: DiagnosticsProps) {
     const [activeTab, setActiveTab] = useState<Tab>('logs');
     const [isExpanded, setIsExpanded] = useState(false); // Default to collapsed
     const [isMaximized, setIsMaximized] = useState(false);
 
-    // Auto-expand on error
+    // Track if we've already auto-expanded for the current error state
+    const hasAutoExpandedRef = useRef(false);
+
+    // Auto-expand on error (only once per error occurrence)
     useEffect(() => {
-        if (services.some(s => s.status === 'error')) {
+        const hasError = services.some(s => s.status === 'error');
+
+        if (hasError && !hasAutoExpandedRef.current) {
+            // First time seeing an error, auto-expand to logs
             setIsExpanded(true);
             setActiveTab('logs');
+            hasAutoExpandedRef.current = true;
+        } else if (!hasError) {
+            // No errors, reset the flag so we can auto-expand again if a new error occurs
+            hasAutoExpandedRef.current = false;
         }
     }, [services]);
 
@@ -28,11 +41,18 @@ export function Diagnostics({ services }: DiagnosticsProps) {
             // Don't capture if user is typing in an input
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
+            // E opens explorer
             if (e.key === 'e' || e.key === 'E') {
                 e.preventDefault();
                 setActiveTab('explorer');
-                setIsExpanded(prev => !prev);
-                if (!isExpanded) setIsMaximized(false);
+                setIsExpanded(true);
+            }
+
+            // C closes the panel
+            if ((e.key === 'c' || e.key === 'C') && isExpanded) {
+                e.preventDefault();
+                setIsExpanded(false);
+                setIsMaximized(false);
             }
 
             if (e.key === 'Escape') {
@@ -43,7 +63,7 @@ export function Diagnostics({ services }: DiagnosticsProps) {
                 }
             }
 
-            if ((e.key === 'f' || e.key === 'F') && isExpanded && !e.metaKey && !e.ctrlKey) {
+            if ((e.key === 'm' || e.key === 'M') && isExpanded && !e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
                 setIsMaximized(prev => !prev);
             }
@@ -70,27 +90,59 @@ export function Diagnostics({ services }: DiagnosticsProps) {
                     setIsExpanded(!isExpanded);
                 }}
             >
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1" role="tablist" aria-label="Diagnostics panels">
                     <button
                         onClick={(e) => { e.stopPropagation(); setActiveTab('logs'); setIsExpanded(true); }}
+                        role="tab"
+                        aria-selected={activeTab === 'logs'}
+                        aria-controls="diagnostics-logs-panel"
                         className={`
                flex items-center gap-2 px-3 h-10 text-xs font-medium border-b-2 transition-colors relative
                ${activeTab === 'logs' ? 'border-amber-500 text-zinc-200 bg-zinc-800/20' : 'border-transparent text-zinc-500 hover:text-zinc-300'}
              `}
                     >
-                        <Terminal className="w-3.5 h-3.5" />
+                        <Terminal className="w-3.5 h-3.5" aria-hidden="true" />
                         Live Logs
-                        {hasError && <span className="absolute top-2 right-1 w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />}
+                        {hasError && <span className="absolute top-2 right-1 w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" aria-label="Error indicator" />}
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); setActiveTab('explorer'); setIsExpanded(true); }}
+                        role="tab"
+                        aria-selected={activeTab === 'explorer'}
+                        aria-controls="diagnostics-explorer-panel"
                         className={`
                flex items-center gap-2 px-3 h-10 text-xs font-medium border-b-2 transition-colors
                ${activeTab === 'explorer' ? 'border-amber-500 text-zinc-200 bg-zinc-800/20' : 'border-transparent text-zinc-500 hover:text-zinc-300'}
              `}
                     >
-                        <Search className="w-3.5 h-3.5" />
+                        <Search className="w-3.5 h-3.5" aria-hidden="true" />
                         Explorer
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setActiveTab('wallets'); setIsExpanded(true); }}
+                        role="tab"
+                        aria-selected={activeTab === 'wallets'}
+                        aria-controls="diagnostics-wallets-panel"
+                        className={`
+               flex items-center gap-2 px-3 h-10 text-xs font-medium border-b-2 transition-colors
+               ${activeTab === 'wallets' ? 'border-amber-500 text-zinc-200 bg-zinc-800/20' : 'border-transparent text-zinc-500 hover:text-zinc-300'}
+             `}
+                    >
+                        <Wallet className="w-3.5 h-3.5" aria-hidden="true" />
+                        Wallets
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setActiveTab('settings'); setIsExpanded(true); }}
+                        role="tab"
+                        aria-selected={activeTab === 'settings'}
+                        aria-controls="diagnostics-settings-panel"
+                        className={`
+               flex items-center gap-2 px-3 h-10 text-xs font-medium border-b-2 transition-colors
+               ${activeTab === 'settings' ? 'border-amber-500 text-zinc-200 bg-zinc-800/20' : 'border-transparent text-zinc-500 hover:text-zinc-300'}
+             `}
+                    >
+                        <Settings className="w-3.5 h-3.5" aria-hidden="true" />
+                        Settings
                     </button>
                 </div>
 
@@ -128,21 +180,36 @@ export function Diagnostics({ services }: DiagnosticsProps) {
                 </div>
             </div>
 
-            {/* Content Area */}
-            {isExpanded && (
-                <div className="flex-1 overflow-hidden relative">
-                    {activeTab === 'logs' ? (
-                        <div className="h-full w-full">
-                            {/* We wrap the existing LogsPanel but override styling via CSS or assume it fits */}
-                            <LogsPanel />
-                        </div>
-                    ) : (
-                        <div className="h-full w-full">
-                            <ExplorerPanel />
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* Content Area - always mounted for smooth transitions */}
+            <div className={`
+                flex-1 overflow-hidden relative transition-all duration-300 ease-out
+                ${isExpanded ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+            `}>
+                {activeTab === 'logs' && (
+                    <div className="h-full w-full">
+                        <LogsPanel />
+                    </div>
+                )}
+                {activeTab === 'explorer' && (
+                    <div className="h-full w-full">
+                        <ExplorerPanel
+                            onBlockSelect={() => setIsMaximized(true)}
+                            isVisible={isExpanded}
+                            isMaximized={isMaximized}
+                        />
+                    </div>
+                )}
+                {activeTab === 'wallets' && (
+                    <div className="h-full w-full overflow-auto">
+                        <WalletsPanel isRunning={isSystemRunning} />
+                    </div>
+                )}
+                {activeTab === 'settings' && (
+                    <div className="h-full w-full overflow-auto">
+                        <SettingsPanel />
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

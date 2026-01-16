@@ -30,7 +30,7 @@ export function ServiceCard({ service }: ServiceCardProps) {
     };
 
     return (
-        <div className="glass rounded-xl p-5 hover:border-zinc-500 transition-colors">
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition-colors">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-white text-lg">{service.name}</h3>
                 <StatusIndicator status={service.status} />
@@ -67,7 +67,7 @@ export function ServiceCard({ service }: ServiceCardProps) {
 
                 {service.status === 'running' && (
                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-zinc-800">
-                        <div className={`w-2 h-2 rounded-full ${isHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
+                        <div className={`w-2 h-2 rounded-full ${isHealthy ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                         <span className="text-zinc-400 text-sm">
                             {isHealthy ? 'Responding' : 'Not Responding'}
                         </span>

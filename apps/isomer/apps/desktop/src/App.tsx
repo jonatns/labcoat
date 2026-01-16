@@ -44,11 +44,7 @@ function App() {
       const installed = await invoke<boolean>('check_extension_status');
       setIsExtensionInstalled(installed);
 
-      // If installed, we can safely get the path without triggering a download
       if (installed) {
-        // We use the same command but rely on it returning quickly if installed.
-        // NOTE: get_extension_path logic is "if installed return path, else download".
-        // Since we know it's installed, this is safe/free.
         const path = await invoke<string>('get_extension_path');
         setExtensionPath(path);
       }
@@ -183,7 +179,7 @@ function App() {
           />
         }
         bottom={
-          <Diagnostics services={serviceList} />
+          <Diagnostics services={serviceList} isSystemRunning={isSystemRunning} />
         }
       />
 
@@ -199,3 +195,4 @@ function App() {
 }
 
 export default App;
+

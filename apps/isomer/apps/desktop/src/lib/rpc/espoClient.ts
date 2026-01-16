@@ -20,18 +20,23 @@ export interface CarouselResponse {
   blocks: CarouselBlock[];
 }
 
+export interface TransactionInfo {
+  txid: string;
+  is_trace: boolean;
+}
+
 export interface BlockDetails {
   height: number;
   hash: string;
   time: number | null;
-  transactions: string[];
+  transactions: TransactionInfo[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Client
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ESPO_BASE_URL = "http://localhost:8081";
+const ESPO_BASE_URL = "http://127.0.0.1:8081";
 
 class EspoClient {
   private static instance: EspoClient;

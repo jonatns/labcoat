@@ -268,6 +268,10 @@ impl ProcessManager {
                 "-printtoconsole".to_string(),
                 "-rpcallowip=0.0.0.0/0".to_string(),
                 "-rpcbind=0.0.0.0".to_string(),
+                // Prevent IBD mode in regtest (Espo waits for sync to finish)
+                "-maxtipage=999999999".to_string(),
+                "-minimumchainwork=0x00".to_string(),
+                "-datacarriersize=8192".to_string(),
                 format!("-rpcport={}", ports.bitcoind_rpc),
                 format!("-port={}", ports.bitcoind_p2p),
                 format!("-rpcuser={}", btc.rpc_user),

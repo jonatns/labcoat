@@ -389,14 +389,6 @@ pub struct EspoCarouselBlock {
 }
 
 #[derive(serde::Serialize)]
-pub struct BlockDetails {
-    pub height: u64,
-    pub hash: String,
-    pub time: Option<u64>,
-    pub transactions: Vec<String>,
-}
-
-#[derive(serde::Serialize)]
 pub struct EspoCarouselResponse {
     pub espo_tip: u64,
     pub blocks: Vec<EspoCarouselBlock>,
@@ -409,7 +401,7 @@ pub async fn get_espo_blocks(
     radius: Option<u64>,
 ) -> Result<EspoCarouselResponse, String> {
     let radius = radius.unwrap_or(10);
-    let mut url = format!("http://localhost:8081/api/blocks/carousel?radius={}", radius);
+    let mut url = format!("http://127.0.0.1:8081/api/blocks/carousel?radius={}", radius);
     
     if let Some(c) = center {
         url.push_str(&format!("&center={}", c));
@@ -544,7 +536,21 @@ pub async fn get_latest_block(state: State<'_, SharedState>) -> Result<EspoCarou
     })
 }
 
-/// Get full block details including transactions from Bitcoin Core
+#[derive(serde::Serialize)]
+pub struct TransactionInfo {
+    pub txid: String,
+    pub is_trace: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct BlockDetails {
+    pub height: u64,
+    pub hash: String,
+    pub time: Option<u64>,
+    pub transactions: Vec<TransactionInfo>,
+}
+
+/// Get full block details including transactions from Bitcoin Core + Alkanes Trace info
 #[tauri::command]
 pub async fn get_block_details(height: u64, state: State<'_, SharedState>) -> Result<BlockDetails, String> {
     let state = state.read().await;
@@ -578,7 +584,7 @@ pub async fn get_block_details(height: u64, state: State<'_, SharedState>) -> Re
         .and_then(|v| v.as_str())
         .ok_or_else(|| format!("Block not found at height {}", height))?;
 
-    // 2. Get block details
+    // 2. Get block details from Bitcoin Core
     let block_res = client
         .post(&rpc_url)
         .basic_auth(&config.bitcoind.rpc_user, Some(&config.bitcoind.rpc_password))
@@ -597,10 +603,27 @@ pub async fn get_block_details(height: u64, state: State<'_, SharedState>) -> Re
 
     let result = block_res.get("result").ok_or("No result in block details")?;
     let time = result.get("time").and_then(|t| t.as_u64());
-    let transactions = result.get("tx")
+    let raw_txs = result.get("tx")
         .and_then(|t| t.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<String>>())
         .unwrap_or_default();
+
+    // 3. Get Trace Indices from alkanes-cli (if available)
+    // We try to fetch traces, but if it fails (e.g. no alkanes, or error), we just assume (is_trace=false).
+    // 3. Get Trace Indices from Espo
+    // (User requested to use Espo instead of alkanes-cli. Since the specific transaction-level trace endpoint
+    // is not yet confirmed, we return an empty set to prevent the alkanes-cli panic.
+    // TODO: Connect to valid Espo endpoint for tx-level trace data, e.g. /api/block/:height/traces)
+    let trace_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    // 4. Combine info
+    let transactions = raw_txs.into_iter().enumerate().map(|(index, txid)| {
+        let is_trace = trace_indices.contains(&index);
+        TransactionInfo {
+            txid,
+            is_trace,
+        }
+    }).collect();
 
     Ok(BlockDetails {
         height,
@@ -608,4 +631,280 @@ pub async fn get_block_details(height: u64, state: State<'_, SharedState>) -> Re
         time,
         transactions,
     })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alkanes Wallet API
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::state::AlkanesWallet;
+
+/// List all alkanes-cli wallets in ~/.alkanes/
+#[tauri::command]
+pub async fn get_alkanes_wallets() -> Result<Vec<AlkanesWallet>, String> {
+    let home = std::env::var("HOME").map_err(|e| format!("Failed to get HOME: {}", e))?;
+    let wallets_dir = std::path::Path::new(&home).join(".alkanes");
+
+    if !wallets_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut wallets = Vec::new();
+    let entries = std::fs::read_dir(wallets_dir)
+        .map_err(|e| format!("Failed to read wallets dir: {}", e))?;
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            // Only look for .json files
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    // Skip config.json as it's likely not a wallet
+                    if stem == "config" {
+                        continue;
+                    }
+
+                    wallets.push(AlkanesWallet {
+                        name: stem.to_string(),
+                        file_path: path.to_string_lossy().to_string(),
+                        balance: None,
+                        addresses: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
+    
+    // Sort by name
+    wallets.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    Ok(wallets)
+}
+
+/// Get details for a specific wallet via alkanes-cli
+#[tauri::command]
+pub async fn get_alkane_wallet_details(
+    wallet_path: String,
+    state: State<'_, SharedState>,
+) -> Result<AlkanesWallet, String> {
+    let path = std::path::Path::new(&wallet_path);
+    let name = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Check if bitcoind is running
+    let bitcoind_running = {
+        let mut state_guard = state.write().await;
+        let status = state_guard.get_status();
+        status.services.iter().any(|s| s.id == "bitcoind" && s.status == "running")
+    };
+
+    // 0. SYNC the wallet first (ONLY if bitcoind is running)
+    if bitcoind_running {
+        // This is required for the balance to be accurate (especially after confirmed txs).
+        // We ignore errors here (logs them) because sometimes sync might fail but we still want to show what we have.
+        let sync_res = std::process::Command::new("alkanes-cli")
+            .arg("--wallet-file")
+            .arg(&wallet_path)
+            .arg("wallet")
+            .arg("sync")
+            .output();
+            
+        if let Err(e) = sync_res {
+            tracing::warn!("Failed to sync wallet {}: {}", name, e);
+        }
+    } else {
+        tracing::info!("Skipping wallet sync for {} (bitcoind not running)", name);
+    }
+
+    // 1. Get Addresses (index 0 of each address type)
+    // alkanes-cli --wallet-file <path> wallet addresses
+    let addr_output = std::process::Command::new("alkanes-cli")
+        .args(["--wallet-file", &wallet_path, "wallet", "addresses"])
+        .output()
+        .map_err(|e| format!("Failed to run alkanes-cli: {}", e))?;
+
+    let addresses: Vec<crate::state::AddressInfo> = if addr_output.status.success() {
+        let out = String::from_utf8_lossy(&addr_output.stdout);
+        let mut result = Vec::new();
+        let mut current_section = "Unknown".to_string();
+        
+        for line in out.lines() {
+            // Detect section headers like "📋 P2SH Addresses:"
+            if line.contains("Addresses:") {
+                // Extract "P2SH" from "📋 P2SH Addresses:"
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    // Usually "📋", "P2SH", "Addresses:"
+                    // find the part before "Addresses:"
+                    for (i, part) in parts.iter().enumerate() {
+                        if part.contains("Addresses:") && i > 0 {
+                            current_section = parts[i-1].to_string();
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+            
+            // Look for "n." which marks index
+            // Format: "  0. bcrt1xxx... (index: 0)"
+            let trimmed = line.trim();
+            if let Some(first_part) = trimmed.split('.').next() {
+                if let Ok(idx_from_list) = first_part.parse::<usize>() {
+                    // It likely starts with a number. Check if it contains an address.
+                    // "0. address (index: 0)"
+                    let parts: Vec<&str> = trimmed.splitn(2, ". ").collect();
+                    if parts.len() == 2 {
+                         // parts[1] is "address (index: 0)"
+                         if let Some(addr_part) = parts[1].split(" (index:").next() {
+                             let address = addr_part.trim().to_string();
+                             
+                             // We only want index 0 addresses for the main list?
+                             // The previous logic filtered for found_index_0.
+                             // But maybe we should collect ALL and filter later, or just collect index 0.
+                             // The user said "I see 0, 1, 2, 3 for address". This implies they see MULTIPLE indices.
+                             // IF we want to show multiple indices, we should collect them.
+                             // BUT checking only index 0 reduces clutter.
+                             // Let's stick to Index 0 for now as "Primary" for each type, UNLESS the user wants all.
+                             // "I see 0, 1, 2, 3..." implies we ARE showing multiple or the UI is iterating.
+                             // In WalletsPanel.tsx, we map `activeWallet.addresses`.
+                             // If we only push index 0, the user only sees index 0.
+                             
+                             // Let's collect ONLY index 0 to avoid clutter, as per previous design.
+                             // If the user saw "0, 1, 2, 3", maybe they meant "Address 0, Address 1" which were diff types?
+                             // Yes, in previous logic we collected index 0 of P2SH, P2PKH, etc.
+                             // So "Address 0" was P2SH, "Address 1" was P2PKH.
+                             
+                             // So we check if this is index 0.
+                             if trimmed.contains("(index: 0)") {
+                                 result.push(crate::state::AddressInfo {
+                                     address,
+                                     type_label: current_section.clone(),
+                                     index: 0,
+                                 });
+                             }
+                         }
+                    }
+                }
+            }
+        }
+        
+        // PRIORITIZE TAPROOT (P2TR) addresses at the top
+        result.sort_by(|a, b| {
+            let a_is_tr = a.type_label.contains("P2TR");
+            let b_is_tr = b.type_label.contains("P2TR");
+            b_is_tr.cmp(&a_is_tr)
+        });
+        
+        result
+    } else {
+        Vec::new()
+    };
+
+    // 2. Get Balance by parsing UTXOs
+    // alkanes-cli --wallet-file <path> wallet utxos
+    let utxo_output = std::process::Command::new("alkanes-cli")
+        .arg("--wallet-file")
+        .arg(&wallet_path)
+        .arg("wallet")
+        .arg("utxos")
+        .output();
+
+    let balance = if let Ok(output) = utxo_output {
+        if output.status.success() {
+            let out = String::from_utf8_lossy(&output.stdout);
+            struct CurrentUtxo {
+                amount: u64,
+                confs: u64,
+                is_coinbase: bool,
+                seen: bool,
+            }
+            let mut current = CurrentUtxo { amount: 0, confs: 0, is_coinbase: false, seen: false };
+            let mut confirmed_sats: u64 = 0;
+            let mut pending_sats: u64 = 0;
+
+            // Helper to process a finished UTXO
+            let mut process_utxo = |utxo: &CurrentUtxo, confirmed: &mut u64, pending: &mut u64| {
+                if !utxo.seen { return; }
+                // Filter immature coinbase (Regtest maturity is 100 blocks)
+                if utxo.is_coinbase && utxo.confs < 100 {
+                    return;
+                }
+                if utxo.confs > 0 {
+                    *confirmed += utxo.amount;
+                } else {
+                    *pending += utxo.amount;
+                }
+            };
+
+            for line in out.lines() {
+                // Detect start of new UTXO (or end of previous) by "Outpoint:"
+                if line.contains("Outpoint:") {
+                    process_utxo(&current, &mut confirmed_sats, &mut pending_sats);
+                    current = CurrentUtxo { amount: 0, confs: 0, is_coinbase: false, seen: true };
+                }
+
+                // Parse Amount: Filter non-digits to handle ANSI codes
+                if line.contains("Amount (sats):") {
+                    if let Some(rest) = line.split("Amount (sats):").nth(1) {
+                         let digits: String = rest.chars().filter(|c| c.is_ascii_digit()).collect();
+                         if let Ok(val) = digits.parse::<u64>() {
+                             current.amount = val;
+                         }
+                    }
+                }
+                // Parse Confirmations
+                if line.contains("Confirmations:") {
+                    if let Some(rest) = line.split("Confirmations:").nth(1) {
+                         let digits: String = rest.chars().filter(|c| c.is_ascii_digit()).collect();
+                         if let Ok(val) = digits.parse::<u64>() {
+                             current.confs = val;
+                         }
+                    }
+                }
+                // Parse Properties for coinbase
+                if line.contains("Properties:") && line.to_lowercase().contains("coinbase") {
+                    current.is_coinbase = true;
+                }
+            }
+            // Process the last UTXO
+            process_utxo(&current, &mut confirmed_sats, &mut pending_sats);
+            
+            let total_btc = (confirmed_sats as f64 + pending_sats as f64) / 100_000_000.0;
+            Some(format!("{:.8} BTC", total_btc))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(AlkanesWallet {
+        name,
+        file_path: wallet_path,
+        balance,
+        addresses,
+    })
+}
+
+/// Fund an alkanes-cli wallet from the dev wallet
+#[tauri::command]
+pub async fn fund_alkane_wallet(
+    address: String,
+    amount: f64,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    // 1. Send funds
+    let txid = faucet(address.clone(), amount, state.clone()).await?;
+
+    // 2. Mine a block to confirm
+    // We need to keep a small delay or just mine immediately? 
+    // Usually immediate is fine in regtest.
+    // We pass None for address to use default miner address.
+    match mine_blocks(1, None, state).await {
+        Ok(_) => Ok(txid),
+        Err(e) => Err(format!("Funds sent (txid: {}) but mining failed: {}", txid, e)),
+    }
 }
