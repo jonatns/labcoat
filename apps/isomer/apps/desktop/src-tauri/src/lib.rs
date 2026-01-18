@@ -57,6 +57,7 @@ pub fn run() {
             commands::get_alkanes_wallets,
             commands::get_alkane_wallet_details,
             commands::fund_alkane_wallet,
+            commands::get_all_alkanes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

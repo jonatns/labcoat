@@ -357,7 +357,7 @@ impl ProcessManager {
 
         // Create the espo config matching its expected format
         let espo_config = serde_json::json!({
-            "rpc_port": ports.espo_rpc,
+            "port": ports.espo_rpc,
             "explorer_host": format!("0.0.0.0:{}", ports.espo_explorer),
             "metashrew_rpc_url": format!("http://127.0.0.1:{}", ports.metashrew),
             "readonly_metashrew_db_dir": get_runtime_dir().join("metashrew").display().to_string(),

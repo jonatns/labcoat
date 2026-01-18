@@ -110,6 +110,15 @@ export const api = {
    */
   fundAlkaneWallet: (address: string, amount: number) =>
     invoke<string>("fund_alkane_wallet", { address, amount }),
+
+  /**
+   * Get all deployed alkanes from Espo
+   */
+  getAllAlkanes: (page?: number, limit?: number) =>
+    invoke<import("./types").AlkanesResponse>("get_all_alkanes", {
+      page: page ?? 1,
+      limit: limit ?? 50,
+    }),
 };
 
 export default api;

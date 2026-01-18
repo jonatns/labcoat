@@ -92,3 +92,21 @@ export interface AlkanesWallet {
   balance: string | null;
   addresses: AddressInfo[];
 }
+
+export interface AlkaneInfo {
+  alkane: string;
+  creation_txid: string;
+  creation_height: number;
+  creation_timestamp: number | null;
+  name: string | null;
+  symbol: string | null;
+  holder_count: number;
+}
+
+export interface AlkanesResponse {
+  ok: boolean;
+  page: number;
+  limit: number;
+  total: number;
+  items: AlkaneInfo[];
+}

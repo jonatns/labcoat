@@ -1,11 +1,12 @@
-import { Terminal, Search, ChevronUp, ChevronDown, Maximize2, Minimize2, Wallet, Settings } from 'lucide-react';
+import { Terminal, Search, ChevronUp, ChevronDown, Maximize2, Minimize2, Wallet, Settings, Package } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { LogsPanel } from '../LogsPanel';
 import { ExplorerPanel } from '../ExplorerPanel';
 import { WalletsPanel } from '../Wallet/WalletsPanel';
 import { SettingsPanel } from '../SettingsPanel';
+import { ContractsPanel } from '../ContractsPanel';
 
-type Tab = 'logs' | 'explorer' | 'wallets' | 'settings';
+type Tab = 'logs' | 'explorer' | 'wallets' | 'contracts' | 'settings';
 
 interface DiagnosticsProps {
     services: any[];
@@ -132,6 +133,19 @@ export function Diagnostics({ services, isSystemRunning = false }: DiagnosticsPr
                         Wallets
                     </button>
                     <button
+                        onClick={(e) => { e.stopPropagation(); setActiveTab('contracts'); setIsExpanded(true); }}
+                        role="tab"
+                        aria-selected={activeTab === 'contracts'}
+                        aria-controls="diagnostics-contracts-panel"
+                        className={`
+               flex items-center gap-2 px-3 h-10 text-xs font-medium border-b-2 transition-colors
+               ${activeTab === 'contracts' ? 'border-amber-500 text-zinc-200 bg-zinc-800/20' : 'border-transparent text-zinc-500 hover:text-zinc-300'}
+             `}
+                    >
+                        <Package className="w-3.5 h-3.5" aria-hidden="true" />
+                        Contracts
+                    </button>
+                    <button
                         onClick={(e) => { e.stopPropagation(); setActiveTab('settings'); setIsExpanded(true); }}
                         role="tab"
                         aria-selected={activeTab === 'settings'}
@@ -202,6 +216,11 @@ export function Diagnostics({ services, isSystemRunning = false }: DiagnosticsPr
                 {activeTab === 'wallets' && (
                     <div className="h-full w-full overflow-auto">
                         <WalletsPanel isRunning={isSystemRunning} />
+                    </div>
+                )}
+                {activeTab === 'contracts' && (
+                    <div className="h-full w-full overflow-auto">
+                        <ContractsPanel />
                     </div>
                 )}
                 {activeTab === 'settings' && (
