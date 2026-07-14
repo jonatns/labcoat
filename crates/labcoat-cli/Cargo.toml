@@ -1,0 +1,15 @@
+[package]
+name = "labcoat-cli"
+version = "0.1.0"
+description = "Labcoat command-line interface"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "labcoat"
+path = "src/main.rs"
+
+[dependencies]
+isomer-core = { path = "../isomer-core" }
+labcoat-core = { path = "../labcoat-core" }

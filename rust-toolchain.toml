@@ -1,0 +1,4 @@
+# Matches the alkanes-rs develop pin's toolchain (see TOOLCHAIN.md).
+[toolchain]
+channel = "1.86.0"
+targets = ["wasm32-unknown-unknown"]

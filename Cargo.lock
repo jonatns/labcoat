@@ -1949,6 +1949,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "isomer-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2062,6 +2070,22 @@ dependencies = [
  "html5ever",
  "indexmap 2.13.0",
  "selectors",
+]
+
+[[package]]
+name = "labcoat-cli"
+version = "0.1.0"
+dependencies = [
+ "isomer-core",
+ "labcoat-core",
+]
+
+[[package]]
+name = "labcoat-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
