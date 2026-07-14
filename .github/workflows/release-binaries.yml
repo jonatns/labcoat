@@ -1,9 +1,8 @@
 name: Build and Release Binaries
 
+# Tag trigger DISABLED during the monorepo migration (Phase 1); manual
+# dispatch only until Phase 5 re-enables the release flow for the monorepo.
 on:
-  push:
-    tags:
-      - "binaries-v*"
   workflow_dispatch:
     inputs:
       tag_name:
@@ -208,7 +207,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kungfuflex/alkanes-rs
-          ref: develop
+          # Pinned commit on the develop branch — see TOOLCHAIN.md. Never a
+          # moving branch ref, never main.
+          ref: 5b7f43567b828d0bb7b8907ce78fa0242943c54d
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

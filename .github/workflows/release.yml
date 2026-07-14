@@ -1,9 +1,10 @@
 name: Release
 
+# DISABLED during the monorepo migration (Phase 1). Re-enabled in Phase 5
+# once paths, version sources, and release repos are updated for the
+# monorepo layout. Manual dispatch only until then.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 jobs:
   release:
