@@ -55,6 +55,15 @@ jobs:
       - run: cargo check --workspace --locked
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --locked -- -D warnings
+      - name: Devnet smoke test (protocol stubs)
+        run: |
+          cargo build --locked -p labcoat-cli
+          ./scripts/devnet-smoke/install-stubs.sh
+          ./target/debug/labcoat up --no-download
+          ./target/debug/labcoat status --json | grep -q '"is_ready": true'
+          ./target/debug/labcoat mine 5 --json | grep -q '"ok": true'
+          ./target/debug/labcoat logs --service bitcoind --limit 3
+          ./target/debug/labcoat down --json | grep -q '"ok": true'
 
   js:
     needs: changes

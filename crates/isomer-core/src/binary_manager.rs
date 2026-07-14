@@ -9,7 +9,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
-use std::process::Command;
 
 /// Status of a binary
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,12 +193,8 @@ impl BinaryManager {
                 "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-apple-darwin.tar.gz",
                 "",
             )
-        } else if os == "linux" && arch == "x86_64" {
-            (
-                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz",
-                "",
-            )
         } else {
+            // linux x86_64 and any other platform fall back to the linux build
             (
                 "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz",
                 "",
@@ -526,7 +521,7 @@ impl BinaryManager {
         progress_callback(0.9);
 
         // Get checksum - prefer dynamic from checksums.json, fallback to hardcoded
-        let filename = release.url.split('/').last().unwrap_or("");
+        let filename = release.url.split('/').next_back().unwrap_or("");
         let expected_checksum = self.get_checksum_for_file(filename).or_else(|| {
             if !release.sha256.is_empty() {
                 Some(release.sha256.clone())
@@ -630,11 +625,10 @@ impl BinaryManager {
 
         for service in ServiceId::all() {
             let status = self.check_binary(service).status;
-            let should_download = match status {
-                BinaryStatus::NotInstalled => true,
-                BinaryStatus::UpdateAvailable { .. } => true,
-                _ => false,
-            };
+            let should_download = matches!(
+                status,
+                BinaryStatus::NotInstalled | BinaryStatus::UpdateAvailable { .. }
+            );
 
             if should_download {
                 let cb = progress_callback.clone();
@@ -745,8 +739,8 @@ impl BinaryManager {
                 Some(path) => {
                     // Strip the "dist/" prefix if present
                     let path_str = path.to_string_lossy();
-                    if path_str.starts_with("dist/") {
-                        extension_dir.join(&path_str[5..])
+                    if let Some(stripped) = path_str.strip_prefix("dist/") {
+                        extension_dir.join(stripped)
                     } else {
                         extension_dir.join(path)
                     }

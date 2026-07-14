@@ -76,6 +76,7 @@ impl Default for MiningConfig {
 
 /// Complete Isomer configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct IsomerConfig {
     pub ports: PortConfig,
     pub bitcoind: BitcoindConfig,
@@ -84,16 +85,6 @@ pub struct IsomerConfig {
     pub mnemonic: Option<String>,
 }
 
-impl Default for IsomerConfig {
-    fn default() -> Self {
-        Self {
-            ports: PortConfig::default(),
-            bitcoind: BitcoindConfig::default(),
-            mining: MiningConfig::default(),
-            mnemonic: None,
-        }
-    }
-}
 
 impl IsomerConfig {
     /// Get the config file path

@@ -116,7 +116,6 @@ pub struct LogEntry {
 struct ProcessInfo {
     child: Child,
     started_at: Instant,
-    status: ServiceStatus,
 }
 
 /// Shared log buffer type
@@ -125,26 +124,57 @@ type LogBuffer = std::sync::Arc<std::sync::Mutex<Vec<LogEntry>>>;
 /// Maximum number of log entries to keep
 const MAX_LOG_ENTRIES: usize = 1000;
 
+/// How service output is captured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogMode {
+    /// Pipe stdout/stderr into an in-memory buffer via reader threads
+    /// (the desktop app's behavior — logs die with the managing process).
+    Pipe,
+    /// Redirect stdout/stderr straight into `logs/<service>.log` files so
+    /// services survive the managing process exiting (CLI mode).
+    File,
+}
+
 /// Manages all Isomer child processes
 pub struct ProcessManager {
     processes: HashMap<ServiceId, ProcessInfo>,
     /// Shared log buffer captured from all services
     log_buffer: LogBuffer,
+    log_mode: LogMode,
+}
+
+impl Default for ProcessManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProcessManager {
+    /// The desktop app's manager: pipes logs in-memory and cleans up
+    /// orphaned processes from previous runs on construction.
     pub fn new() -> Self {
         // Clean up any orphaned processes from previous runs
         Self::kill_orphans();
+        Self::with_options(LogMode::Pipe)
+    }
 
+    /// A manager that does NOT touch existing processes on construction
+    /// and logs services to files, so a short-lived CLI process can start
+    /// a stack that outlives it (or inspect one it doesn't own).
+    pub fn detached() -> Self {
+        Self::with_options(LogMode::File)
+    }
+
+    fn with_options(log_mode: LogMode) -> Self {
         Self {
             processes: HashMap::new(),
             log_buffer: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            log_mode,
         }
     }
 
     /// Kill any existing processes that might be orphaned
-    fn kill_orphans() {
+    pub fn kill_orphans() {
         tracing::info!("Cleaning up orphaned processes...");
 
         // 1. Kill by name
@@ -469,10 +499,36 @@ impl ProcessManager {
             Command::new(&binary_path)
         };
 
-        cmd.args(&args)
-            .envs(&env)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.args(&args).envs(&env);
+
+        match self.log_mode {
+            LogMode::Pipe => {
+                cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            }
+            LogMode::File => {
+                // Children write straight to log files so they survive this
+                // process exiting (no reader threads holding pipes).
+                let log_path = get_logs_dir().join(format!("{}.log", service.id()));
+                let open = |p: &std::path::Path| {
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(p)
+                };
+                match (open(&log_path), open(&log_path)) {
+                    (Ok(out), Ok(err)) => {
+                        cmd.stdout(Stdio::from(out)).stderr(Stdio::from(err));
+                    }
+                    _ => {
+                        tracing::warn!(
+                            "Could not open {} for logging; discarding output",
+                            log_path.display()
+                        );
+                        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+                    }
+                }
+            }
+        }
 
         match cmd.spawn() {
             Ok(mut child) => {
@@ -486,22 +542,20 @@ impl ProcessManager {
                     std::thread::spawn(move || {
                         use std::io::{BufRead, BufReader};
                         let reader = BufReader::new(stdout);
-                        for line in reader.lines() {
-                            if let Ok(line) = line {
-                                // Also print to terminal for backward compatibility
-                                println!("{}", line);
+                        for line in reader.lines().map_while(Result::ok) {
+                            // Also print to terminal for backward compatibility
+                            println!("{}", line);
 
-                                let entry = LogEntry {
-                                    service: name.clone(),
-                                    timestamp: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_secs(),
-                                    message: line,
-                                    is_stderr: false,
-                                };
-                                Self::add_log_entry(&buffer, entry);
-                            }
+                            let entry = LogEntry {
+                                service: name.clone(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                                message: line,
+                                is_stderr: false,
+                            };
+                            Self::add_log_entry(&buffer, entry);
                         }
                     });
                 }
@@ -513,22 +567,20 @@ impl ProcessManager {
                     std::thread::spawn(move || {
                         use std::io::{BufRead, BufReader};
                         let reader = BufReader::new(stderr);
-                        for line in reader.lines() {
-                            if let Ok(line) = line {
-                                // Also print to terminal for backward compatibility
-                                eprintln!("{}", line);
+                        for line in reader.lines().map_while(Result::ok) {
+                            // Also print to terminal for backward compatibility
+                            eprintln!("{}", line);
 
-                                let entry = LogEntry {
-                                    service: name.clone(),
-                                    timestamp: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_secs(),
-                                    message: line,
-                                    is_stderr: true,
-                                };
-                                Self::add_log_entry(&buffer, entry);
-                            }
+                            let entry = LogEntry {
+                                service: name.clone(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                                message: line,
+                                is_stderr: true,
+                            };
+                            Self::add_log_entry(&buffer, entry);
                         }
                     });
                 }
@@ -538,7 +590,6 @@ impl ProcessManager {
                     ProcessInfo {
                         child,
                         started_at: Instant::now(),
-                        status: ServiceStatus::Starting,
                     },
                 );
                 tracing::info!("{} started with PID {}", service.display_name(), pid);
@@ -556,7 +607,7 @@ impl ProcessManager {
             // Try graceful shutdown first (SIGTERM on Unix)
             #[cfg(unix)]
             {
-                use std::os::unix::process::CommandExt;
+                
                 let pid = info.child.id();
                 unsafe {
                     libc::kill(pid as i32, libc::SIGTERM);
@@ -886,15 +937,15 @@ impl ProcessManager {
     }
 
     /// Get status of all services
-    pub fn get_all_status(&mut self) -> Vec<ServiceInfo> {
+    pub fn get_all_status(&mut self, config: &IsomerConfig) -> Vec<ServiceInfo> {
         ServiceId::all()
             .into_iter()
-            .map(|id| self.get_service_info(id))
+            .map(|id| self.get_service_info(id, config))
             .collect()
     }
 
     /// Get info about a specific service
-    fn get_service_info(&mut self, service: ServiceId) -> ServiceInfo {
+    fn get_service_info(&mut self, service: ServiceId, config: &IsomerConfig) -> ServiceInfo {
         let (status, pid, uptime) = if let Some(info) = self.processes.get_mut(&service) {
             // Check if process is still running
             match info.child.try_wait() {
@@ -943,7 +994,7 @@ impl ProcessManager {
         }
         .to_string();
 
-        let port = self.get_port_for_service(service);
+        let port = Self::port_for_service(service, config);
 
         ServiceInfo {
             id: service.id().to_string(),
@@ -956,15 +1007,17 @@ impl ProcessManager {
         }
     }
 
-    fn get_port_for_service(&self, service: ServiceId) -> u16 {
-        // Return default ports (actual config would be accessed differently)
+    /// The user-facing port for a service, read from config (previously a
+    /// second hardcoded copy of the defaults that ignored custom ports).
+    pub fn port_for_service(service: ServiceId, config: &IsomerConfig) -> u16 {
+        let ports = &config.ports;
         match service {
-            ServiceId::Bitcoind => 18443,
-            ServiceId::Metashrew => 8080,
-            ServiceId::Ord => 8090,
-            ServiceId::Esplora => 50010,
-            ServiceId::Espo => 8081,
-            ServiceId::JsonRpc => 18888,
+            ServiceId::Bitcoind => ports.bitcoind_rpc,
+            ServiceId::Metashrew => ports.metashrew,
+            ServiceId::Ord => ports.ord,
+            ServiceId::Esplora => ports.esplora_http,
+            ServiceId::Espo => ports.espo_explorer,
+            ServiceId::JsonRpc => ports.jsonrpc,
         }
     }
 
@@ -974,7 +1027,12 @@ impl ProcessManager {
         if !self.processes.contains_key(&service) {
             return false;
         }
+        Self::probe_health(service, config).await
+    }
 
+    /// Probe a service's health endpoint without requiring this manager to
+    /// own the process (used by detached CLI status).
+    pub async fn probe_health(service: ServiceId, config: &IsomerConfig) -> bool {
         let ports = &config.ports;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(2))

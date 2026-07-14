@@ -13,3 +13,7 @@ path = "src/main.rs"
 [dependencies]
 isomer-core = { path = "../isomer-core" }
 labcoat-core = { path = "../labcoat-core" }
+clap = { version = "4", features = ["derive"] }
+tokio.workspace = true
+serde_json.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

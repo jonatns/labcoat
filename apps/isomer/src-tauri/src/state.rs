@@ -1,74 +1,17 @@
 //! Application state management
 //!
-//! Tracks service status, accounts, and runtime data
+//! The Tauri-side wrapper over the isomer-core devnet engine. All
+//! domain types live in isomer-core; this only adds the app handle.
 
-use crate::config::IsomerConfig;
-use crate::process_manager::ProcessManager;
-use serde::{Deserialize, Serialize};
+use isomer_core::{IsomerConfig, ProcessManager, SystemStatus};
+use serde::Serialize;
 use tauri::Emitter;
-
-/// Status of a managed service
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum ServiceStatus {
-    Stopped,
-    Starting,
-    Running,
-    Error(String),
-}
-
-/// Information about a single service
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceInfo {
-    pub id: String,
-    pub name: String,
-    pub status: String, // "stopped", "running", "error" // Simplified for frontend
-    pub pid: Option<u32>,
-    pub port: u16,
-    pub uptime_secs: Option<u64>,
-    pub version: Option<String>,
-}
-
-/// Pre-funded development account
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Account {
-    pub index: usize,
-    pub address: String,
-    pub private_key: String,
-    pub balance_sats: u64,
-}
-
-/// Detailed address information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AddressInfo {
-    pub address: String,
-    pub type_label: String,
-    pub index: usize,
-}
-
-/// Alkanes-CLI wallet
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AlkanesWallet {
-    pub name: String,
-    pub file_path: String,
-    pub balance: Option<String>,
-    pub addresses: Vec<AddressInfo>,
-}
-
-/// Overall system status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemStatus {
-    pub services: Vec<ServiceInfo>,
-    pub block_height: u64,
-    pub mempool_size: usize,
-    pub is_ready: bool,
-}
 
 /// Main application state
 pub struct AppState {
     pub config: IsomerConfig,
     pub process_manager: ProcessManager,
-    pub accounts: Vec<Account>,
+    pub accounts: Vec<isomer_core::Account>,
     pub block_height: u64,
     pub mempool_size: usize,
     app_handle: tauri::AppHandle,
@@ -88,7 +31,7 @@ impl AppState {
 
     /// Get the current system status
     pub fn get_status(&mut self) -> SystemStatus {
-        let services = self.process_manager.get_all_status();
+        let services = self.process_manager.get_all_status(&self.config);
         let is_ready = services.iter().all(|s| s.status == "running");
 
         SystemStatus {
@@ -100,6 +43,7 @@ impl AppState {
     }
 
     /// Emit an event to the frontend
+    #[allow(dead_code)]
     pub fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) {
         if let Err(e) = self.app_handle.emit(event, payload) {
             tracing::error!("Failed to emit event {}: {}", event, e);
