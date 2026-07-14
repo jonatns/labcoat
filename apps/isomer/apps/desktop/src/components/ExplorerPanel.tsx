@@ -215,7 +215,7 @@ interface ExplorerPanelProps {
 export function ExplorerPanel({ onBlockSelect, isVisible = true, isMaximized = false }: ExplorerPanelProps) {
     const [blocks, setBlocks] = useState<CarouselBlock[]>([]);
     const [espoTip, setEspoTip] = useState<number>(0);
-    const [isLoading, setIsLoading] = useState(true);
+    const [, setIsLoading] = useState(true);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedBlock, setSelectedBlock] = useState<CarouselBlock | null>(null);

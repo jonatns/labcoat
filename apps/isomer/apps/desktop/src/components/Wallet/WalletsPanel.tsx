@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Wallet, Copy, Check, FolderOpen, Terminal, ArrowRight, WalletCards, ChevronRight, ChevronDown } from 'lucide-react';
+import { RefreshCw, Wallet, Copy, Check, FolderOpen, Terminal, ArrowRight, WalletCards } from 'lucide-react';
 import { api } from '../../lib/api';
 import type { AlkanesWallet } from '../../lib/types';
 

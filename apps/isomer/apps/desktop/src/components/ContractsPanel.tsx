@@ -45,11 +45,6 @@ export function ContractsPanel() {
         fetchContracts();
     }, [fetchContracts]);
 
-    const formatTimestamp = (ts: number | null) => {
-        if (!ts) return "Unknown";
-        return new Date(ts * 1000).toLocaleString();
-    };
-
     const truncateTxid = (txid: string) => {
         return `${txid.slice(0, 8)}...${txid.slice(-8)}`;
     };

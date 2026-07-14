@@ -1,5 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-
 const RPC_ENDPOINT = "http://localhost:18888";
 
 export interface BlockSummary {
