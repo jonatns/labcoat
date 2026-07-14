@@ -214,6 +214,68 @@ pub async fn deploy(
     ("deploy", to_envelope(res))
 }
 
+/// --dry-run deploy: validate the wasm payload and args, show the plan.
+pub fn deploy_dry_run(
+    ctx: &Ctx,
+    wasm: &str,
+    name: Option<String>,
+    args: &[String],
+) -> (&'static str, CmdResult) {
+    let res = (|| {
+        let wasm_path = PathBuf::from(wasm);
+        let bytes = std::fs::read(&wasm_path).map_err(|e| {
+            labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("cannot read {}: {}", wasm_path.display(), e),
+                "run `labcoat compile` first",
+            )
+        })?;
+        if bytes.starts_with(&[0x1f, 0x8b]) {
+            return Err(labcoat_core::LabcoatError::new(
+                "ENVELOPE_INVALID",
+                "wasm payload is gzip-compressed; deploy wants the raw .wasm".to_string(),
+                "pass the .wasm produced by `labcoat compile`",
+            ));
+        }
+        let parsed = parse_args(args)?;
+        use sha2::Digest;
+        Ok(serde_json::json!({
+            "dryRun": true,
+            "network": ctx.config.normalized_network(),
+            "wasm": wasm_path.display().to_string(),
+            "wasmBytes": bytes.len(),
+            "wasmSha256": hex::encode(sha2::Sha256::digest(&bytes)),
+            "name": name,
+            "cellpackArgs": parsed.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+            "wouldBroadcast": "commit + reveal transactions with the wasm envelope",
+        }))
+    })();
+    ("deploy", to_envelope(res))
+}
+
+/// --dry-run call: resolve the contract and args, show the plan.
+pub fn call_dry_run(
+    ctx: &Ctx,
+    contract: &str,
+    opcode: u128,
+    args: &[String],
+) -> (&'static str, CmdResult) {
+    let res = (|| {
+        let (block, tx) = resolve(&ctx.config, contract)?;
+        let parsed = parse_args(args)?;
+        Ok(serde_json::json!({
+            "dryRun": true,
+            "network": ctx.config.normalized_network(),
+            "target": format!("{}:{}", block, tx),
+            "opcode": opcode.to_string(),
+            "cellpackArgs": parsed.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+            "protostoneSpec": labcoat_core::execute::cellpack_spec(block, tx, opcode, &parsed),
+            "wouldBroadcast": "one execute transaction carrying the protostone",
+        }))
+    })();
+    ("call", to_envelope(res))
+}
+
 pub async fn call(ctx: &Ctx, contract: &str, opcode: u128, args: &[String]) -> (&'static str, CmdResult) {
     let res = async {
         let (block, tx) = resolve(&ctx.config, contract)?;

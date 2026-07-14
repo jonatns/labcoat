@@ -3503,10 +3503,12 @@ name = "labcoat-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hex",
  "isomer-core",
  "labcoat-core",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing-subscriber",
 ]

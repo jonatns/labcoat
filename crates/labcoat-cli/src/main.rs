@@ -5,6 +5,8 @@
 //! simulate, trace, lock) on the pinned alkanes-rs develop commit.
 
 mod contract;
+mod docs;
+mod mcp;
 
 use clap::{Parser, Subcommand};
 use isomer_core::Devnet;
@@ -122,6 +124,9 @@ enum Commands {
         /// Constructor cellpack args (u128 / 0x-hex / short strings)
         #[arg(long, num_args = 0.., value_delimiter = ',')]
         args: Vec<String>,
+        /// Validate inputs and show what would happen without broadcasting
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Execute a state-changing call on a deployed contract
     Call {
@@ -132,6 +137,9 @@ enum Commands {
         /// Cellpack args (u128 / 0x-hex / short strings)
         #[arg(num_args = 0..)]
         args: Vec<String>,
+        /// Validate inputs and show what would happen without broadcasting
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Read-only simulation of a contract call
     Simulate {
@@ -153,6 +161,22 @@ enum Commands {
     /// labcoat.lock utilities
     #[command(subcommand)]
     Lock(contract::LockCmd),
+    /// Model Context Protocol server (agent integration)
+    #[command(subcommand)]
+    Mcp(McpCmd),
+    /// Print documentation
+    Docs {
+        /// Emit the full command reference + protocol cheatsheet as one
+        /// LLM-ready markdown document
+        #[arg(long)]
+        llm: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum McpCmd {
+    /// Serve MCP over stdio (newline-delimited JSON-RPC)
+    Serve,
 }
 
 #[tokio::main]
@@ -182,12 +206,20 @@ async fn run(cli: Cli) -> i32 {
             let (cmd_name, res) = contract::compile(&path, name, &out_dir);
             finish_contract(json, cmd_name, res)
         }
-        Commands::Deploy { wasm, name, args } => {
-            let (cmd_name, res) = contract::deploy(&ctx, &wasm, name, &args).await;
+        Commands::Deploy { wasm, name, args, dry_run } => {
+            let (cmd_name, res) = if dry_run {
+                contract::deploy_dry_run(&ctx, &wasm, name, &args)
+            } else {
+                contract::deploy(&ctx, &wasm, name, &args).await
+            };
             finish_contract(json, cmd_name, res)
         }
-        Commands::Call { contract, opcode, args } => {
-            let (cmd_name, res) = contract::call(&ctx, &contract, opcode, &args).await;
+        Commands::Call { contract, opcode, args, dry_run } => {
+            let (cmd_name, res) = if dry_run {
+                contract::call_dry_run(&ctx, &contract, opcode, &args)
+            } else {
+                contract::call(&ctx, &contract, opcode, &args).await
+            };
             finish_contract(json, cmd_name, res)
         }
         Commands::Simulate { contract, opcode, args } => {
@@ -201,6 +233,14 @@ async fn run(cli: Cli) -> i32 {
         Commands::Lock(cmd) => {
             let (cmd_name, res) = contract::lock(&ctx, cmd);
             finish_contract(json, cmd_name, res)
+        }
+        Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,
+        Commands::Docs { llm } => {
+            // Only the LLM-oriented single document exists today; --llm is
+            // accepted for forward compatibility with a human docs mode.
+            let _ = llm;
+            println!("{}", docs::llm_reference());
+            0
         }
         Commands::Up { no_download } => {
             let mut devnet = Devnet::new();

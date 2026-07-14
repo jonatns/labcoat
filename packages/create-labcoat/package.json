@@ -1,8 +1,16 @@
 {
   "name": "create-labcoat",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Scaffold a new Labcoat project (placeholder — populated in Phase 4 of the monorepo migration)",
+  "version": "0.1.0",
+  "description": "Scaffold a new Labcoat project for Alkanes smart contracts on Bitcoin",
   "license": "MIT",
-  "author": "Jonathan P. Navarrete <jonatns@gmail.com>"
+  "author": "Jonathan P. Navarrete <jonatns@gmail.com>",
+  "type": "module",
+  "bin": {
+    "create-labcoat": "bin/create-labcoat.js"
+  },
+  "files": [
+    "bin",
+    "templates"
+  ],
+  "keywords": ["bitcoin", "alkanes", "smart-contracts", "labcoat", "create"]
 }

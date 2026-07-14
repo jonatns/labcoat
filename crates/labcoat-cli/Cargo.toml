@@ -16,5 +16,7 @@ labcoat-core = { path = "../labcoat-core" }
 clap = { version = "4", features = ["derive", "env"] }
 tokio.workspace = true
 serde.workspace = true
+sha2 = "0.10"
+hex = "0.4"
 serde_json.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
