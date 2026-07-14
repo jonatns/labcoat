@@ -147,6 +147,14 @@ isomer/
 
 ---
 
+## ❤️ Support
+
+If you find this project useful, you can support the developer by donating to:
+
+`bc1q3w72ctyxh5thnxmasaexh0yymga9pf8n9aaz2l`
+
+---
+
 <div align="center">
   <sub>Built with ⚗️ for the Alkanes ecosystem</sub>
 </div>
