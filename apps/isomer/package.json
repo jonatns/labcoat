@@ -1,0 +1,19 @@
+{
+  "name": "isomer-monorepo",
+  "private": true,
+  "version": "0.1.1",
+  "description": "Isomer - One-click Alkanes development environment",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @isomer/desktop tauri dev",
+    "dev:extension": "pnpm --filter @isomer/extension dev",
+    "build": "pnpm -r build",
+    "build:desktop": "pnpm --filter @isomer/desktop build",
+    "build:extension": "pnpm --filter @isomer/extension build",
+    "clean": "pnpm --filter @isomer/desktop clean",
+    "clean:all": "pnpm --filter @isomer/desktop clean:all"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3"
+  }
+}
