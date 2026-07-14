@@ -24,8 +24,8 @@ apps/
   isomer-extension/  # browser extension companion
 packages/
   labcoat/           # `@jonatns/labcoat` npm package (TS API + CLI wrapper)
-  create-labcoat/    # project scaffolding (WIP)
-skills/              # agent-facing workflow docs (WIP)
+  create-labcoat/    # `npm create labcoat` scaffolder (AGENTS.md + SKILL.md included)
+skills/              # agent-facing workflow docs
 docs/
 ```
 

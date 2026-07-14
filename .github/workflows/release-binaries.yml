@@ -1,8 +1,14 @@
 name: Build and Release Binaries
 
-# Tag trigger DISABLED during the monorepo migration (Phase 1); manual
-# dispatch only until Phase 5 re-enables the release flow for the monorepo.
+# Stage 1 of the two-stage release flow (docs/RELEASING.md): builds the
+# upstream service binaries and publishes them as a `binaries-v*` release
+# on THIS repo. After the first monorepo binaries release, bump the
+# release URLs in crates/isomer-core/src/binary_manager.rs (they still
+# point at the archived jonatns/isomer releases, which keep working).
 on:
+  push:
+    tags:
+      - "binaries-v*"
   workflow_dispatch:
     inputs:
       tag_name:

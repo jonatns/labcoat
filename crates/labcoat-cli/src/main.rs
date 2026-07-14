@@ -6,6 +6,7 @@
 
 mod contract;
 mod docs;
+mod doctor;
 mod mcp;
 
 use clap::{Parser, Subcommand};
@@ -49,6 +50,11 @@ enum Commands {
         /// Skip the binary download/check step
         #[arg(long)]
         no_download: bool,
+        /// CI mode: wait (bounded) for full readiness, then emit the
+        /// machine-readable endpoint manifest; non-zero exit if the stack
+        /// never becomes ready
+        #[arg(long)]
+        ci: bool,
     },
     /// Stop all devnet services
     Down,
@@ -171,6 +177,8 @@ enum Commands {
         #[arg(long)]
         llm: bool,
     },
+    /// Diagnose the environment (toolchain, ports, binaries, project state)
+    Doctor,
 }
 
 #[derive(Subcommand)]
@@ -235,6 +243,30 @@ async fn run(cli: Cli) -> i32 {
             finish_contract(json, cmd_name, res)
         }
         Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,
+        Commands::Doctor => {
+            let checks = doctor::run().await;
+            let failed = checks.iter().any(|c| c.status == "fail");
+            if json {
+                finish(true, "doctor", Ok(serde_json::json!({ "checks": checks })));
+            } else {
+                for c in &checks {
+                    let mark = match c.status {
+                        "ok" => "✓",
+                        "warn" => "!",
+                        _ => "✗",
+                    };
+                    println!("{} {:<24} {}", mark, c.name, c.detail);
+                    if let Some(hint) = &c.hint {
+                        println!("    hint: {}", hint);
+                    }
+                }
+            }
+            if failed {
+                1
+            } else {
+                0
+            }
+        }
         Commands::Docs { llm } => {
             // Only the LLM-oriented single document exists today; --llm is
             // accepted for forward compatibility with a human docs mode.
@@ -242,7 +274,7 @@ async fn run(cli: Cli) -> i32 {
             println!("{}", docs::llm_reference());
             0
         }
-        Commands::Up { no_download } => {
+        Commands::Up { no_download, ci } => {
             let mut devnet = Devnet::new();
             if !no_download {
                 eprintln!("Checking service binaries...");
@@ -254,7 +286,32 @@ async fn run(cli: Cli) -> i32 {
             if let Err(e) = devnet.start() {
                 return finish(json, "up", Err(e));
             }
-            let status = devnet.status().await;
+            let mut status = devnet.status().await;
+            if ci {
+                // Bounded readiness wait so CI can `labcoat up --ci && test`.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+                while !status.is_ready && std::time::Instant::now() < deadline {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    status = devnet.status().await;
+                }
+                if !status.is_ready {
+                    let not_ready: Vec<String> = status
+                        .services
+                        .iter()
+                        .filter(|s| s.status != "running")
+                        .map(|s| s.id.clone())
+                        .collect();
+                    std::mem::forget(devnet);
+                    return finish(
+                        json,
+                        "up",
+                        Err(format!(
+                            "devnet not ready after 120s; still down: {}",
+                            not_ready.join(", ")
+                        )),
+                    );
+                }
+            }
             let endpoints = devnet.endpoints();
             // The stack must outlive this process: dropping the handle
             // would stop the children it spawned.
@@ -263,8 +320,8 @@ async fn run(cli: Cli) -> i32 {
                 "status": status,
                 "endpoints": endpoints,
             });
-            if json {
-                finish(json, "up", Ok(payload))
+            if json || ci {
+                finish(true, "up", Ok(payload))
             } else {
                 println!("Devnet is up.");
                 println!(

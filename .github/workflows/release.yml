@@ -1,13 +1,23 @@
-name: Release
+name: Release (Isomer app + labcoat CLI)
 
-# DISABLED during the monorepo migration (Phase 1). Re-enabled in Phase 5
-# once paths, version sources, and release repos are updated for the
-# monorepo layout. Manual dispatch only until then.
+# Monorepo release flow (see docs/RELEASING.md):
+#   isomer-v* tags -> Tauri desktop bundles (draft release)
+#   cli-v*    tags -> labcoat CLI binaries per platform (draft release)
 on:
+  push:
+    tags:
+      - "isomer-v*"
+      - "cli-v*"
   workflow_dispatch:
+    inputs:
+      kind:
+        description: "What to build (app | cli)"
+        required: true
+        default: "app"
 
 jobs:
-  release:
+  app:
+    if: startsWith(github.ref_name, 'isomer-v') || inputs.kind == 'app'
     permissions:
       contents: write
     strategy:
@@ -46,12 +56,11 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
-      - name: Install Rust stable
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.86.0
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Install frontend dependencies
@@ -62,9 +71,62 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: apps/isomer
           tagName: ${{ github.ref_name }}
           releaseName: "Isomer ${{ github.ref_name }}"
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  cli:
+    if: startsWith(github.ref_name, 'cli-v') || inputs.kind == 'cli'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-x86_64
+          - platform: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: linux-arm64
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            suffix: darwin-arm64
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            suffix: darwin-x86_64
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install protoc (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: brew install protobuf
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build labcoat
+        run: cargo build --locked --release -p labcoat-cli --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          cp target/${{ matrix.target }}/release/labcoat labcoat-${{ matrix.suffix }}
+          shasum -a 256 labcoat-${{ matrix.suffix }} > labcoat-${{ matrix.suffix }}.sha256 || \
+            sha256sum labcoat-${{ matrix.suffix }} > labcoat-${{ matrix.suffix }}.sha256
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: |
+            labcoat-${{ matrix.suffix }}
+            labcoat-${{ matrix.suffix }}.sha256
