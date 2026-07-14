@@ -37,7 +37,6 @@
     "blockchain"
   ],
   "dependencies": {
-    "@jonatns/labcoat": "link:../../Library/pnpm/global/5/node_modules/@jonatns/labcoat",
     "@oyl/sdk": "git+https://github.com/jonatns/oyl-sdk.git",
     "adm-zip": "^0.5.16",
     "alkanes": "git+https://github.com/kungfuflex/alkanes.git",
