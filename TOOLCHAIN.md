@@ -18,10 +18,13 @@ exact commit below. Never `main`, never a moving branch ref.
 | Recorded | 2026-07-14 |
 | For reference, `main` was | `8336eb517577c8a6ba5e6d707e5fd6d0d60eccc0` (do not use) |
 
-Transitive git deps of alkanes-rs are declared as branch refs upstream; we
-re-pin them via `[patch]` sections using the revs from alkanes-rs's own
-`Cargo.lock` at the pinned commit (notably `metashrew` at
-`eca790ca1eeddc7cdac201b741637b8f18234924`).
+Transitive git deps of alkanes-rs are declared as branch refs upstream
+(`metashrew@develop`, `emasm-rs@master`). Cargo forbids `[patch]`-ing a git
+source with itself at a rev, so the reproducibility pin is the **committed
+`Cargo.lock`** — it records the exact commits (metashrew at
+`eca790ca1eeddc7cdac201b741637b8f18234924`, matching alkanes-rs's own lock
+at the pinned commit) and CI builds with `--locked`. Never run a bare
+`cargo update`.
 
 **Upgrade procedure:** update the rev here and in every `Cargo.toml` /
 template / workflow, `cargo update` only the affected git deps, run the

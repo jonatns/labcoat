@@ -11,5 +11,5 @@ module.exports = {
     "^.+\\.tsx?$": ["ts-jest", { tsconfig: { allowJs: true } }],
     "^.+\\.m?js$": ["ts-jest", { tsconfig: { allowJs: true } }],
   },
-  transformIgnorePatterns: ["node_modules/(?!nanoid)"],
+  transformIgnorePatterns: ["node_modules/(?!(\\.pnpm/)?nanoid)"],
 };

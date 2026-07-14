@@ -37,10 +37,7 @@
     "blockchain"
   ],
   "dependencies": {
-    "@oyl/sdk": "git+https://github.com/jonatns/oyl-sdk.git",
     "adm-zip": "^0.5.16",
-    "alkanes": "git+https://github.com/kungfuflex/alkanes.git",
-    "bitcoinjs-lib": "^6.1.7",
     "commander": "^13.1.0",
     "dotenv": "^17.2.3",
     "nanoid": "^5.1.6",

@@ -64,9 +64,13 @@ export class AlkanesCompiler {
       await fs.mkdir(buildDir, { recursive: true });
 
       const abiPath = path.join(buildDir, `${contractName}.abi.json`);
+      const wasmRawPath = path.join(buildDir, `${contractName}.wasm`);
       const wasmOutPath = path.join(buildDir, `${contractName}.wasm.gz`);
 
       await fs.writeFile(abiPath, JSON.stringify(abi, null, 2));
+      // Deploy consumes the RAW wasm (the reveal envelope compresses
+      // internally); the .wasm.gz stays as a size-comparison artifact.
+      await fs.writeFile(wasmRawPath, wasmBuffer);
       await fs.writeFile(wasmOutPath, await gzipWasm(wasmBuffer));
 
       const manifest = await loadManifest();

@@ -1,89 +1,69 @@
 import fs from "fs/promises";
-import { inscribePayload } from "@oyl/sdk/lib/alkanes/token.js";
-import { encodeRunestoneProtostone, ProtoStone, encipher } from "alkanes";
-import { waitForTrace } from "./helpers.js";
-import { loadManifest, saveManifest } from "./manifest.js";
-import { toAlkanesId } from "./utils/alkanes.js";
-import { Account, FormattedUtxo, Provider, Signer } from "@oyl/sdk";
-import ora from "ora";
 import path from "path";
+import ora from "ora";
+import { invokeLabcoat } from "./rustBinary.js";
+import { loadManifest, saveManifest } from "./manifest.js";
+import type { LabcoatWallet } from "./types.js";
 
 export async function deployContract(
   contractName: string,
   options: { feeRate?: number },
-  wallet: {
-    account: Account;
-    signer: Signer;
-    provider: Provider;
-    utxos: FormattedUtxo[];
-  }
+  wallet: LabcoatWallet
 ) {
   console.log(`🚀 Deploying ${contractName}...`);
 
   const spinner = ora("Preparing deployment...").start();
 
   try {
+    // Deploy wants the RAW .wasm: the reveal envelope gzip-compresses
+    // internally, so feeding .wasm.gz would double-compress and produce a
+    // contract the indexer can't decode.
     const buildDir = path.resolve("build");
-    const wasmPath = path.join(buildDir, `${contractName}.wasm.gz`);
-    const wasmBuffer = await fs.readFile(wasmPath);
+    const wasmPath = path.join(buildDir, `${contractName}.wasm`);
+    await fs.access(wasmPath).catch(() => {
+      throw new Error(
+        `${wasmPath} not found — recompile with a current labcoat (which emits raw .wasm alongside .wasm.gz)`
+      );
+    });
 
+    spinner.text = "Broadcasting commit/reveal...";
+    const result = await invokeLabcoat<{
+      txid: string;
+      commitTxid?: string;
+      alkanesId?: string;
+      status: string;
+      revertReason?: string;
+    }>(
+      ["deploy", wasmPath, "--name", contractName],
+      { ...wallet.cli, feeRate: options.feeRate }
+    );
+
+    spinner.stop();
+    console.log(`- 🔗 Tx ID: ${result.txid}`);
+
+    const alkanesId = result.alkanesId ?? "unknown";
+    const status = result.status ?? "unknown";
+
+    // labcoat.lock is written by the core; keep the legacy manifest in sync
+    // for scripts that still read deployments/manifest.json.
     const manifest = await loadManifest();
     manifest[contractName] = {
       ...(manifest[contractName] || {}),
-      deployment: manifest[contractName]?.deployment || {},
-    };
-
-    const payload = {
-      body: wasmBuffer,
-      cursed: false,
-      tags: { contentType: "" },
-    };
-
-    const protostone = encodeRunestoneProtostone({
-      protostones: [
-        ProtoStone.message({
-          protocolTag: 1n,
-          edicts: [],
-          pointer: 0,
-          refundPointer: 0,
-          calldata: encipher([1n, 0n]),
-        }),
-      ],
-    }).encodedRunestone;
-
-    spinner.text = "Broadcasting transaction...";
-    const tx = await inscribePayload({
-      protostone,
-      payload,
-      feeRate: options.feeRate,
-      ...wallet,
-    });
-
-    spinner.stop();
-
-    console.log(`- 🔗 Tx ID: ${tx.txId}`);
-
-    spinner.start("Waiting for Alkanes traces...");
-    const createTrace = await waitForTrace(wallet.provider, tx.txId, "create");
-    const returnTrace = await waitForTrace(wallet.provider, tx.txId, "return");
-
-    const alkanesId = toAlkanesId(createTrace.data);
-    const status = returnTrace?.data?.status ?? "unknown";
-
-    manifest[contractName].deployment = {
-      status,
-      txId: tx.txId,
-      alkanesId,
-      deployedAt: Date.now(),
+      deployment: {
+        status,
+        txId: result.txid,
+        alkanesId,
+        deployedAt: Date.now(),
+      },
     };
     await saveManifest(manifest);
 
-    spinner.stop();
     console.log(`- 📊 Deployment status: ${status}`);
     console.log(`- ⚛️ Alkane ID: ${alkanesId}`);
 
-    return { txId: tx.txId, alkanesId, status };
+    return { txId: result.txid, alkanesId, status };
   } catch (err) {
+    spinner.stop();
     console.log(`- ❌ Deployment failed: ${err}`);
     throw err;
   }

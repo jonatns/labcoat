@@ -1,7 +1,10 @@
 //! `labcoat` — the Alkanes toolkit CLI.
 //!
-//! Devnet verbs (Phase 2): up, down, status, mine, fund, logs, reset,
-//! snapshot, restore, binaries. Contract ops arrive with labcoat-core.
+//! Devnet verbs (up, down, status, mine, fund, logs, reset, snapshot,
+//! restore, binaries) + contract ops (wallet, compile, deploy, call,
+//! simulate, trace, lock) on the pinned alkanes-rs develop commit.
+
+mod contract;
 
 use clap::{Parser, Subcommand};
 use isomer_core::Devnet;
@@ -16,6 +19,22 @@ struct Cli {
     /// Emit a machine-readable JSON envelope on stdout
     #[arg(long, global = true)]
     json: bool,
+
+    /// Network: regtest | signet | testnet | mainnet
+    #[arg(long, global = true, env = "LABCOAT_NETWORK", default_value = "regtest")]
+    network: String,
+
+    /// Unified JSON-RPC endpoint (defaults to the local devnet gateway)
+    #[arg(long, global = true, env = "LABCOAT_RPC_URL", default_value = "http://localhost:18888")]
+    rpc_url: String,
+
+    /// Wallet keystore path (project-local by default)
+    #[arg(long, global = true, env = "LABCOAT_WALLET_FILE", default_value = ".labcoat/wallet.json")]
+    wallet_file: String,
+
+    /// Fee rate in sat/vB for state-changing operations
+    #[arg(long, global = true)]
+    fee_rate: Option<f32>,
 
     #[command(subcommand)]
     command: Commands,
@@ -78,6 +97,62 @@ enum Commands {
         #[arg(long)]
         download: bool,
     },
+
+    /// Wallet management (keystore at --wallet-file)
+    #[command(subcommand)]
+    Wallet(contract::WalletCmd),
+    /// Compile a contract: .rs → build/<name>.{wasm,wasm.gz,abi.json}
+    Compile {
+        /// Contract source file, or a directory of .rs contracts
+        path: String,
+        /// Override the artifact name (defaults to the file stem)
+        #[arg(long)]
+        name: Option<String>,
+        /// Output directory
+        #[arg(long, default_value = "build")]
+        out_dir: String,
+    },
+    /// Deploy a compiled contract (raw .wasm) via commit/reveal envelope
+    Deploy {
+        /// Path to the raw .wasm artifact
+        wasm: String,
+        /// Contract name recorded in labcoat.lock (defaults to file stem)
+        #[arg(long)]
+        name: Option<String>,
+        /// Constructor cellpack args (u128 / 0x-hex / short strings)
+        #[arg(long, num_args = 0.., value_delimiter = ',')]
+        args: Vec<String>,
+    },
+    /// Execute a state-changing call on a deployed contract
+    Call {
+        /// Contract: labcoat.lock name or block:tx alkanes id
+        contract: String,
+        /// Opcode number
+        opcode: u128,
+        /// Cellpack args (u128 / 0x-hex / short strings)
+        #[arg(num_args = 0..)]
+        args: Vec<String>,
+    },
+    /// Read-only simulation of a contract call
+    Simulate {
+        /// Contract: labcoat.lock name or block:tx alkanes id
+        contract: String,
+        /// Opcode number
+        opcode: u128,
+        /// Cellpack args (u128 / 0x-hex / short strings)
+        #[arg(num_args = 0..)]
+        args: Vec<String>,
+    },
+    /// Decoded protostone traces for a transaction
+    Trace {
+        txid: String,
+        /// Poll until the trace is available
+        #[arg(long)]
+        wait: bool,
+    },
+    /// labcoat.lock utilities
+    #[command(subcommand)]
+    Lock(contract::LockCmd),
 }
 
 #[tokio::main]
@@ -97,7 +172,36 @@ async fn main() {
 
 async fn run(cli: Cli) -> i32 {
     let json = cli.json;
+    let ctx = contract::Ctx::new(&cli.network, &cli.rpc_url, &cli.wallet_file, cli.fee_rate);
     match cli.command {
+        Commands::Wallet(cmd) => {
+            let (name, res) = contract::wallet(&ctx, cmd).await;
+            finish_contract(json, name, res)
+        }
+        Commands::Compile { path, name, out_dir } => {
+            let (cmd_name, res) = contract::compile(&path, name, &out_dir);
+            finish_contract(json, cmd_name, res)
+        }
+        Commands::Deploy { wasm, name, args } => {
+            let (cmd_name, res) = contract::deploy(&ctx, &wasm, name, &args).await;
+            finish_contract(json, cmd_name, res)
+        }
+        Commands::Call { contract, opcode, args } => {
+            let (cmd_name, res) = contract::call(&ctx, &contract, opcode, &args).await;
+            finish_contract(json, cmd_name, res)
+        }
+        Commands::Simulate { contract, opcode, args } => {
+            let (cmd_name, res) = contract::simulate(&ctx, &contract, opcode, &args).await;
+            finish_contract(json, cmd_name, res)
+        }
+        Commands::Trace { txid, wait } => {
+            let (cmd_name, res) = contract::trace(&ctx, &txid, wait).await;
+            finish_contract(json, cmd_name, res)
+        }
+        Commands::Lock(cmd) => {
+            let (cmd_name, res) = contract::lock(&ctx, cmd);
+            finish_contract(json, cmd_name, res)
+        }
         Commands::Up { no_download } => {
             let mut devnet = Devnet::new();
             if !no_download {
@@ -241,6 +345,40 @@ fn progress_logger() -> impl Fn(isomer_core::ServiceId, f32) + Send + Clone + 's
     |service, progress| {
         if progress == 0.0 || progress >= 1.0 {
             eprintln!("  {} {:.0}%", service.display_name(), progress * 100.0);
+        }
+    }
+}
+
+/// Envelope printer for contract commands (typed error codes + hints).
+fn finish_contract(json: bool, command: &str, res: contract::CmdResult) -> i32 {
+    if json {
+        let envelope = match &res {
+            Ok(v) => serde_json::json!({
+                "ok": true,
+                "command": command,
+                "schema": format!("labcoat/v1/{}", command),
+                "result": v,
+            }),
+            Err(e) => serde_json::json!({
+                "ok": false,
+                "command": command,
+                "schema": "labcoat/v1/error",
+                "error": { "code": e.code, "message": e.message, "hint": e.hint },
+            }),
+        };
+        println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
+        0
+    } else {
+        match res {
+            Ok(v) => {
+                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                0
+            }
+            Err(e) => {
+                eprintln!("error[{}]: {}", e.code, e.message);
+                eprintln!("hint: {}", e.hint);
+                1
+            }
         }
     }
 }

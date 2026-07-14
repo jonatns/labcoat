@@ -34,15 +34,30 @@ async function loadLabcoatConfig(): Promise<LabcoatConfig> {
 
 /**
  * Loads the user's Labcoat config merged with defaults.
+ *
+ * Defaults target the local devnet (`labcoat up`): regtest via the unified
+ * JSON-RPC gateway. The deprecated "oylnet" network value maps to regtest;
+ * `projectId` (a Sandshrew/oyl concept) is accepted but ignored.
  */
 export async function loadConfig() {
   const labcoatConfig = await loadLabcoatConfig();
 
-  return {
-    mnemonic: "<your mnemonic>",
-    network: "oylnet",
-    projectId: "regtest",
-    rpcUrl: "https://oylnet.oyl.gg",
+  const merged = {
+    network: "regtest",
+    rpcUrl: "http://localhost:18888",
+    walletFile: ".labcoat/wallet.json",
     ...labcoatConfig,
-  };
+  } as { network: string; rpcUrl: string; walletFile: string; mnemonic?: string };
+
+  if (merged.network === "oylnet") {
+    console.warn("⚠️  network 'oylnet' is deprecated; using 'regtest'");
+    merged.network = "regtest";
+  }
+  if ((merged as any).projectId) {
+    console.warn(
+      "⚠️  labcoat.config projectId is no longer used (oyl-sdk was removed)"
+    );
+  }
+
+  return merged;
 }

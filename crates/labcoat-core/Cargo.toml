@@ -9,3 +9,17 @@ repository.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+hex = "0.4"
+bitcoin = "0.32.4"
+prost = "0.12.6"
+flate2 = "1.0"
+sha2 = "0.10"
+
+# Pinned alkanes-rs develop commit (see TOOLCHAIN.md) — the whole point of
+# this crate is to replace @oyl/sdk with these.
+alkanes-support.workspace = true
+alkanes-cli-common.workspace = true

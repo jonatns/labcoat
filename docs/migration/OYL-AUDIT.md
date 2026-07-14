@@ -1,8 +1,11 @@
 # oyl-sdk audit (Phase 0)
 
 Hard constraint: `oyl-sdk` / `@oyl/sdk` is banned from the dependency
-tree, direct or transitive. This is the removal ledger; every entry gets
-eliminated in Phase 3. CI enforces the ban from Phase 1 onward.
+tree, direct or transitive. This was the removal ledger; **Phase 3
+eliminated every entry below** (along with the `alkanes` npm dep, whose
+protostone encoding moved into the Rust core). CI enforces the ban
+strictly on every PR: `pnpm ls -r`, lockfiles, and `Cargo.lock` are all
+grepped. Kept for historical reference.
 
 ## Direct dependency
 

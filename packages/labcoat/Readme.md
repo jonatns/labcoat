@@ -8,7 +8,7 @@ Labcoat is a development toolkit for **Bitcoin Alkanes smart contracts**. It pro
 
 - Compile Alkanes contracts (`.rs`) to WebAssembly (`.wasm`)
 - Generate ABI from Rust contracts automatically
-- Deploy contracts to Bitcoin networks using `@oyl/sdk`
+- Deploy contracts through the Rust core built on the pinned alkanes-rs develop commit (no oyl-sdk)
 
 ---
 
@@ -134,11 +134,11 @@ main()
 
 ### Setting up a wallet:
 
-Before deploying to the Bitcoin network you will need to setup a mnemonic in `.env` which is used by `labcoat.config.ts`. By default it uses the oylnet network:
+Before deploying you can set a mnemonic in `.env` used by `labcoat.config.ts`. By default labcoat targets the local regtest devnet (`labcoat up`):
 
 ```bash
 export default {
-  network: "oylnet",
+  network: "regtest",
   mnemonic: process.env.MNEMONIC,
 };
 

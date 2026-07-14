@@ -4,6 +4,10 @@ describe("AlkanesCompiler", () => {
   const compiler = new AlkanesCompiler();
 
   describe("parseABI", () => {
+    // NOTE: parseABI reads the #[opcode(n)] attribute grammar (MessageDispatch
+    // enums). Two legacy cases here previously asserted an older
+    // comment-annotation grammar (/* name(u128) */ before match arms) that
+    // parseABI never supported — they were rewritten for the real grammar.
     it("should parse a basic contract", async () => {
       const sourceCode = `
 use alkanes_runtime::declare_alkane;
@@ -14,30 +18,22 @@ use anyhow::Result;
 #[derive(Default)]
 pub struct SimpleToken(());
 
-impl AlkaneResponder for SimpleToken {
-    fn execute(&self) -> Result<CallResponse> {
-        let context = self.context()?;
-        let mut inputs = context.inputs.clone();
-        let mut response = CallResponse::forward(&context.incoming_alkanes);
+#[derive(MessageDispatch)]
+enum SimpleTokenMessage {
+    #[opcode(0)]
+    Initialize { token_units: u128, cap: u128 },
 
-        match shift_or_err(&mut inputs)? {
-            /* initialize(u128, u128) */
-            0 => {
-                let mut pointer = StoragePointer::from_keyword("/initialized");
-                Ok(response)
-            },
-            /* mint(u128) */
-            77 => {
-                let amount = shift_or_err(&mut inputs)?;
-                Ok(response)
-            },
-            /* name() */
-            99 => {
-                response.data = self.name().into_bytes().to_vec();
-                Ok(response)
-            },
-            _ => Err(anyhow!("unrecognized opcode"))
-        }
+    #[opcode(77)]
+    Mint { amount: u128 },
+
+    #[opcode(99)]
+    #[returns(String)]
+    Name,
+}
+
+impl SimpleToken {
+    fn initialized_pointer(&self) -> StoragePointer {
+        StoragePointer::from_keyword("/initialized")
     }
 }`;
 
@@ -48,24 +44,24 @@ impl AlkaneResponder for SimpleToken {
         methods: [
           {
             opcode: 0,
-            name: "initialize",
+            name: "Initialize",
             inputs: [
-              { name: "param0", type: "u128" },
-              { name: "param1", type: "u128" },
+              { name: "token_units", type: "u128" },
+              { name: "cap", type: "u128" },
             ],
             outputs: [],
           },
           {
             opcode: 77,
-            name: "mint",
-            inputs: [{ name: "param0", type: "u128" }],
+            name: "Mint",
+            inputs: [{ name: "amount", type: "u128" }],
             outputs: [],
           },
           {
             opcode: 99,
-            name: "name",
+            name: "Name",
             inputs: [],
-            outputs: [],
+            outputs: ["String"],
           },
         ],
         storage: [
@@ -75,38 +71,27 @@ impl AlkaneResponder for SimpleToken {
           },
         ],
         opcodes: {
-          initialize: 0,
-          mint: 77,
-          name: 99,
+          Initialize: 0,
+          Mint: 77,
+          Name: 99,
         },
       });
     });
 
-    it("should parse array parameters", async () => {
+    it("should parse generic field types like Vec<u128>", async () => {
       const sourceCode = `
-// ... contract setup ...
-match shift_or_err(&mut inputs)? {
-    /* setArray(u128[2]) */
-    1 => {
-        Ok(response)
-    }
+pub struct ArrayContract(());
+
+enum ArrayContractMessage {
+    #[opcode(1)]
+    SetArray { values: Vec<u128> },
 }`;
 
       const abi = await compiler.parseABI(sourceCode);
       expect(abi.methods[0]).toMatchObject({
         opcode: 1,
-        name: "setArray",
-        inputs: [
-          {
-            name: "param0",
-            type: {
-              array: {
-                type: "u128",
-                length: 2,
-              },
-            },
-          },
-        ],
+        name: "SetArray",
+        inputs: [{ name: "values", type: "Vec<u128>" }],
       });
     });
 
@@ -125,7 +110,7 @@ let owner = StoragePointer::from_keyword("/owner");`;
       ]);
     });
 
-    it("should handle missing method comments gracefully", async () => {
+    it("should ignore sources without opcode attributes", async () => {
       const sourceCode = `
 match shift_or_err(&mut inputs)? {
     0 => { Ok(response) },

@@ -80,9 +80,6 @@ jobs:
       - run: pnpm -r build
       - name: Unit tests (labcoat)
         run: pnpm --filter @jonatns/labcoat exec jest
-        # Two pre-existing array-ABI failures are tracked for the Phase 3
-        # compiler port (see TOOLCHAIN.md baseline notes); drop this once fixed.
-        continue-on-error: true
 
   extension:
     needs: changes
@@ -111,22 +108,15 @@ jobs:
         with:
           node-version: 22
       - name: "Guard: oyl-sdk is banned from the npm tree (direct or transitive)"
-        # TEMPORARY EXCEPTION until Phase 3 of the migration: the one known,
-        # tracked direct dep in packages/labcoat (docs/migration/OYL-AUDIT.md)
-        # is tolerated; anything else containing oyl-sdk fails. Phase 3
-        # deletes the dep and the KNOWN filter below.
         run: |
           pnpm install --frozen-lockfile
-          KNOWN='packages/labcoat'
-          HITS=$(pnpm ls -r --depth Infinity --parseable 2>/dev/null | grep -iE 'oyl[/+-]sdk' || true)
-          NEW=$(echo "$HITS" | grep -v "$KNOWN" | grep . || true)
-          if [ -n "$NEW" ]; then
-            echo "$NEW"
-            echo '::error::@oyl/sdk found outside the tracked Phase-3 removal ledger (banned — see TOOLCHAIN.md)'
+          if pnpm ls -r --depth Infinity --parseable 2>/dev/null | grep -iE 'oyl[/+-]sdk'; then
+            echo '::error::@oyl/sdk found in the resolved npm tree (banned — see TOOLCHAIN.md)'
             exit 1
           fi
-          if [ -n "$HITS" ]; then
-            echo '::warning::@oyl/sdk still present via packages/labcoat — scheduled for removal in Phase 3'
+          if grep -riE 'oyl[/+-]sdk' pnpm-lock.yaml apps/isomer-extension/pnpm-lock.yaml 2>/dev/null; then
+            echo '::error::oyl-sdk reference found in a lockfile (banned — see TOOLCHAIN.md)'
+            exit 1
           fi
       - name: "Guard: oyl-sdk is banned from the cargo tree"
         run: |

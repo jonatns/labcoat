@@ -1,7 +1,19 @@
 export interface LabcoatConfig {
   network: "signet" | "mainnet" | "testnet" | "regtest";
   mnemonic?: string;
+  /** Unified JSON-RPC endpoint (defaults to the local devnet gateway). */
+  rpcUrl?: string;
+  /** Wallet keystore path (defaults to .labcoat/wallet.json). */
+  walletFile?: string;
+  /** @deprecated oyl-sdk concept; accepted but ignored. */
   projectId?: string;
+}
+
+/** Internal wallet handle threaded through deploy/execute/simulate. */
+export interface LabcoatWallet {
+  account: unknown;
+  provider: { network: string; rpcUrl: string };
+  cli: import("./rustBinary.js").InvokeOptions;
 }
 
 export interface TransactionOptions {
