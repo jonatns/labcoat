@@ -15,7 +15,6 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       js: ${{ steps.filter.outputs.js }}
-      extension: ${{ steps.filter.outputs.extension }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -34,8 +33,6 @@ jobs:
               - 'pnpm-workspace.yaml'
               - 'pnpm-lock.yaml'
               - 'package.json'
-            extension:
-              - 'apps/isomer-extension/**'
 
   rust:
     needs: changes
@@ -64,6 +61,11 @@ jobs:
           ./target/debug/labcoat mine 5 --json | grep -q '"ok": true'
           ./target/debug/labcoat logs --service bitcoind --limit 3
           ./target/debug/labcoat down --json | grep -q '"ok": true'
+      - name: MCP + agent-surface smoke
+        run: |
+          ./target/debug/labcoat docs --llm | grep -q "command reference"
+          printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' \
+            | ./target/debug/labcoat mcp serve | grep -q '"devnet_status"'
 
   js:
     needs: changes
@@ -81,23 +83,11 @@ jobs:
       - name: Unit tests (labcoat)
         run: pnpm --filter @jonatns/labcoat exec jest
 
-  extension:
-    needs: changes
-    if: needs.changes.outputs.extension == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/isomer-extension
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      # Standalone on purpose: not a pnpm workspace member (its
-      # @alkanes/ts-sdk dep is a raw tarball URL on pkg.alkanes.build).
-      - run: pnpm install
-      - run: pnpm build
+  # NOTE: no extension job for now. apps/isomer-extension builds standalone
+  # (`cd apps/isomer-extension && pnpm install && pnpm build`) — its
+  # @alkanes/ts-sdk dep is a raw tarball URL on pkg.alkanes.build, which
+  # makes CI flaky whenever that host is slow/unreachable. Re-add a job
+  # here once the dep comes from a proper registry.
 
   guards:
     runs-on: ubuntu-latest
