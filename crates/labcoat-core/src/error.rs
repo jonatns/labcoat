@@ -36,6 +36,7 @@ impl LabcoatError {
         let lower = msg.to_lowercase();
         let (code, hint) = if lower.contains("wallet file does not exist")
             || lower.contains("no wallet")
+            || lower.contains("no keystore")
         {
             ("WALLET_MISSING", "run `labcoat wallet init` first")
         } else if lower.contains("decrypt") || lower.contains("passphrase") {

@@ -26,7 +26,9 @@ alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "5b7
 # NOTE: alkanes-cli-sys is NOT used — at the pinned rev it fails to compile
 # (its EnhancedExecuteParams initializer is missing fields added 2026-07-12).
 # labcoat-core bootstraps ConcreteProvider from alkanes-cli-common directly.
-alkanes-cli-common = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "5b7f43567b828d0bb7b8907ce78fa0242943c54d", default-features = false, features = ["std"] }
+# native-deps is REQUIRED: upstream cfg-gates its whole HTTP client on it
+# (without it every RPC method returns "not available in WASM environment").
+alkanes-cli-common = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "5b7f43567b828d0bb7b8907ce78fa0242943c54d", default-features = false, features = ["std", "native-deps"] }
 
 # NOTE on transitive git deps: alkanes-rs declares metashrew/emasm as moving
 # branch refs. Cargo forbids [patch]-ing a git source with itself at a rev,
