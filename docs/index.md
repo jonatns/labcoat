@@ -25,7 +25,7 @@ local devnet inside it — desktop app or headless (`labcoat up`).
 crates/isomer-core    devnet engine: binaries, processes, chain control
 crates/labcoat-core   contract toolkit on pinned alkanes-rs develop
 crates/labcoat-cli    `labcoat` — CLI + MCP server over both cores
-apps/isomer           Tauri desktop app (thin UI over isomer-core)
+apps/isomer           Tauri desktop app (maintenance mode; thin UI over isomer-core)
 packages/labcoat      @jonatns/labcoat — TS API delegating to the CLI
 packages/create-labcoat  project scaffolder (npm create labcoat)
 ```

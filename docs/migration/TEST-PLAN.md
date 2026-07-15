@@ -101,7 +101,7 @@ node run.mjs
       `deployments/manifest.json`, run `labcoat lock migrate` — entries
       appear in `labcoat.lock` and `simulate <OldName> ...` resolves
 
-## 4. Isomer desktop app (zero-visual-diff)
+## 4. Isomer desktop app (zero-visual-diff) — OPTIONAL (maintenance mode)
 
 ```bash
 pnpm dev:isomer
@@ -122,7 +122,7 @@ side-by-side if possible:
 - [ ] Quit the app → all services stop (Drop semantics unchanged)
 - [ ] No visual differences vs the old app
 
-## 5. Extension (excluded from CI on purpose)
+## 5. Extension — OPTIONAL (maintenance mode; excluded from CI on purpose)
 
 ```bash
 cd apps/isomer-extension && pnpm install && pnpm build
@@ -170,8 +170,8 @@ labcoat reset -y && labcoat status    # everything stopped, height 0 on next up
 | 1. Headless devnet | | |
 | 2. Contract loop (CLI) | | |
 | 3. TS package + migration | | |
-| 4. Desktop app | | |
-| 5. Extension | | |
+| 4. Desktop app (optional) | | |
+| 5. Extension (optional) | | |
 | 6. Agent surface | | |
 | 7. Release workflows | | |
 

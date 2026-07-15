@@ -30,7 +30,9 @@ without this bump changes nothing for users (that's a feature).
 
 ## 3. App + CLI (`isomer-v*`, `cli-v*`)
 
-Stage 2. Bump versions first:
+Stage 2. **`cli-v*` is the flagship track**; the desktop app is in
+maintenance mode — tag `isomer-v*` only when an app release is actually
+wanted. Bump versions first:
 
 - Isomer app: `apps/isomer/package.json` + `apps/isomer/src-tauri/Cargo.toml`
 - labcoat CLI: `crates/labcoat-cli/Cargo.toml` (+ `Cargo.lock` via `cargo check`)

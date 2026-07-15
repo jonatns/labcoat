@@ -1,3 +1,10 @@
+> [!NOTE]
+> **Maintenance mode.** The Isomer desktop app is a thin UI over the shared
+> `isomer-core` engine; the [`labcoat` CLI](../../README.md) is the flagship
+> surface (`labcoat up` boots this exact stack headless). The app keeps
+> compiling in CI, but new features land in the CLI first and app releases
+> are tagged on demand.
+
 <br />
 <div align="center">
   <img src="src-tauri/icons/isomer-logo.svg" alt="Isomer Logo" width="128" height="128">

@@ -3,8 +3,11 @@
 **Smart contract development toolkit for [Alkanes](https://alkanes.build) on Bitcoin — with Isomer, the desktop devnet, inside it.**
 
 Think Foundry ⊃ Anvil: **Labcoat** is the toolkit (compile, deploy, call,
-simulate, trace); **Isomer** is the one-click local devnet it runs against,
-available both as a desktop app and headless via `labcoat up`.
+simulate, trace); **Isomer** is the one-click local devnet it runs against.
+The **`labcoat` CLI is the flagship surface** — `labcoat up` boots the full
+devnet headless. The Isomer desktop app is in **maintenance mode**: it keeps
+compiling in CI over the same engine (`isomer-core`), but new features land
+in the CLI first and app releases are tagged on demand only.
 
 > ⚠️ **Monorepo migration in progress.** This repository now contains both
 > the former `jonatns/labcoat` npm toolkit and the former `jonatns/isomer`
@@ -20,8 +23,8 @@ crates/
   labcoat-core/      # contract toolkit core, built on pinned alkanes-rs develop
   labcoat-cli/       # `labcoat` CLI: devnet verbs + contract ops
 apps/
-  isomer/            # Isomer desktop app (Tauri) — thin UI over isomer-core
-  isomer-extension/  # browser extension companion
+  isomer/            # Isomer desktop app (Tauri, maintenance mode) — thin UI over isomer-core
+  isomer-extension/  # browser extension companion (maintenance mode)
 packages/
   labcoat/           # `@jonatns/labcoat` npm package (TS API + CLI wrapper)
   create-labcoat/    # `npm create labcoat` scaffolder (AGENTS.md + SKILL.md included)
