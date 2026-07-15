@@ -7,3 +7,5 @@ packages:
   # EVERY `pnpm install` in the repo. It installs/builds standalone
   # (`cd apps/isomer-extension && pnpm install`) — see its README and the
   # dedicated CI job.
+allowBuilds:
+  esbuild: true

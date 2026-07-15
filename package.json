@@ -4,7 +4,7 @@
   "description": "Labcoat: smart contract development toolkit for Alkanes on Bitcoin. Isomer: the desktop devnet inside it.",
   "license": "MIT",
   "author": "Jonathan P. Navarrete <jonatns@gmail.com>",
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.13.0",
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r --if-present test",
@@ -12,6 +12,6 @@
     "build:isomer": "pnpm --filter @isomer/desktop tauri build"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.7"
+    "@changesets/cli": "^2.31.0"
   }
 }
