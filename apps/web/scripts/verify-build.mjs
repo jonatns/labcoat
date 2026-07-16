@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = path.resolve(root, '../..');
 const dist = path.join(root, 'dist');
 const required = [
   'index.html',
@@ -59,6 +60,21 @@ for (const file of htmlFiles) {
 
 if (broken.length) {
   throw new Error(`Broken local references:\n${broken.join('\n')}`);
+}
+
+const repoVercel = JSON.parse(await readFile(path.join(repoRoot, 'vercel.json'), 'utf8'));
+const appVercel = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
+const hasHostRedirect = (config) => config.redirects?.some((redirect) =>
+  redirect.has?.some((condition) => condition.type === 'host'));
+
+if (hasHostRedirect(repoVercel) || hasHostRedirect(appVercel)) {
+  throw new Error('Host redirects belong in Vercel Domains, not vercel.json.');
+}
+if (JSON.stringify(repoVercel.headers) !== JSON.stringify(appVercel.headers)) {
+  throw new Error('Repository-root and app-root Vercel headers are out of sync.');
+}
+if (repoVercel.outputDirectory !== 'apps/web/dist' || appVercel.outputDirectory !== 'dist') {
+  throw new Error('Vercel output directories do not match their project roots.');
 }
 
 console.log(`Verified ${required.length} required outputs and ${htmlFiles.length} HTML files.`);
