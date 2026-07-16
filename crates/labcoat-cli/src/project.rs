@@ -103,6 +103,9 @@ mod tests {
         assert!(root.join("contracts/example/src/lib.rs").exists());
         assert!(root.join("crates/shared/Cargo.toml").exists());
         assert!(root.join("tests/example.rs").exists());
+        assert!(std::fs::read_to_string(root.join("tests/example.rs"))
+            .unwrap()
+            .contains("for_contract(\"example\")"));
         assert!(init(root.to_str(), false).is_err());
         assert!(init(root.to_str(), true).is_ok());
         std::fs::remove_dir_all(root).ok();
