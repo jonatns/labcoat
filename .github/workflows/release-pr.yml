@@ -27,7 +27,8 @@ jobs:
         run: node scripts/release/update-release-trigger.mjs
       - name: Prepare or update release PR
         uses: release-plz/action@476794ede164c5137bfc3a1dc6ed3675275690f9 # v0.5.99
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           command: release-pr
           config: release-plz.toml
-          token: ${{ secrets.GITHUB_TOKEN }}
