@@ -39,9 +39,11 @@ reviewed PR. CI verifies the pin is reachable from `develop`.
 | wasm targets | `wasm32-unknown-unknown`, `wasm32-wasip1` | deploy artifacts use unknown-unknown; native contract tests use WASIp1 |
 | protoc | any ≥3 (`protobuf-compiler`) | required to build `labcoat-core` (prost-build 0.12 does not vendor protoc) |
 | LLVM Clang | wasm32 backend | required by secp256k1-sys while compiling contracts; Homebrew LLVM is auto-detected on macOS |
+| WASI libc | system package | required for `wasm32-wasip1` contract tests on Linux (`apt install wasi-libc`) |
 
 Contract compilation needs `clang`; on macOS install Homebrew `llvm`
-because Apple Clang does not ship a WebAssembly backend.
+because Apple Clang does not ship a WebAssembly backend. Debian and Ubuntu
+also need `wasi-libc` for the WASIp1 C sysroot used by `labcoat test`.
 
 ## Banned dependencies (hard constraint)
 

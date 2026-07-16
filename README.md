@@ -37,7 +37,7 @@ Contract compilation requires an LLVM Clang with a WebAssembly backend.
 
 ```bash
 brew install llvm       # macOS
-sudo apt install clang  # Debian/Ubuntu
+sudo apt install clang wasi-libc  # Debian/Ubuntu
 ```
 
 Check the complete environment with:

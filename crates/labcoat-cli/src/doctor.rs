@@ -93,7 +93,7 @@ pub async fn run() -> Vec<Check> {
         None => checks.push(fail(
             "wasm C compiler",
             "no LLVM clang with a wasm32 backend found",
-            "install LLVM (`brew install llvm` on macOS, `apt install clang` on Linux)",
+            "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Linux)",
         )),
     }
     match version_of("node", "--version") {

@@ -171,7 +171,7 @@ pub fn compile_for_target(
                 LabcoatError::new(
                     "COMPILE_FAILED",
                     "no C compiler with a wasm32 backend was found",
-                    "install LLVM (`brew install llvm` on macOS, `apt install clang` on Linux)",
+                    "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Linux)",
                 )
             })?;
             command.env(format!("CC_{}", target.replace('-', "_")), compiler);
