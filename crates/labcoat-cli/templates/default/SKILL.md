@@ -1,6 +1,6 @@
 ---
 name: labcoat
-description: Build, test, deploy, call, and trace Alkanes smart contracts with the Rust-first Labcoat CLI and its Isomer devnet.
+description: Build, test, deploy, call, and trace Alkanes smart contracts with the Rust-first Labcoat CLI and its local devnet.
 ---
 
 # Labcoat workflow

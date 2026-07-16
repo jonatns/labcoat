@@ -1,34 +1,30 @@
 # Labcoat documentation
 
-**Labcoat** is a smart contract development toolkit for
-[Alkanes](https://alkanes.build) on Bitcoin. **Isomer** is the one-click
-local devnet inside it — desktop app or headless (`labcoat up`).
+Labcoat is a native Rust CLI for developing Alkanes smart contracts on
+Bitcoin. It owns project scaffolding, contract testing, compilation,
+wallets, the local devnet, deployment, calls, simulation, and tracing.
 
-## Guides
+## Start here
 
-- [Migrating from the old labcoat / Isomer repos](MIGRATING.md)
-- [Releasing](RELEASING.md)
-- [Isomer release notes archive (pre-monorepo)](RELEASING-isomer.md)
-- [Migration working docs](migration/) — pins, audits, coupling inventory
+- [README and quick start](../README.md)
+- [Migrating from the retired TypeScript package](MIGRATING.md)
+- [Releasing the CLI](RELEASING.md)
+- [Toolchain and upstream pins](../TOOLCHAIN.md)
+- [Agent workflow](../skills/SKILL.md)
 
-## Reference
+For the complete command and protocol reference, run:
 
-- `labcoat docs --llm` — the full command reference + protocol
-  cheatsheet as one document (also the best starting point for humans).
-- [`TOOLCHAIN.md`](../TOOLCHAIN.md) — toolchain versions, the alkanes-rs
-  develop pin, and the oyl-sdk ban.
-- [`skills/SKILL.md`](../skills/SKILL.md) — the agent workflow.
+```bash
+labcoat docs --llm
+```
 
 ## Architecture
 
-```
-crates/isomer-core    devnet engine: binaries, processes, chain control
-crates/labcoat-core   contract toolkit on pinned alkanes-rs develop
-crates/labcoat-cli    `labcoat` — CLI + MCP server over both cores
-crates/labcoat-test   native WebAssembly contract integration-test harness
-apps/isomer           Tauri desktop app (maintenance mode; thin UI over isomer-core)
-apps/isomer-extension browser companion (maintenance mode; JavaScript is required here)
+```text
+crates/isomer-core   headless devnet process and chain control
+crates/labcoat-core  contract toolkit on pinned alkanes-rs
+crates/labcoat-cli   CLI, JSON envelopes, and MCP server
+crates/labcoat-test  native WebAssembly contract test harness
 ```
 
-Rust owns the engine, CLI, MCP, scaffolding, and testing. TypeScript is
-limited to the desktop webview and browser extension.
+The `labcoat` binary is the supported public interface to these crates.

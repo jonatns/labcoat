@@ -1,175 +1,102 @@
-# Manual test plan — monorepo migration PR
+# Manual test plan — Rust-first CLI
 
-Covers what CI cannot: real service binaries, a live devnet loop, the
-desktop GUI, the extension, MCP against a real host, and the release
-workflows. CI already covers builds, unit tests, clippy, the stub devnet
-smoke, and the oyl-sdk / alkanes-rs-pin guards — none of that is repeated
-here.
+CI covers formatting, workspace tests, clippy, installer unit tests, the
+generated-project smoke test, MCP discovery, and the stub devnet. Complete
+the checks below with real service binaries before merging or releasing.
 
-Run top to bottom on a normal (unrestricted-network) dev machine.
-Estimated time: ~1.5h, mostly waiting on first builds.
-
-## 0. Prerequisites
+## 1. Build and diagnose
 
 ```bash
-git fetch origin claude/labcoat-monorepo-migration-op07m8
-git checkout claude/labcoat-monorepo-migration-op07m8
-pnpm install && pnpm -r build
-cargo build --release -p labcoat-cli        # first build is slow (alkanes-rs graph)
+cargo build --release -p labcoat-cli
 export PATH="$PWD/target/release:$PATH"
 labcoat doctor
 ```
 
-- [ ] `doctor` reports ✓ for cargo, wasm32-unknown-unknown, node
-      (warnings about missing binaries/wallet are expected at this point)
+- [ ] Rust, Cargo, both WebAssembly targets, protoc, and LLVM are available.
+- [ ] The CLI reports missing service binaries clearly before first setup.
 
-## 1. Headless devnet (real binaries)
+## 2. Real devnet
 
 ```bash
-labcoat up            # downloads Bitcoin Core, ord, rockshrew-mono, flextrs, espo, jsonrpc bundle
+labcoat up
+labcoat status
+labcoat mine 5
+labcoat logs --service metashrew --limit 20
 ```
 
-- [ ] Downloads complete with checksum verification (watch stderr; only
-      ord non-darwin and some service binaries legitimately skip checksums)
-- [ ] Ends with "Devnet is up", unified JSON-RPC `http://127.0.0.1:18888`,
-      block height ≥ 101 (wallet bootstrap mined coinbase maturity)
-- [ ] `labcoat status` → all six services `running`, `ready: true`
-- [ ] `labcoat mine 5` → height increases by exactly 5
-- [ ] `labcoat logs --service metashrew --limit 20` shows indexer progress
-- [ ] Exit the shell that ran `up`, open a new one: `labcoat status`
-      still shows everything running (services must survive the CLI)
-- [ ] `curl -s http://127.0.0.1:18888` answers (the gateway is up)
+- [ ] Downloads pass checksum verification.
+- [ ] All services report running and ready.
+- [ ] Initial block height is at least 101.
+- [ ] Mining increases height by exactly five.
+- [ ] Services remain alive when checked from a new shell.
 
-Snapshot/restore:
+Verify snapshot and restore:
 
 ```bash
 labcoat snapshot before-test
-labcoat up --no-download && labcoat mine 3
-labcoat restore before-test && labcoat up --no-download
+labcoat up --no-download
+labcoat mine 3
+labcoat restore before-test
+labcoat up --no-download
 ```
 
-- [ ] After restore, `labcoat status` shows the pre-mine block height
+- [ ] Restored height matches the snapshot.
 
-## 2. Contract loop (CLI)
-
-```bash
-mkdir /tmp/lab-e2e && cd /tmp/lab-e2e
-labcoat wallet init                       # note the warning about the dev passphrase
-labcoat wallet addresses                  # copy the p2tr address
-labcoat fund <p2tr-address> && labcoat mine 1
-labcoat wallet utxos                      # ≥ 1 spendable UTXO
-curl -sL https://raw.githubusercontent.com/jonatns/labcoat-templates/main/default/contracts/Example.rs -o Example.rs
-labcoat compile Example.rs
-labcoat deploy build/Example.wasm --dry-run    # sanity: shows size + sha256, no broadcast
-labcoat deploy build/Example.wasm
-```
-
-- [ ] Deploy returns `status: success` and an `alkanesId` (`2:N`), and
-      `labcoat lock show` contains it under `regtest`
-- [ ] `labcoat simulate Example 1 World` → `Hello World!`
-- [ ] `labcoat call Example 1 World` → `status: success`, txid present
-- [ ] `labcoat trace <that-txid>` shows invoke/return events
-- [ ] Revert path: `labcoat simulate Example 99` (bogus opcode) fails
-      with a decoded error, not a panic; `--json` variant carries
-      `error.code` + `error.hint`
-
-## 3. Rust-first project and tests
+## 3. Generated project and contract loop
 
 ```bash
-cd /tmp
-labcoat init rust-project
-cd rust-project
+PROJECT=$(mktemp -d)/project
+labcoat init "$PROJECT"
+cd "$PROJECT"
 labcoat test
+labcoat compile contracts/Example.rs
+labcoat wallet init
+labcoat wallet addresses
+labcoat fund <address>
+labcoat mine 1
+labcoat deploy build/Example.wasm --dry-run
+labcoat deploy build/Example.wasm
+labcoat simulate Example 1 World
+labcoat call Example 1 World
+labcoat trace <txid> --wait
 ```
 
-- [ ] Template contains `labcoat.toml`, a contract, and `tests/example.rs`
-- [ ] Native test harness reports `Hello World!`
-- [ ] Non-empty targets are rejected unless `--force` is explicit
-- [ ] **Address-parity check:** supply an old mnemonic through
-      `LABCOAT_MNEMONIC`; the taproot address matches the old installation
-- [ ] **Legacy migration:** in an old project with
-      `deployments/manifest.json`, run `labcoat lock migrate` — entries
-      appear in `labcoat.lock` and `simulate <OldName> ...` resolves
+- [ ] The test harness returns `Hello World!`.
+- [ ] Raw `.wasm`, `.wasm.gz`, and ABI artifacts are produced.
+- [ ] Dry-run broadcasts nothing.
+- [ ] Deployment is recorded in `labcoat.lock`.
+- [ ] Simulation and state-changing calls return expected data.
+- [ ] A bogus opcode returns a typed error instead of panicking.
+- [ ] A non-empty `labcoat init` target is rejected without `--force`.
 
-## 4. Isomer desktop app (zero-visual-diff) — OPTIONAL (maintenance mode)
+## 4. Configuration and migration
+
+- [ ] CLI flags override environment, file, and default values.
+- [ ] `LABCOAT_*` variables override `labcoat.toml`.
+- [ ] Mnemonic and passphrase keys are rejected from `labcoat.toml`.
+- [ ] An existing mnemonic produces the expected BIP-86/84/49/44 addresses.
+- [ ] `labcoat lock migrate` imports a legacy deployment manifest.
+
+## 5. Automation
+
+- [ ] `labcoat docs --llm` renders the complete command reference.
+- [ ] `labcoat mcp serve` lists tools from a real MCP host.
+- [ ] MCP results match equivalent CLI JSON envelopes.
+- [ ] Error envelopes include `code`, `message`, and `hint`.
+
+## 6. Release assets
+
+- [ ] A `kind=cli` workflow dispatch creates four CLI binaries.
+- [ ] Every binary has a valid SHA-256 file.
+- [ ] The installer selects the latest published `cli-v*` tag.
+- [ ] An explicit installer version selects that exact tag.
+- [ ] A corrupted download is rejected.
+
+## 7. Teardown
 
 ```bash
-pnpm dev:isomer
+labcoat reset -y
+labcoat status
 ```
 
-Compare against the pre-migration app (built from `isomer@pre-monorepo`)
-side-by-side if possible:
-
-- [ ] Setup screen → binary download flow with progress
-- [ ] Dashboard: service matrix all green, block height ticks on mine
-- [ ] Mining panel, faucet panel, logs panel (filter + clear) work
-- [ ] Explorer panel: block carousel + block details load
-- [ ] Contracts panel lists the Example alkane deployed in §2
-- [ ] Wallets panel lists `~/.alkanes` wallets (needs `alkanes-cli` on
-      PATH — unchanged behavior), fund + confirm works
-- [ ] Settings: change a port, save, restart services — status reflects it
-      (ServiceInfo ports now come from config; used to always show defaults)
-- [ ] Quit the app → all services stop (Drop semantics unchanged)
-- [ ] No visual differences vs the old app
-
-## 5. Extension — OPTIONAL (maintenance mode; excluded from CI on purpose)
-
-```bash
-cd apps/isomer-extension
-pnpm --ignore-workspace install --no-frozen-lockfile
-pnpm --ignore-workspace build
-```
-
-- [ ] Builds against the real `pkg.alkanes.build` tarball
-- [ ] Load `dist/` unpacked in Chrome; popup connects to the devnet
-      gateway on :18888
-
-## 6. Agent surface
-
-- [ ] `labcoat docs --llm` renders sensibly (pipe to a pager)
-- [ ] Register the MCP server with a real host, e.g.
-      `claude mcp add labcoat -- labcoat mcp serve`, then in a session:
-      list tools, call `devnet_status`, `simulate` the Example contract —
-      results match the CLI
-- [ ] `labcoat call Example 1 World --dry-run --json` shows the exact
-      protostone spec and broadcasts nothing (height unchanged)
-
-## 7. Release workflows (no publishing)
-
-- [ ] Actions → "Release (Isomer app + labcoat CLI)" → run with
-      `kind=cli` on this branch — draft release gets 4 `labcoat-*`
-      binaries + sha256s; delete the draft afterwards
-- [ ] Same workflow with `kind=app` — Tauri bundles build on all four
-      matrix targets (draft; delete afterwards)
-- [ ] "Build and Release Binaries" via dispatch (only if you want to
-      pre-stage the first monorepo `binaries-v*` release — remember the
-      `binary_manager.rs` URL bump comes after, per docs/RELEASING.md)
-- [ ] Confirm `CARGO_REGISTRY_TOKEN` exists before the first `cli-v*`
-      release so `labcoat-test` publishes before the matching binaries
-- [ ] After publishing and verifying the Rust installer, run the two npm
-      deprecation commands in `docs/RELEASING.md`
-
-## 8. Teardown
-
-```bash
-labcoat reset -y && labcoat status    # everything stopped, height 0 on next up
-```
-
-- [ ] `labcoat doctor` again: ports free, binaries installed
-
-## Sign-off
-
-| Suite | Result | Notes |
-|---|---|---|
-| 1. Headless devnet | | |
-| 2. Contract loop (CLI) | | |
-| 3. Rust project + migration | | |
-| 4. Desktop app (optional) | | |
-| 5. Extension (optional) | | |
-| 6. Agent surface | | |
-| 7. Release workflows | | |
-
-Known-acceptable gaps: Windows CLI binaries aren't built (app bundles
-only); `labcoat logs` timestamps are 0 for file-backed entries (services
-print their own); the Wallets panel still shells out to a system
-`alkanes-cli` exactly as before the migration.
+- [ ] All processes stop and ports are free.

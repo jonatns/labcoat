@@ -4,8 +4,7 @@ Hard constraint: `oyl-sdk` / `@oyl/sdk` is banned from the dependency
 tree, direct or transitive. This was the removal ledger; **Phase 3
 eliminated every entry below** (along with the `alkanes` npm dep, whose
 protostone encoding moved into the Rust core). CI enforces the ban
-strictly on every PR: `pnpm ls -r`, lockfiles, and `Cargo.lock` are all
-grepped. Kept for historical reference.
+strictly on every PR. Kept for historical reference.
 
 ## Direct dependency
 
@@ -35,13 +34,8 @@ Plus prose reference in `Readme.md`.
   Rust core.)
 - `@oyl/sdk` itself pulls `@sadoprotocol/ordit-sdk`, `bip322-js`,
   `alkanes` — all of which leave the tree with it.
-- `@alkanes/ts-sdk` (isomer extension) declares `@oyl/sdk` only as an
-  **optional peerDependency** → never auto-installed. Allowed, but the CI
-  gate watches the resolved tree anyway.
-
 ## CI enforcement (Phase 1 onward)
 
-- Fail if `@oyl/sdk` or `oyl-sdk` appears in `pnpm ls -r --depth Infinity`
-  output or any lockfile.
+- Fail if `@oyl/sdk` or `oyl-sdk` appears in a resolved dependency tree.
 - Fail if it appears in `cargo tree` for the workspace.
 - Runs on every PR, not once.

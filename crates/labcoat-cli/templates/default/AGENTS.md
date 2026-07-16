@@ -1,7 +1,7 @@
 # Working in this Labcoat project
 
 The Rust `labcoat` CLI owns compilation, testing, wallet operations,
-deployment, calls, simulation, tracing, and the local Isomer devnet.
+deployment, calls, simulation, tracing, and the local devnet.
 
 - Contracts: `contracts/*.rs`
 - Native integration tests: `tests/*.rs` using `labcoat-test`

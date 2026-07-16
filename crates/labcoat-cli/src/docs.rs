@@ -5,7 +5,7 @@ pub fn llm_reference() -> String {
         r#"# Labcoat — command reference & protocol cheatsheet (v{version})
 
 Labcoat is a smart-contract development toolkit for Alkanes on Bitcoin.
-Isomer is the one-click local devnet inside it (Foundry ⊃ Anvil).
+The CLI includes a complete local development network.
 
 ## The core loop
 

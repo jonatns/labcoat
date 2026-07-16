@@ -1,15 +1,38 @@
 # Migrating to Rust-first Labcoat
 
-Labcoat and Isomer now live in one repository. Labcoat is the native Rust
-toolkit; Isomer is its desktop and headless devnet (Foundry ⊃ Anvil).
+The TypeScript SDK, TypeScript CLI, and `create-labcoat` package have been
+retired. Install the native binary and use explicit CLI commands instead.
 
-## From `@jonatns/labcoat`
+## Project setup
 
-The TypeScript SDK and CLI have been retired. Install the native binary,
-then replace `labcoat.setup()` scripts with explicit commands:
+Replace `npm create labcoat` with:
 
 ```bash
-labcoat init .
+labcoat init my-project
+cd my-project
+labcoat test
+```
+
+Replace `labcoat.config.ts` with `labcoat.toml`. Settings resolve as CLI
+flags, then `LABCOAT_*` environment variables, then the project file, then
+defaults.
+
+```toml
+network = "regtest"
+rpc_url = "http://localhost:18888"
+wallet_file = ".labcoat/wallet.json"
+fee_rate = 2.0
+```
+
+Never put mnemonic or passphrase material in the file. Use
+`LABCOAT_MNEMONIC`, mnemonic stdin, and `LABCOAT_WALLET_PASSPHRASE`.
+
+## Script migration
+
+Replace SDK orchestration such as `labcoat.setup()` with direct commands or
+ordinary shell scripts:
+
+```bash
 labcoat up
 labcoat wallet init
 labcoat compile contracts/Example.rs
@@ -18,40 +41,34 @@ labcoat simulate Example 1 World
 labcoat call Example 1 World
 ```
 
-- Replace `labcoat.config.ts` with `labcoat.toml`. CLI flags override
-  `LABCOAT_*` environment variables, which override the TOML file.
-- Keep mnemonic and passphrase only in `LABCOAT_MNEMONIC`, mnemonic stdin,
-  and `LABCOAT_WALLET_PASSPHRASE`; secrets are rejected in the TOML file.
-- Replace `.spec.ts` tests with standard `tests/*.rs` files using
-  `labcoat-test`; run them with `labcoat test`.
-- Script orchestration belongs in ordinary shell/CI scripts. The old
-  `labcoat run` command no longer exists.
-- `oyl-sdk` is gone. Wallet, deploy, execute, simulate, and trace use the
-  pinned `alkanes-rs` Rust core.
-- Deployments live in `labcoat.lock`; `labcoat lock migrate` imports the
-  legacy `deployments/manifest.json` once.
-- Deploy the raw `.wasm` artifact. The reveal envelope performs its own
-  compression.
+The old `labcoat run` command no longer exists.
 
-The same mnemonic continues to use the standard BIP-86/84/49/44 paths.
-Verify address parity before using an existing wallet on a non-regtest
-network.
+## Test migration
 
-## From the standalone Isomer repository
+Replace `.spec.ts` contract tests with standard `tests/*.rs` files using
+the version of `labcoat-test` matching the CLI:
 
-Desktop usage remains the same. Releases now use `isomer-v*` tags in this
-repository. The same engine is also available headlessly:
-
-```bash
-labcoat up
-labcoat status
-labcoat mine 5
-labcoat down
+```toml
+[dev-dependencies]
+labcoat-test = "=0.7.0"
 ```
 
-## Agent and automation interfaces
+Run them with `labcoat test`. Labcoat compiles WASIp1 test artifacts and
+executes them through `ContractHarness`.
 
-- Every command supports `--json` envelopes with typed errors and hints.
-- `labcoat docs --llm` prints the complete command reference.
-- `labcoat mcp serve` exposes the toolkit over MCP stdio.
-- `labcoat init` embeds AGENTS.md and SKILL.md in each new project.
+## Deployment migration
+
+- Deploy raw `.wasm`, not `.wasm.gz`; the reveal envelope handles its own
+  compression.
+- Deployments now live in `labcoat.lock` by network.
+- Run `labcoat lock migrate` once to import a legacy
+  `deployments/manifest.json`.
+- Wallet paths remain BIP-86/84/49/44. Verify address parity before using
+  an existing mnemonic outside regtest.
+
+## Automation
+
+- Add `--json` for typed envelopes and recovery hints.
+- Run `labcoat docs --llm` for the complete reference.
+- Run `labcoat mcp serve` for MCP over stdio.
+- New projects include `AGENTS.md` and `SKILL.md`.

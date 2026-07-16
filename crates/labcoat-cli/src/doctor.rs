@@ -121,7 +121,7 @@ pub async fn run() -> Vec<Check> {
         checks.push(warn(
             "ports",
             format!("in use: {}", busy.join(", ")),
-            "if this isn't a running labcoat devnet, stop the other process or change ports in the Isomer config",
+            "if this isn't a running labcoat devnet, stop the other process or change the devnet ports",
         ));
     }
 

@@ -1,66 +1,173 @@
 # Labcoat
 
-**Rust-first smart contract development toolkit for [Alkanes](https://alkanes.build) on Bitcoin — with Isomer, the desktop devnet, inside it.**
+**A Rust-first CLI for building, testing, deploying, and operating
+[Alkanes](https://alkanes.build) smart contracts on Bitcoin.**
 
-Think Foundry ⊃ Anvil: **Labcoat** is the toolkit (compile, deploy, call,
-simulate, trace); **Isomer** is the one-click local devnet it runs against.
-The **`labcoat` CLI is the flagship surface** — `labcoat up` boots the full
-devnet headless. The Isomer desktop app is in **maintenance mode**: it keeps
-compiling in CI over the same engine (`isomer-core`), but new features land
-in the CLI first and app releases are tagged on demand only.
+Labcoat gives contract developers one native tool for the complete local
+workflow:
 
-> **Rust-first monorepo.** This repository contains the native Labcoat
-> toolkit and the Isomer desktop app, with full git history from their
-> former repositories. See
-> [`docs/migration/`](docs/migration/) and [`TOOLCHAIN.md`](TOOLCHAIN.md)
-> for status, pins, and constraints.
+- scaffold Rust contract projects;
+- compile deployable WebAssembly;
+- run contracts in a native test harness;
+- start and control a complete Bitcoin regtest stack;
+- manage project wallets;
+- deploy, call, simulate, and trace Alkanes contracts;
+- automate every command with JSON envelopes or MCP.
 
-## Layout
+The supported public interface is the **`labcoat` CLI**.
 
-```
-crates/
-  isomer-core/       # headless devnet engine (binaries, processes, chain control)
-  labcoat-core/      # contract toolkit core, built on pinned alkanes-rs develop
-  labcoat-cli/       # `labcoat` CLI: devnet verbs + contract ops
-  labcoat-test/      # native host harness for Rust contract integration tests
-apps/
-  isomer/            # Isomer desktop app (Tauri, maintenance mode) — thin UI over isomer-core
-  isomer-extension/  # browser extension companion (maintenance mode)
-skills/              # agent-facing workflow docs
-docs/
-```
+## Install
 
-## Development
-
-```bash
-pnpm install                 # Isomer frontend workspace
-pnpm build                   # build the Isomer frontend
-cargo check --workspace      # Rust workspace
-pnpm dev:isomer              # run the Isomer desktop app
-```
-
-Install the CLI from a published macOS/Linux release:
+macOS and Linux binaries are published for arm64 and x86_64. Windows CLI
+support is not available yet.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jonatns/labcoat/main/install-labcoat.sh | sh
-labcoat init my-project
-cd my-project && labcoat test
 ```
 
-The former `@jonatns/labcoat` SDK and `create-labcoat` packages are
-retired. See [`docs/MIGRATING.md`](docs/MIGRATING.md) for the direct CLI
-equivalents.
+The installer verifies the release checksum and writes the binary to
+`${LABCOAT_INSTALL_DIR:-$HOME/.local/bin}`. Install a specific version with:
 
-Toolchain versions and upstream pins live in [`TOOLCHAIN.md`](TOOLCHAIN.md).
-Two hard constraints inherited by all contributions:
+```bash
+curl -fsSL https://raw.githubusercontent.com/jonatns/labcoat/main/install-labcoat.sh \
+  | sh -s -- 0.7.0
+```
 
-1. Every `alkanes-rs` reference points at a **pinned commit on `develop`**
-   — never `main`, never a moving ref.
-2. `oyl-sdk` / `@oyl/sdk` is **banned** from the dependency tree, direct or
-   transitive (CI-enforced).
+Contract compilation requires an LLVM Clang with a WebAssembly backend.
 
-## History
+```bash
+brew install llvm       # macOS
+sudo apt install clang  # Debian/Ubuntu
+```
 
-- `jonatns/isomer` was imported under `apps/isomer` with full history
-  (`git log --follow` works across the move).
-- The original repos are tagged `*@pre-monorepo` at their import states.
+Check the complete environment with:
+
+```bash
+labcoat doctor
+```
+
+## Quick start
+
+Create a project and run its Rust integration test:
+
+```bash
+labcoat init hello-alkane
+cd hello-alkane
+labcoat test
+```
+
+Start the local devnet and initialize the project wallet:
+
+```bash
+labcoat up
+labcoat status
+labcoat wallet init
+labcoat wallet addresses
+```
+
+Fund the displayed address, mine a block, and inspect its UTXOs:
+
+```bash
+labcoat fund <address>
+labcoat mine 1
+labcoat wallet utxos
+```
+
+Compile and deploy the example contract:
+
+```bash
+labcoat compile contracts/Example.rs
+labcoat deploy build/Example.wasm --dry-run
+labcoat deploy build/Example.wasm
+```
+
+Interact with the deployed contract:
+
+```bash
+labcoat simulate Example 1 World
+labcoat call Example 1 World
+labcoat trace <txid> --wait
+```
+
+Stop the devnet when finished:
+
+```bash
+labcoat down
+```
+
+## Projects and configuration
+
+`labcoat init` creates:
+
+```text
+contracts/          Rust contract sources
+tests/              Native integration tests using labcoat-test
+Cargo.toml          Host-side test project
+labcoat.toml        Public project configuration
+AGENTS.md           Agent instructions
+SKILL.md            Agent workflow
+```
+
+Settings resolve in this order:
+
+```text
+CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
+```
+
+`labcoat.toml` supports `network`, `rpc_url`, `wallet_file`, and
+`fee_rate`. Mnemonics and passphrases are rejected from the file; use
+`LABCOAT_MNEMONIC`, mnemonic stdin, and `LABCOAT_WALLET_PASSPHRASE`.
+
+Deployments are recorded by network in `labcoat.lock`. Commit this file
+when deployments are part of the project state.
+
+## CLI map
+
+| Area | Commands |
+|---|---|
+| Project | `init`, `doctor`, `docs` |
+| Test and build | `test`, `compile` |
+| Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
+| Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |
+| Contracts | `deploy`, `call`, `simulate`, `trace`, `lock` |
+| Automation | `mcp serve`, global `--json` |
+
+Run `labcoat --help`, `labcoat <command> --help`, or `labcoat docs --llm`
+for the full command reference.
+
+## Automation
+
+Every command accepts `--json` and emits a stable `labcoat/v1/*` envelope.
+Errors include a typed code, human-readable message, and recovery hint.
+
+```bash
+labcoat status --json
+labcoat deploy build/Example.wasm --dry-run --json
+labcoat mcp serve
+```
+
+## Develop Labcoat
+
+The CLI and its runtime are a Rust workspace pinned to Rust 1.86.0.
+
+```bash
+cargo fmt --all -- --check
+cargo check --workspace --locked
+cargo test --workspace --locked
+cargo clippy --workspace --locked -- -D warnings
+cargo build --release -p labcoat-cli
+```
+
+Core layout:
+
+```text
+crates/isomer-core/   headless devnet orchestration engine
+crates/labcoat-core/  contract, wallet, deployment, and trace operations
+crates/labcoat-cli/   labcoat command-line interface and MCP server
+crates/labcoat-test/  native WebAssembly contract test harness
+```
+
+See [TOOLCHAIN.md](TOOLCHAIN.md) for pinned upstream revisions and build
+requirements, [docs/MIGRATING.md](docs/MIGRATING.md) for migration from the
+retired TypeScript package, and [docs/RELEASING.md](docs/RELEASING.md) for
+the CLI release process.
