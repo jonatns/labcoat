@@ -5,11 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
 
 node scripts/release/validate-release.mjs >/dev/null
-[ "$(node scripts/release/validate-release.mjs --workspace-version)" = "0.7.0" ]
-node scripts/release/validate-release.mjs --validate-cli-tag cli-v0.7.0
+[ "$(node scripts/release/validate-release.mjs --workspace-version)" = "0.1.0" ]
+node scripts/release/validate-release.mjs --validate-cli-tag cli-v0.1.0
 node scripts/release/validate-release.mjs --validate-runtime-tag runtime-v2026.07.16.1
 
-if node scripts/release/validate-release.mjs --validate-cli-tag v0.7.0 2>/dev/null; then
+if node scripts/release/validate-release.mjs --validate-cli-tag v0.1.0 2>/dev/null; then
     echo "generic CLI tag was accepted" >&2
     exit 1
 fi

@@ -12,14 +12,14 @@ if LABCOAT_UNAME_S=Plan9 LABCOAT_UNAME_M=x86_64 detect_platform >/dev/null 2>&1;
     echo "unsupported platform was accepted" >&2
     exit 1
 fi
-[ "$(normalize_version 0.7.0)" = "cli-v0.7.0" ]
-[ "$(normalize_version v0.7.0)" = "cli-v0.7.0" ]
+[ "$(normalize_version 0.1.0)" = "cli-v0.1.0" ]
+[ "$(normalize_version v0.1.0)" = "cli-v0.1.0" ]
 
 curl() {
     printf '%s\n' \
         '[{"tag_name":"isomer-v9.9.9"},' \
         '{"tag_name":"cli-v0.8.1"},' \
-        '{"tag_name":"cli-v0.7.0"}]'
+        '{"tag_name":"cli-v0.1.0"}]'
 }
 [ "$(latest_version)" = "cli-v0.8.1" ]
 
@@ -54,7 +54,7 @@ curl() {
     esac
 }
 INSTALL_DIR="$tmp/missing-asset"
-if (LABCOAT_UNAME_S=Darwin LABCOAT_UNAME_M=arm64 main --version 0.7.0) >/dev/null 2>&1; then
+if (LABCOAT_UNAME_S=Darwin LABCOAT_UNAME_M=arm64 main --version 0.1.0) >/dev/null 2>&1; then
     echo "installer accepted a release with a missing checksum asset" >&2
     exit 1
 fi

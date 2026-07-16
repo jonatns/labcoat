@@ -7,7 +7,7 @@ and must not be reused.
 
 1. Create a GitHub environment named `release`.
 2. If `labcoat-test` has never been published, an owner must publish version
-   `0.7.0` once with `cargo publish --locked -p labcoat-test` to claim the
+   `0.1.0` once with `cargo publish --locked -p labcoat-test` to claim the
    crate. crates.io requires this initial publication before trusted
    publishing can be configured. Do not merge the bootstrap release PR first.
 3. In the `labcoat-test` crates.io settings, add a trusted publisher for this
@@ -23,7 +23,7 @@ updates to those pins.
 
 The previous `release.yml` and `release-binaries.yml` workflows are retained
 temporarily as a rollback path. Do not invoke them for a new release. Remove
-them only after both new dry runs and the first `cli-v0.7.0` publication have
+them only after both new dry runs and the first `cli-v0.1.0` publication have
 succeeded.
 
 ## CLI release (`cli-vX.Y.Z`)
@@ -52,7 +52,7 @@ Run **Release Labcoat CLI** manually with `dry_run=true` to exercise all builds
 without creating a tag, release, or crate version.
 
 The first release on this track is a bootstrap release PR that keeps version
-`0.7.0`; merging it creates `cli-v0.7.0`.
+`0.1.0`; merging it creates `cli-v0.1.0`.
 
 ## Runtime release (`runtime-vYYYY.MM.DD.N`)
 

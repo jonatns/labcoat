@@ -33,7 +33,7 @@ The installer verifies the release checksum and writes the binary to
 
 ```bash
 curl -fsSL https://labcoat.sh/install \
-  | sh -s -- 0.7.0
+  | sh -s -- 0.1.0
 ```
 
 Contract compilation requires an LLVM Clang with a WebAssembly backend.

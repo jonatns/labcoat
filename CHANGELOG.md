@@ -4,4 +4,4 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
-The first release on the new native CLI track will be `0.7.0`.
+The first release on the new native CLI track will be `0.1.0`.
