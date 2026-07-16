@@ -1,0 +1,322 @@
+name: Build and release runtime bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and package without publishing or opening a promotion PR
+        type: boolean
+        default: true
+        required: true
+
+concurrency:
+  group: release-runtime
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      sha: ${{ steps.metadata.outputs.sha }}
+      source_digest: ${{ steps.metadata.outputs.source_digest }}
+      publish: ${{ steps.metadata.outputs.publish }}
+      metashrew_repo: ${{ steps.metadata.outputs.metashrew_repo }}
+      metashrew_ref: ${{ steps.metadata.outputs.metashrew_ref }}
+      flextrs_repo: ${{ steps.metadata.outputs.flextrs_repo }}
+      flextrs_ref: ${{ steps.metadata.outputs.flextrs_ref }}
+      espo_repo: ${{ steps.metadata.outputs.espo_repo }}
+      espo_ref: ${{ steps.metadata.outputs.espo_ref }}
+      wasm_repo: ${{ steps.metadata.outputs.wasm_repo }}
+      wasm_ref: ${{ steps.metadata.outputs.wasm_ref }}
+      jsonrpc_repo: ${{ steps.metadata.outputs.jsonrpc_repo }}
+      jsonrpc_ref: ${{ steps.metadata.outputs.jsonrpc_ref }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          node scripts/release/validate-release.mjs
+          if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "runtime releases must be published from main" >&2
+            exit 1
+          fi
+          date_part=$(date -u +%Y.%m.%d)
+          last=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/runtime-v$date_part" \
+            --jq '.[].ref' 2>/dev/null | sed -n 's#.*\.##p' | sort -n | tail -n 1)
+          sequence=$(( ${last:-0} + 1 ))
+          tag="runtime-v$date_part.$sequence"
+          node scripts/release/validate-release.mjs --validate-runtime-tag "$tag"
+          publish=true
+          [ "$DRY_RUN" = true ] && publish=false
+          {
+            echo "tag=$tag"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "source_digest=$(node scripts/release/validate-release.mjs --runtime-source-digest)"
+            echo "publish=$publish"
+            echo "metashrew_repo=$(jq -r '.sources[\"rockshrew-mono\"].repository' runtime.json)"
+            echo "metashrew_ref=$(jq -r '.sources[\"rockshrew-mono\"].revision' runtime.json)"
+            echo "flextrs_repo=$(jq -r '.sources.flextrs.repository' runtime.json)"
+            echo "flextrs_ref=$(jq -r '.sources.flextrs.revision' runtime.json)"
+            echo "espo_repo=$(jq -r '.sources.espo.repository' runtime.json)"
+            echo "espo_ref=$(jq -r '.sources.espo.revision' runtime.json)"
+            echo "wasm_repo=$(jq -r '.sources[\"alkanes-wasm\"].repository' runtime.json)"
+            echo "wasm_ref=$(jq -r '.sources[\"alkanes-wasm\"].revision' runtime.json)"
+            echo "jsonrpc_repo=$(jq -r '.sources[\"alkanes-jsonrpc\"].repository' runtime.json)"
+            echo "jsonrpc_ref=$(jq -r '.sources[\"alkanes-jsonrpc\"].revision' runtime.json)"
+          } >> "$GITHUB_OUTPUT"
+
+  build-metashrew:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            suffix: darwin-arm64
+          - runner: ubuntu-latest
+            suffix: linux-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ needs.metadata.outputs.metashrew_repo }}
+          ref: ${{ needs.metadata.outputs.metashrew_ref }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - name: Install protoc
+        run: ${{ runner.os == 'macOS' && 'brew install protobuf' || 'sudo apt-get update && sudo apt-get install -y protobuf-compiler' }}
+      - run: cargo build --locked --release -p rockshrew-mono
+      - run: cp target/release/rockshrew-mono rockshrew-mono-${{ matrix.suffix }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rockshrew-mono-${{ matrix.suffix }}
+          path: rockshrew-mono-${{ matrix.suffix }}
+
+  build-flextrs:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            suffix: darwin-arm64
+          - runner: ubuntu-latest
+            suffix: linux-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ needs.metadata.outputs.flextrs_repo }}
+          ref: ${{ needs.metadata.outputs.flextrs_ref }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - run: cargo build --locked --release
+      - run: cp target/release/flextrs flextrs-${{ matrix.suffix }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flextrs-${{ matrix.suffix }}
+          path: flextrs-${{ matrix.suffix }}
+
+  build-espo:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            suffix: darwin-arm64
+          - runner: ubuntu-latest
+            suffix: linux-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ needs.metadata.outputs.espo_repo }}
+          ref: ${{ needs.metadata.outputs.espo_ref }}
+      - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ github.token }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - run: cargo build --locked --release
+      - run: cp target/release/espo espo-${{ matrix.suffix }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: espo-${{ matrix.suffix }}
+          path: espo-${{ matrix.suffix }}
+
+  build-wasm:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ needs.metadata.outputs.wasm_repo }}
+          ref: ${{ needs.metadata.outputs.wasm_ref }}
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - run: sudo apt-get update && sudo apt-get install -y binaryen protobuf-compiler
+      - run: |
+          cargo build --locked --release --target wasm32-unknown-unknown -p alkanes
+          wasm-opt -O3 target/wasm32-unknown-unknown/release/alkanes.wasm -o alkanes.wasm
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alkanes-wasm
+          path: alkanes.wasm
+
+  bundle-jsonrpc:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ needs.metadata.outputs.jsonrpc_repo }}
+          ref: ${{ needs.metadata.outputs.jsonrpc_ref }}
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 9
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm --dir jsonrpc install --frozen-lockfile
+      - run: tar -czf alkanes-jsonrpc-bundle.tar.gz jsonrpc
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alkanes-jsonrpc-bundle
+          path: alkanes-jsonrpc-bundle.tar.gz
+
+  assemble:
+    needs: [metadata, build-metashrew, build-flextrs, build-espo, build-wasm, bundle-jsonrpc]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Build release manifest and checksums
+        env:
+          TAG: ${{ needs.metadata.outputs.tag }}
+          SOURCE_DIGEST: ${{ needs.metadata.outputs.source_digest }}
+        run: |
+          mkdir release
+          find artifacts -maxdepth 1 -type f -exec cp {} release/ \;
+          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 8
+          for file in \
+            rockshrew-mono-darwin-arm64 rockshrew-mono-linux-x86_64 \
+            flextrs-darwin-arm64 flextrs-linux-x86_64 \
+            espo-darwin-arm64 espo-linux-x86_64 \
+            alkanes.wasm alkanes-jsonrpc-bundle.tar.gz; do
+            test -f "release/$file"
+          done
+          checksums='{}'
+          for file in release/*; do
+            name=$(basename "$file")
+            hash=$(sha256sum "$file" | awk '{print $1}')
+            checksums=$(jq --arg name "$name" --arg hash "$hash" '. + {($name): $hash}' <<<"$checksums")
+          done
+          jq -S . <<<"$checksums" > release/checksums.json
+          jq -n --arg tag "$TAG" --arg sha "$GITHUB_SHA" --arg digest "$SOURCE_DIGEST" \
+            --slurpfile config runtime.json --slurpfile checksums release/checksums.json \
+            '{schema: 1, tag: $tag, commit: $sha, source_digest: $digest, sources: $config[0].sources, checksums: $checksums[0]}' \
+            > release/runtime-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-release-${{ needs.metadata.outputs.tag }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    if: needs.metadata.outputs.publish == 'true'
+    needs: [metadata, assemble]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-release-${{ needs.metadata.outputs.tag }}
+          path: release
+      - name: Recheck source pins
+        env:
+          SOURCE_DIGEST: ${{ needs.metadata.outputs.source_digest }}
+        run: node scripts/release/validate-release.mjs --expect-runtime-source-digest "$SOURCE_DIGEST"
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          SHA: ${{ needs.metadata.outputs.sha }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
+            existing=$(jq -r '.object.sha' <<<"$object")
+            if [ "$(jq -r '.object.type' <<<"$object")" = tag ]; then
+              existing=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$existing" --jq .object.sha)
+            fi
+            test "$existing" = "$SHA"
+          else
+            gh release create "$TAG" --draft --target "$SHA" --title "Labcoat runtime $TAG" \
+              --notes "Pinned runtime assets for Labcoat. Adoption is controlled by a separate promotion PR."
+          fi
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+            gh release upload "$TAG" release/* --clobber
+          fi
+      - name: Attest runtime artifacts
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: release/*
+      - name: Publish runtime release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+            gh release edit "$TAG" --draft=false --latest=false
+          fi
+      - name: Open promotion PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          SOURCE_DIGEST: ${{ needs.metadata.outputs.source_digest }}
+        run: |
+          node scripts/release/validate-release.mjs --expect-runtime-source-digest "$SOURCE_DIGEST"
+          branch="runtime-promotion/$TAG"
+          if gh pr list --state open --head "$branch" --json number --jq 'length' | grep -qx 1; then
+            exit 0
+          fi
+          jq --arg tag "$TAG" \
+            '.active_release = {owner: "jonatns", repository: "labcoat", tag: $tag, checksums_asset: "checksums.json"}' \
+            runtime.json > runtime.json.new
+          mv runtime.json.new runtime.json
+          node scripts/release/validate-release.mjs
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git switch -c "$branch"
+          git add runtime.json
+          git commit -m "chore: promote runtime $TAG"
+          git push -u origin "$branch"
+          gh label create runtime-promotion --color 1d76db --description "Promotes a verified runtime bundle" --force
+          gh pr create --base main --head "$branch" --title "chore: promote runtime $TAG" \
+            --label runtime-promotion --body "Promotes the verified runtime bundle \`$TAG\`. Source digest: \`$SOURCE_DIGEST\`."

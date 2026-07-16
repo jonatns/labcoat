@@ -1,0 +1,23 @@
+[workspace]
+release = false
+publish = false
+allow_dirty = true
+git_release_enable = false
+git_tag_enable = false
+release_always = false
+pr_branch_prefix = "release-plz-"
+pr_labels = ["release"]
+pr_name = "chore: release Labcoat v{{ version }}"
+features_always_increment_minor = true
+
+[[package]]
+name = "labcoat-test"
+release = true
+publish = false
+git_tag_name = "cli-v{{ version }}"
+changelog_path = "CHANGELOG.md"
+changelog_include = ["labcoat-cli", "labcoat-core"]
+
+[changelog]
+protect_breaking_commits = true
+sort_commits = "newest"

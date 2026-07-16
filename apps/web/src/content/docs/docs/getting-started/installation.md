@@ -15,7 +15,7 @@ checksum, and writes `labcoat` to `${LABCOAT_INSTALL_DIR:-$HOME/.local/bin}`.
 ## Install a specific version
 
 ```bash
-curl -fsSL https://labcoat.sh/install | sh -s -- 0.7.0
+curl -fsSL https://labcoat.sh/install | sh -s -- 0.1.0
 ```
 
 ## Compilation prerequisites

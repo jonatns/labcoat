@@ -966,7 +966,7 @@
         "name": "Contract ABI"
       }
     ],
-    "version": "0.7.0"
+    "version": "0.1.0"
   },
   "schema": "labcoat/v1/docs"
 }

@@ -1,8 +1,9 @@
 # Toolchain & Pins
 
-Single source of truth for toolchain versions and upstream pins in this
-monorepo. Bumping anything here is a deliberate, reviewed change — never a
-side effect of `cargo update` or a lockfile refresh.
+Toolchain policy for this monorepo. `runtime.json` is the machine-readable
+source of truth for downloadable service versions and build refs; this file
+documents the Cargo/toolchain constraints. Bumping either is a deliberate,
+reviewed change — never a side effect of `cargo update` or a lockfile refresh.
 
 ## alkanes-rs pin (hard constraint)
 

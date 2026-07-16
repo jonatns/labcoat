@@ -1,6 +1,7 @@
 [package]
 name = "isomer"
 version = "0.1.1"
+publish = false
 description = "One-click Alkanes development environment"
 authors = ["Alkanes Team"]
 edition = "2021"

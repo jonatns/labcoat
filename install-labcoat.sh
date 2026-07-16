@@ -100,9 +100,9 @@ main() {
     trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
     echo "Installing Labcoat $tag for $platform"
-    curl -fsSL "$base/$asset" -o "$tmp/$asset"
-    curl -fsSL "$base/$asset.sha256" -o "$tmp/$asset.sha256"
-    verify_checksum "$tmp/$asset" "$tmp/$asset.sha256"
+    curl -fsSL "$base/$asset" -o "$tmp/$asset" || return 1
+    curl -fsSL "$base/$asset.sha256" -o "$tmp/$asset.sha256" || return 1
+    verify_checksum "$tmp/$asset" "$tmp/$asset.sha256" || return 1
 
     mkdir -p "$INSTALL_DIR"
     install -m 0755 "$tmp/$asset" "$INSTALL_DIR/.labcoat.new"

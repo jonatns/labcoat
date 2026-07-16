@@ -1,0 +1,33 @@
+name: Prepare CLI release PR
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-pr-main
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Validate release metadata
+        run: node scripts/release/validate-release.mjs
+      - name: Refresh release input digest
+        run: node scripts/release/update-release-trigger.mjs
+      - name: Prepare or update release PR
+        uses: release-plz/action@476794ede164c5137bfc3a1dc6ed3675275690f9 # v0.5.99
+        with:
+          command: release-pr
+          config: release-plz.toml
+          token: ${{ secrets.GITHUB_TOKEN }}

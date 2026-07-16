@@ -75,7 +75,7 @@ the version of `labcoat-test` matching the CLI:
 
 ```toml
 [dev-dependencies]
-labcoat-test = "=0.7.0"
+labcoat-test = "=0.1.0"
 ```
 
 Run them with `labcoat test`. Labcoat compiles WASIp1 test artifacts and

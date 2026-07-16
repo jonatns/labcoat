@@ -1,0 +1,235 @@
+name: Release Labcoat CLI
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and package without publishing
+        type: boolean
+        default: true
+        required: true
+
+concurrency:
+  group: release-cli-${{ github.event.pull_request.merge_commit_sha || github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       github.event.pull_request.base.ref == 'main' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+       contains(github.event.pull_request.labels.*.name, 'release'))
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+      publish: ${{ steps.release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
+      - id: release
+        name: Validate release target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          node scripts/release/validate-release.mjs
+          version=$(node scripts/release/validate-release.mjs --workspace-version)
+          tag="cli-v$version"
+          node scripts/release/validate-release.mjs --validate-cli-tag "$tag"
+          sha=$(git rev-parse HEAD)
+          publish=true
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            if [ "$DRY_RUN" != true ]; then
+              echo "manual CLI workflow runs are dry-run only; merge a release PR to publish" >&2
+              exit 1
+            fi
+            publish=false
+          fi
+          if [ -n "$MERGE_SHA" ] && [ "$sha" != "$MERGE_SHA" ]; then
+            echo "checked out $sha, expected merge SHA $MERGE_SHA" >&2
+            exit 1
+          fi
+          if [ "$publish" = true ]; then
+            remote=$(git ls-remote origin "refs/tags/$tag" | awk '{print $1}')
+            if [ -n "$remote" ] && [ "$remote" != "$sha" ]; then
+              echo "$tag already points to $remote, not $sha" >&2
+              exit 1
+            fi
+          fi
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          git diff --exit-code -- Cargo.lock
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-x86_64
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: linux-arm64
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            suffix: darwin-arm64
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            suffix: darwin-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - name: Install protoc (Linux)
+        if: startsWith(matrix.runner, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install protoc (macOS)
+        if: startsWith(matrix.runner, 'macos')
+        run: brew install protobuf
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.86.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - name: Build and verify version
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo build --locked --release -p labcoat-cli --target "$TARGET"
+          output=$("target/$TARGET/release/labcoat" --version)
+          test "$output" = "labcoat $VERSION"
+      - name: Package with checksum
+        env:
+          TARGET: ${{ matrix.target }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          mkdir -p dist
+          cp "target/$TARGET/release/labcoat" "dist/labcoat-$SUFFIX"
+          if command -v shasum >/dev/null 2>&1; then
+            (cd dist && shasum -a 256 "labcoat-$SUFFIX" > "labcoat-$SUFFIX.sha256")
+          else
+            (cd dist && sha256sum "labcoat-$SUFFIX" > "labcoat-$SUFFIX.sha256")
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: labcoat-${{ matrix.suffix }}
+          path: dist/*
+          if-no-files-found: error
+
+  assemble:
+    needs: [metadata, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: labcoat-*
+          path: dist
+          merge-multiple: true
+      - name: Verify complete release set
+        run: |
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 8
+          for suffix in darwin-arm64 darwin-x86_64 linux-arm64 linux-x86_64; do
+            test -f "dist/labcoat-$suffix"
+            test -f "dist/labcoat-$suffix.sha256"
+            (cd dist && sha256sum -c "labcoat-$suffix.sha256")
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cli-release-${{ needs.metadata.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: needs.metadata.outputs.publish == 'true'
+    needs: [metadata, assemble]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: cli-release-${{ needs.metadata.outputs.version }}
+          path: dist
+      - name: Create or validate draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          SHA: ${{ needs.metadata.outputs.sha }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
+            existing=$(jq -r '.object.sha' <<<"$object")
+            if [ "$(jq -r '.object.type' <<<"$object")" = tag ]; then
+              existing=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$existing" --jq .object.sha)
+            fi
+            test "$existing" = "$SHA"
+          else
+            gh release create "$TAG" --draft --target "$SHA" --title "Labcoat $TAG" --generate-notes
+          fi
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+            gh release upload "$TAG" dist/* --clobber
+          fi
+      - name: Attest CLI artifacts
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: dist/*
+      - id: crate
+        name: Check whether labcoat-test is already published
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          published=false
+          if curl -fsSL "https://crates.io/api/v1/crates/labcoat-test/$VERSION" >/dev/null 2>&1; then
+            published=true
+          fi
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+      - id: auth
+        if: steps.crate.outputs.published != 'true'
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Publish labcoat-test
+        if: steps.crate.outputs.published != 'true'
+        run: cargo publish --locked -p labcoat-test
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - name: Publish and verify release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+            gh release edit "$TAG" --draft=false --latest
+          fi
+          test "$(gh release view "$TAG" --json assets --jq '.assets | length')" -eq 8
+          tmp=$(mktemp -d)
+          LABCOAT_REPO="$GITHUB_REPOSITORY" LABCOAT_INSTALL_DIR="$tmp/bin" \
+            sh install-labcoat.sh --version "$VERSION"
+          "$tmp/bin/labcoat" --version | grep -F "labcoat $VERSION"

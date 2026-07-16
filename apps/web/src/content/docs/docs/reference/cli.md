@@ -4,7 +4,7 @@ description: Generated command, option, MCP tool, and protocol reference for Lab
 editUrl: false
 ---
 
-> Generated from Labcoat 0.7.0. Run `pnpm sync:reference` after changing CLI or MCP metadata.
+> Generated from Labcoat 0.1.0. Run `pnpm sync:reference` after changing CLI or MCP metadata.
 
 Rust-native toolkit for building, testing, deploying, and operating Alkanes smart contracts on Bitcoin.
 
