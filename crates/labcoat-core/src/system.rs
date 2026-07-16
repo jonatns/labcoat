@@ -70,8 +70,8 @@ pub async fn connect(
     let network = config.normalized_network();
 
     // Network params + process-global network (address derivation/signing).
-    let params = alkanes_cli_common::network::NetworkParams::from_network_str(&network)
-        .map_err(|e| {
+    let params =
+        alkanes_cli_common::network::NetworkParams::from_network_str(&network).map_err(|e| {
             LabcoatError::new(
                 "CONFIG_INVALID",
                 format!("unknown network '{}': {}", network, e),
@@ -94,12 +94,12 @@ pub async fn connect(
     }
 
     let mut provider = ConcreteProvider::new_with_headers(
-        None,                              // bitcoin_rpc_url — the gateway proxies it
-        config.jsonrpc_url.clone(),        // metashrew_rpc_url
-        Some(config.jsonrpc_url.clone()),  // jsonrpc_url
-        None,                              // titan_api_url
-        None,                              // esplora_url — gateway again
-        None,                              // brc20_prog_rpc_url
+        None,                             // bitcoin_rpc_url — the gateway proxies it
+        config.jsonrpc_url.clone(),       // metashrew_rpc_url
+        Some(config.jsonrpc_url.clone()), // jsonrpc_url
+        None,                             // titan_api_url
+        None,                             // esplora_url — gateway again
+        None,                             // brc20_prog_rpc_url
         network,
         Some(config.wallet_file.clone()),
         Vec::new(),

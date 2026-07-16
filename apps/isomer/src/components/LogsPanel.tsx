@@ -164,7 +164,7 @@ export function LogsPanel() {
 
                     <button
                         onClick={handleClear}
-                        className="px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 
+                        className="px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20
                                  rounded text-red-400 text-[10px] font-medium transition-colors"
                     >
                         CLEAR

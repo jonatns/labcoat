@@ -1,51 +1,57 @@
-# Migrating from the old labcoat / Isomer repos
+# Migrating to Rust-first Labcoat
 
-Both projects now live here: **Labcoat is the toolkit, Isomer is the
-desktop devnet inside it** (think Foundry ⊃ Anvil). Full git history of
-both repos was preserved (`git log --follow` works across the moves).
+Labcoat and Isomer now live in one repository. Labcoat is the native Rust
+toolkit; Isomer is its desktop and headless devnet (Foundry ⊃ Anvil).
 
-## If you used `@jonatns/labcoat` (the npm toolkit)
+## From `@jonatns/labcoat`
 
-The public API is unchanged — `labcoat.setup()` still returns
-`{ config, account, provider, signer, deploy, simulate, execute }` and
-your scripts keep working — but the engine underneath is new:
-
-- **oyl-sdk is gone.** Wallet, deploy, execute, simulate, and trace now
-  run through a Rust core built on a pinned `alkanes-rs` (develop)
-  commit. The same mnemonic derives the same addresses (standard
-  BIP-86/84/49/44 paths).
-- The TS package shells out to the `labcoat` CLI. In a dev checkout it
-  finds `target/{release,debug}/labcoat` automatically; otherwise set
-  `LABCOAT_CORE_BIN` or put `labcoat` on PATH.
-- `signer` from `setup()` is now `null` (signing happens in the Rust
-  core; it was only ever an oyl-sdk internal).
-- `network: "oylnet"` is deprecated → use `"regtest"` (auto-mapped with
-  a warning). `projectId` is ignored.
-- Deployments moved to **labcoat.lock** (per-network). Run
-  `labcoat lock migrate` once to import `deployments/manifest.json`;
-  the legacy manifest is still written for compatibility.
-- `deploy` now consumes the **raw `.wasm`** artifact (compile emits it
-  alongside the old `.wasm.gz`). Recompile once after upgrading.
-- Wallet secrets: passphrase via `LABCOAT_WALLET_PASSPHRASE`, mnemonic
-  via `labcoat.config.ts` / `LABCOAT_MNEMONIC` — never on argv.
-
-## If you used the Isomer desktop app
-
-Nothing changes day-to-day. Releases move to this repo's
-`isomer-v*` tags (the old repo's downloads keep working). The devnet
-engine is now also available headless:
+The TypeScript SDK and CLI have been retired. Install the native binary,
+then replace `labcoat.setup()` scripts with explicit commands:
 
 ```bash
-labcoat up      # the entire Isomer stack, no GUI
+labcoat init .
+labcoat up
+labcoat wallet init
+labcoat compile contracts/Example.rs
+labcoat deploy build/Example.wasm
+labcoat simulate Example 1 World
+labcoat call Example 1 World
+```
+
+- Replace `labcoat.config.ts` with `labcoat.toml`. CLI flags override
+  `LABCOAT_*` environment variables, which override the TOML file.
+- Keep mnemonic and passphrase only in `LABCOAT_MNEMONIC`, mnemonic stdin,
+  and `LABCOAT_WALLET_PASSPHRASE`; secrets are rejected in the TOML file.
+- Replace `.spec.ts` tests with standard `tests/*.rs` files using
+  `labcoat-test`; run them with `labcoat test`.
+- Script orchestration belongs in ordinary shell/CI scripts. The old
+  `labcoat run` command no longer exists.
+- `oyl-sdk` is gone. Wallet, deploy, execute, simulate, and trace use the
+  pinned `alkanes-rs` Rust core.
+- Deployments live in `labcoat.lock`; `labcoat lock migrate` imports the
+  legacy `deployments/manifest.json` once.
+- Deploy the raw `.wasm` artifact. The reveal envelope performs its own
+  compression.
+
+The same mnemonic continues to use the standard BIP-86/84/49/44 paths.
+Verify address parity before using an existing wallet on a non-regtest
+network.
+
+## From the standalone Isomer repository
+
+Desktop usage remains the same. Releases now use `isomer-v*` tags in this
+repository. The same engine is also available headlessly:
+
+```bash
+labcoat up
 labcoat status
 labcoat mine 5
 labcoat down
 ```
 
-## If you're an agent (or wiring one up)
+## Agent and automation interfaces
 
-- `labcoat docs --llm` — the whole toolkit as one document.
-- Every command takes `--json` and emits one envelope with typed error
-  codes and next-step hints.
-- `labcoat mcp serve` — the full toolkit as MCP tools over stdio.
-- New projects: `npm create labcoat` scaffolds with AGENTS.md + SKILL.md.
+- Every command supports `--json` envelopes with typed errors and hints.
+- `labcoat docs --llm` prints the complete command reference.
+- `labcoat mcp serve` exposes the toolkit over MCP stdio.
+- `labcoat init` embeds AGENTS.md and SKILL.md in each new project.

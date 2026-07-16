@@ -44,12 +44,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev protobuf-compiler
+            libayatana-appindicator3-dev librsvg2-dev protobuf-compiler clang
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.86.0
           components: clippy
+          targets: wasm32-unknown-unknown,wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
       - run: cargo check --workspace --locked
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --locked -- -D warnings
@@ -67,6 +69,19 @@ jobs:
           ./target/debug/labcoat docs --llm | grep -q "command reference"
           printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' \
             | ./target/debug/labcoat mcp serve | grep -q '"devnet_status"'
+      - name: Rust-first project smoke
+        run: |
+          PROJECT=$(mktemp -d)/project
+          ./target/debug/labcoat init "$PROJECT" --json | grep -q '"ok": true'
+          cd "$PROJECT"
+          LABCOAT_TEST_CRATE_PATH="$GITHUB_WORKSPACE/crates/labcoat-test" \
+            "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
+            | grep -q '"passed": true'
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            compile contracts/Example.rs --json | grep -q '"ok": true'
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            deploy build/Example.wasm --dry-run --json \
+            | grep -q '"dryRun": true'
 
   js:
     needs: changes
@@ -81,11 +96,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
-      - name: Unit tests (labcoat)
-        run: pnpm --filter @jonatns/labcoat exec jest
 
   # NOTE: no extension job for now. apps/isomer-extension builds standalone
-  # (`cd apps/isomer-extension && pnpm install && pnpm build`) — its
+  # (`cd apps/isomer-extension && pnpm --ignore-workspace install --no-frozen-lockfile
+  # && pnpm --ignore-workspace build`) — its
   # @alkanes/ts-sdk dep is a raw tarball URL on pkg.alkanes.build, which
   # makes CI flaky whenever that host is slow/unreachable. Re-add a job
   # here once the dep comes from a proper registry.
@@ -98,6 +112,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: "Guard: diff has no whitespace errors"
+        run: git diff --check
+      - name: "Guard: no whitespace errors"
+        run: |
+          if git grep -nI -E '[[:blank:]]+$'; then
+            echo '::error::tracked files contain trailing whitespace'
+            exit 1
+          fi
+      - name: Installer unit tests
+        run: ./scripts/tests/install-labcoat-test.sh
       - name: "Guard: oyl-sdk is banned from the npm tree (direct or transitive)"
         run: |
           pnpm install --frozen-lockfile

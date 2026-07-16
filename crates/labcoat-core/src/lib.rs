@@ -3,9 +3,8 @@
 //! Contract toolkit core on the pinned alkanes-rs develop commit (see
 //! TOOLCHAIN.md): wallet keystore, deploy (commit/reveal envelope),
 //! execute, simulate, trace, UTXO queries, contract compilation, and the
-//! labcoat.lock deployment ledger. The `labcoat` CLI, the MCP server, and
-//! the TS package (via `labcoat --json` subprocess) all drive this crate —
-//! no oyl-sdk anywhere in the tree.
+//! labcoat.lock deployment ledger. The Rust `labcoat` CLI and MCP server
+//! drive this crate — no oyl-sdk anywhere in the tree.
 
 pub mod compile;
 pub mod error;

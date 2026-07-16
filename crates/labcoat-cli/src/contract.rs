@@ -73,7 +73,10 @@ fn parse_args(args: &[String]) -> Result<Vec<u128>, labcoat_core::LabcoatError> 
 
 /// Resolve "name-or-id" to (block, tx): block:tx ids parse directly,
 /// anything else is looked up in labcoat.lock.
-fn resolve(config: &ToolkitConfig, contract: &str) -> Result<(u128, u128), labcoat_core::LabcoatError> {
+fn resolve(
+    config: &ToolkitConfig,
+    contract: &str,
+) -> Result<(u128, u128), labcoat_core::LabcoatError> {
     if contract.contains(':') {
         toolkit::parse_alkanes_id(contract)
     } else {
@@ -94,6 +97,7 @@ fn to_envelope<T: serde::Serialize>(
     }
 }
 
+#[derive(Debug)]
 pub struct EnvelopeError {
     pub code: &'static str,
     pub message: String,
@@ -115,7 +119,9 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd) -> (&'static str, CmdResult) {
                     Some(m)
                 }
             } else {
-                std::env::var("LABCOAT_MNEMONIC").ok().filter(|m| !m.is_empty())
+                std::env::var("LABCOAT_MNEMONIC")
+                    .ok()
+                    .filter(|m| !m.is_empty())
             };
             let passphrase = ctx.passphrase();
             let res = async {
@@ -154,7 +160,11 @@ pub fn compile(path: &str, name: Option<String>, out_dir: &str) -> (&'static str
         // Compile every .rs in the directory (the `labcoat compile` contract-dir flow)
         let mut outcomes = Vec::new();
         let entries = std::fs::read_dir(&source).map_err(|e| {
-            labcoat_core::LabcoatError::new("CONFIG_INVALID", e.to_string(), "pass a .rs file or contracts dir")
+            labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                e.to_string(),
+                "pass a .rs file or contracts dir",
+            )
         });
         match entries {
             Ok(entries) => {
@@ -276,7 +286,12 @@ pub fn call_dry_run(
     ("call", to_envelope(res))
 }
 
-pub async fn call(ctx: &Ctx, contract: &str, opcode: u128, args: &[String]) -> (&'static str, CmdResult) {
+pub async fn call(
+    ctx: &Ctx,
+    contract: &str,
+    opcode: u128,
+    args: &[String],
+) -> (&'static str, CmdResult) {
     let res = async {
         let (block, tx) = resolve(&ctx.config, contract)?;
         let parsed = parse_args(args)?;

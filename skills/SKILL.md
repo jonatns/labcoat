@@ -1,9 +1,12 @@
 ---
 name: labcoat
-description: Build, test, deploy, call, and trace Alkanes smart contracts on Bitcoin with the labcoat toolkit and its built-in Isomer devnet. Use when working in a labcoat project (labcoat.config.ts / labcoat.lock / contracts/*.rs) or when asked to develop Alkanes contracts.
+description: Build, test, deploy, call, and trace Alkanes smart contracts on Bitcoin with the Rust-first Labcoat CLI and its built-in Isomer devnet. Use when working in a labcoat project (labcoat.toml / labcoat.lock / contracts/*.rs) or when asked to develop Alkanes contracts.
 ---
 
 # Labcoat: the Alkanes contract workflow
+
+New projects start with `labcoat init <directory>`. Native integration
+tests live in `tests/*.rs`; run them with `labcoat test`.
 
 Every command supports `--json` and then emits exactly one envelope on
 stdout (`{ok, command, schema, result | error{code, message, hint}}`),

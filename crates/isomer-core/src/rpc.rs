@@ -86,7 +86,10 @@ pub async fn call(
         ));
     }
 
-    Ok(result.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    Ok(result
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
 }
 
 /// Current block count, or None if bitcoind is unreachable.
@@ -149,11 +152,7 @@ pub async fn faucet(config: &IsomerConfig, address: &str, amount: f64) -> Result
 pub const DEFAULT_MINE_ADDRESS: &str = "bcrt1q9zuctyd46l7sdedccdk47335lzsmjz2wngdv3u";
 
 /// Mine `count` blocks to `address` and return the new block height.
-pub async fn mine_blocks(
-    config: &IsomerConfig,
-    count: u32,
-    address: &str,
-) -> Result<u64, String> {
+pub async fn mine_blocks(config: &IsomerConfig, count: u32, address: &str) -> Result<u64, String> {
     if count > 1000 {
         return Err("Cannot mine more than 1000 blocks at once.".to_string());
     }
@@ -185,11 +184,17 @@ pub async fn mine_blocks(
 pub async fn latest_block(config: &IsomerConfig) -> Result<BlockSummary, String> {
     let timeout = std::time::Duration::from_millis(500);
 
-    let height = call(config, None, "getblockcount", serde_json::json!([]), timeout)
-        .await
-        .map_err(|e| format!("Failed to connect to Bitcoin Core: {}", e))?
-        .as_u64()
-        .ok_or("Invalid block count response")?;
+    let height = call(
+        config,
+        None,
+        "getblockcount",
+        serde_json::json!([]),
+        timeout,
+    )
+    .await
+    .map_err(|e| format!("Failed to connect to Bitcoin Core: {}", e))?
+    .as_u64()
+    .ok_or("Invalid block count response")?;
 
     let hash = call(
         config,

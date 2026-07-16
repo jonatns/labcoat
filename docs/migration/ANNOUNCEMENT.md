@@ -13,17 +13,16 @@
 >   JSON-RPC gateway from one command; `mine`, `fund`, `logs`,
 >   `snapshot`/`restore` included. The desktop app and the CLI share one
 >   engine (isomer-core).
-> - **oyl-sdk is gone.** The toolkit was rebuilt on a pinned `alkanes-rs`
->   develop commit (Rust core: deploy via commit/reveal envelope,
->   execute, simulate, decoded traces, keystore wallet). Your
->   `labcoat.setup()` scripts keep working — same API, same addresses
->   from the same mnemonic.
+> - **Rust-first, with oyl-sdk gone.** The native CLI owns compilation,
+>   testing, deploy/execute/simulate/trace, and the keystore wallet on a
+>   pinned `alkanes-rs` develop commit. The former TypeScript SDK is
+>   retired; migration notes map scripts to direct CLI commands.
 > - **labcoat.lock** — per-network deployment ledger
 >   (`labcoat lock migrate` imports your old manifest).
 > - **Agent-ready**: `--json` envelopes with typed errors + hints on
 >   every command, `labcoat mcp serve` (MCP tools over stdio),
->   `labcoat docs --llm`, and `npm create labcoat` templates that ship
->   AGENTS.md + SKILL.md.
+>   `labcoat docs --llm`, and `labcoat init` templates that ship native
+>   Rust tests plus AGENTS.md + SKILL.md.
 > - `labcoat doctor`, `labcoat up --ci`, and a hard CI gate keeping
 >   oyl-sdk out and alkanes-rs pinned to develop.
 >

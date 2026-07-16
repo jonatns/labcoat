@@ -73,30 +73,20 @@ labcoat deploy build/Example.wasm
       with a decoded error, not a panic; `--json` variant carries
       `error.code` + `error.hint`
 
-## 3. TS package
-
-In the same `/tmp/lab-e2e` dir:
+## 3. Rust-first project and tests
 
 ```bash
-cat > labcoat.config.js <<'EOF'
-export default { network: "regtest" };
-EOF
-cat > run.mjs <<'EOF'
-import { labcoat } from "<repo>/packages/labcoat/dist/sdk/index.js";
-const { account, deploy, simulate, execute } = await labcoat.setup();
-console.log(account.taproot.address);
-console.log(await deploy("Example"));
-console.log(await simulate("Example", "Greet", ["World"]));   // → Hello World!
-console.log((await execute("Example", "Greet", ["World"])).executeResult.txId);
-EOF
-node run.mjs
+cd /tmp
+labcoat init rust-project
+cd rust-project
+labcoat test
 ```
 
-- [ ] Same taproot address as `labcoat wallet addresses` (single keystore)
-- [ ] deploy/simulate/execute all succeed; `executeResult.txId` shape intact
-- [ ] **Address-parity check (critical for existing users):** put your
-      old labcoat project's mnemonic in `labcoat.config.js` — the taproot
-      address must match what the oyl-sdk version derived
+- [ ] Template contains `labcoat.toml`, a contract, and `tests/example.rs`
+- [ ] Native test harness reports `Hello World!`
+- [ ] Non-empty targets are rejected unless `--force` is explicit
+- [ ] **Address-parity check:** supply an old mnemonic through
+      `LABCOAT_MNEMONIC`; the taproot address matches the old installation
 - [ ] **Legacy migration:** in an old project with
       `deployments/manifest.json`, run `labcoat lock migrate` — entries
       appear in `labcoat.lock` and `simulate <OldName> ...` resolves
@@ -125,7 +115,9 @@ side-by-side if possible:
 ## 5. Extension — OPTIONAL (maintenance mode; excluded from CI on purpose)
 
 ```bash
-cd apps/isomer-extension && pnpm install && pnpm build
+cd apps/isomer-extension
+pnpm --ignore-workspace install --no-frozen-lockfile
+pnpm --ignore-workspace build
 ```
 
 - [ ] Builds against the real `pkg.alkanes.build` tarball
@@ -152,8 +144,10 @@ cd apps/isomer-extension && pnpm install && pnpm build
 - [ ] "Build and Release Binaries" via dispatch (only if you want to
       pre-stage the first monorepo `binaries-v*` release — remember the
       `binary_manager.rs` URL bump comes after, per docs/RELEASING.md)
-- [ ] Confirm `NPM_TOKEN` secret exists before merging (changesets flow
-      publishes from `main`)
+- [ ] Confirm `CARGO_REGISTRY_TOKEN` exists before the first `cli-v*`
+      release so `labcoat-test` publishes before the matching binaries
+- [ ] After publishing and verifying the Rust installer, run the two npm
+      deprecation commands in `docs/RELEASING.md`
 
 ## 8. Teardown
 
@@ -169,7 +163,7 @@ labcoat reset -y && labcoat status    # everything stopped, height 0 on next up
 |---|---|---|
 | 1. Headless devnet | | |
 | 2. Contract loop (CLI) | | |
-| 3. TS package + migration | | |
+| 3. Rust project + migration | | |
 | 4. Desktop app (optional) | | |
 | 5. Extension (optional) | | |
 | 6. Agent surface | | |

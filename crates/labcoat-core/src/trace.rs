@@ -32,10 +32,9 @@ pub async fn wait_for_trace(
             Ok(Some(traces)) if !traces.is_empty() => {
                 // An empty trace body means the indexer hasn't executed the
                 // protostone yet; require at least one non-empty entry.
-                let has_events = traces.iter().any(|t| {
-                    t.as_array().map(|a| !a.is_empty()).unwrap_or(true)
-                        && !t.is_null()
-                });
+                let has_events = traces
+                    .iter()
+                    .any(|t| t.as_array().map(|a| !a.is_empty()).unwrap_or(true) && !t.is_null());
                 if has_events {
                     return Ok(traces);
                 }

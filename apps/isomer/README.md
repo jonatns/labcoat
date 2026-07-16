@@ -11,7 +11,7 @@
   <h1>Isomer</h1>
   <p><strong>One-click Alkanes development environment</strong></p>
   <br />
-  
+
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
   [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri-ffc131?logo=tauri)](https://tauri.app)
   [![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-dea584?logo=rust)](https://www.rust-lang.org)

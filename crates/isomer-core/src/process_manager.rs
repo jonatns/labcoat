@@ -607,7 +607,6 @@ impl ProcessManager {
             // Try graceful shutdown first (SIGTERM on Unix)
             #[cfg(unix)]
             {
-                
                 let pid = info.child.id();
                 unsafe {
                     libc::kill(pid as i32, libc::SIGTERM);

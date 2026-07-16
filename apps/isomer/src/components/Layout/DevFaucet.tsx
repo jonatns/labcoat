@@ -40,7 +40,7 @@ export function DevFaucet({ isRunning }: DevFaucetProps) {
         <div className="w-full max-w-md mx-auto mt-20">
             <form onSubmit={handleTopUp} className="relative group">
                 <div className={`
-                    absolute -inset-1 rounded-full bg-gradient-to-r from-yellow-500/5 to-amber-500/5 opacity-0 
+                    absolute -inset-1 rounded-full bg-gradient-to-r from-yellow-500/5 to-amber-500/5 opacity-0
                     transition duration-500 group-hover:opacity-100 blur-xl
                     ${status === 'error' ? 'from-red-500/5 to-rose-500/5' : ''}
                     ${status === 'success' ? 'from-emerald-500/5 to-green-500/5' : ''}

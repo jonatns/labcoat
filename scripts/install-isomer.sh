@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-REPO="jonatns/isomer"
+REPO="jonatns/labcoat"
 
 echo -e "${BLUE}"
 echo "  ╦┌─┐┌─┐┌┬┐┌─┐┬─┐"
@@ -22,7 +22,7 @@ echo ""
 detect_platform() {
     local os=""
     local arch=""
-    
+
     case "$(uname -s)" in
         Linux*)
             if grep -q Microsoft /proc/version 2>/dev/null; then
@@ -42,7 +42,7 @@ detect_platform() {
             exit 1
             ;;
     esac
-    
+
     case "$(uname -m)" in
         x86_64|amd64)
             arch="x64"
@@ -55,7 +55,7 @@ detect_platform() {
             exit 1
             ;;
     esac
-    
+
     echo "${os}-${arch}"
 }
 
@@ -64,12 +64,12 @@ get_download_url() {
     local platform=$1
     # Get all releases (including drafts if we have permissions, otherwise just published ones)
     local api_url="https://api.github.com/repos/${REPO}/releases"
-    
+
     echo -e "${BLUE}Fetching latest release info...${NC}" >&2
-    
+
     local release_info
     release_info=$(curl -sS "$api_url")
-    
+
     local asset_pattern=""
     case "$platform" in
         macos-arm64)
@@ -85,11 +85,21 @@ get_download_url() {
             asset_pattern="\\.msi"
             ;;
     esac
-    
-    # Find the first release that has our desired asset (skip binaries-v* releases)
+
+    # Select assets only after an isomer-v* tag in the releases response.
     local download_url
-    download_url=$(echo "$release_info" | grep -E "\"browser_download_url\".*${asset_pattern}" | head -1 | grep -o 'https://[^"]*')
-    
+    download_url=$(echo "$release_info" | awk -v pattern="$asset_pattern" '
+        /"tag_name"[[:space:]]*:[[:space:]]*"isomer-v/ { isomer = 1; next }
+        /"tag_name"[[:space:]]*:/ { isomer = 0 }
+        isomer && /"browser_download_url"/ && $0 ~ pattern {
+            line = $0
+            sub(/^.*"browser_download_url": "/, "", line)
+            sub(/".*$/, "", line)
+            print line
+            exit
+        }
+    ')
+
     if [ -z "$download_url" ]; then
         echo -e "${RED}Could not find download URL for ${platform}${NC}"
         echo -e "${YELLOW}No Isomer app release found with ${asset_pattern} assets.${NC}"
@@ -98,20 +108,20 @@ get_download_url() {
         echo -e "Please check: https://github.com/${REPO}/releases"
         exit 1
     fi
-    
+
     echo "$download_url"
 }
 
 # Install system dependencies for Linux/WSL
 install_linux_deps() {
     echo -e "${BLUE}Installing system dependencies...${NC}"
-    
+
     if [ "$EUID" -ne 0 ]; then
         SUDO="sudo"
     else
         SUDO=""
     fi
-    
+
     $SUDO apt update
     $SUDO apt install -y \
         libwebkit2gtk-4.1-0 \
@@ -119,7 +129,7 @@ install_linux_deps() {
         libayatana-appindicator3-1 \
         curl \
         wget
-    
+
     echo -e "${GREEN}✓ Dependencies installed${NC}"
 }
 
@@ -129,37 +139,37 @@ install_isomer() {
     local download_url=$2
     local filename=$(basename "$download_url")
     local install_dir="$HOME/.local/bin"
-    
+
     echo -e "${BLUE}Downloading Isomer...${NC}"
     echo -e "${YELLOW}URL: ${download_url}${NC}"
-    
+
     local tmp_dir=$(mktemp -d)
     cd "$tmp_dir"
-    
+
     curl -L -o "$filename" "$download_url"
-    
+
     case "$platform" in
         macos-*)
             echo -e "${BLUE}Mounting DMG...${NC}"
-            
+
             # Mount and capture output
             hdiutil attach "$filename" -nobrowse
-            
+
             # Find the mount point (Isomer volume) - use tail to get latest if multiple exist
             local mount_point
             mount_point=$(ls -d /Volumes/Isomer* 2>/dev/null | tail -1)
-            
+
             if [ -z "$mount_point" ] || [ ! -d "$mount_point" ]; then
                 echo -e "${RED}Failed to find mounted DMG${NC}"
                 echo -e "${YELLOW}Looking for Isomer.app in /Volumes...${NC}"
                 ls -la /Volumes/
                 exit 1
             fi
-            
+
             echo -e "${BLUE}Found mount at: ${mount_point}${NC}"
             echo -e "${BLUE}Copying Isomer.app to /Applications...${NC}"
             cp -R "${mount_point}/Isomer.app" /Applications/
-            
+
             hdiutil detach "$mount_point" -quiet 2>/dev/null || true
             echo -e "${GREEN}✓ Isomer installed to /Applications/Isomer.app${NC}"
             ;;
@@ -177,7 +187,7 @@ install_isomer() {
             echo -e "${GREEN}✓ Installer launched${NC}"
             ;;
     esac
-    
+
     # Cleanup
     cd -
     rm -rf "$tmp_dir"
@@ -188,21 +198,21 @@ main() {
     local platform=$(detect_platform)
     echo -e "${YELLOW}Detected platform: ${platform}${NC}"
     echo ""
-    
+
     # Install dependencies for Linux
     if [[ "$platform" == linux-* ]]; then
         install_linux_deps
         echo ""
     fi
-    
+
     # Get download URL
     local download_url=$(get_download_url "$platform")
     echo ""
-    
+
     # Download and install
     install_isomer "$platform" "$download_url"
     echo ""
-    
+
     echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║        Installation Complete! ⚗️            ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"

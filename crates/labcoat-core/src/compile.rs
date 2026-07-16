@@ -14,6 +14,31 @@ pub const ALKANES_RS_REV: &str = "5b7f43567b828d0bb7b8907ce78fa0242943c54d";
 /// metashrew rev matching alkanes-rs's Cargo.lock at the pinned commit.
 pub const METASHREW_REV: &str = "eca790ca1eeddc7cdac201b741637b8f18234924";
 
+/// Locate a C compiler with a WebAssembly backend. Apple Clang omits it,
+/// while Homebrew LLVM and standard Linux Clang provide it. secp256k1-sys
+/// needs this compiler when contracts target WebAssembly.
+pub fn wasm_c_compiler() -> Option<PathBuf> {
+    for name in ["CC_wasm32_unknown_unknown", "CC"] {
+        if let Some(value) = std::env::var_os(name).filter(|value| !value.is_empty()) {
+            return Some(PathBuf::from(value));
+        }
+    }
+    let candidates = [
+        PathBuf::from("/opt/homebrew/opt/llvm/bin/clang"),
+        PathBuf::from("/usr/local/opt/llvm/bin/clang"),
+        PathBuf::from("clang"),
+    ];
+    candidates.into_iter().find(|candidate| {
+        std::process::Command::new(candidate)
+            .arg("--print-targets")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains("wasm32"))
+            .unwrap_or(false)
+    })
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AbiInput {
     pub name: String,
@@ -81,6 +106,18 @@ anyhow = "1.0"
 /// Compile one contract source file. Artifacts land in `<out_dir>/`
 /// (`<name>.wasm`, `<name>.wasm.gz`, `<name>.abi.json`).
 pub fn compile(source_path: &Path, name: Option<String>, out_dir: &Path) -> Result<CompileOutcome> {
+    compile_for_target(source_path, name, out_dir, "wasm32-unknown-unknown")
+}
+
+/// Compile a contract for a specific WebAssembly target. The public CLI
+/// uses `wasm32-unknown-unknown`; `labcoat test` uses `wasm32-wasip1` so
+/// contracts can execute in the native host harness.
+pub fn compile_for_target(
+    source_path: &Path,
+    name: Option<String>,
+    out_dir: &Path,
+    target: &str,
+) -> Result<CompileOutcome> {
     let source = std::fs::read_to_string(source_path).map_err(|e| {
         LabcoatError::new(
             "CONFIG_INVALID",
@@ -101,10 +138,11 @@ pub fn compile(source_path: &Path, name: Option<String>, out_dir: &Path) -> Resu
     // Scaffold a temp cargo project (mirrors the TS .labcoat/build_<id> dirs).
     let build_id = format!(
         "{:x}",
-        std::process::id() as u64 ^ std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64
+        std::process::id() as u64
+            ^ std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64
     );
     let temp_dir = std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
@@ -119,17 +157,27 @@ pub fn compile(source_path: &Path, name: Option<String>, out_dir: &Path) -> Resu
 
     let result = (|| {
         tracing::info!("Building contract in {}", temp_dir.display());
-        let output = std::process::Command::new("cargo")
-            .args(["build", "--target=wasm32-unknown-unknown", "--release"])
-            .current_dir(&temp_dir)
-            .output()
-            .map_err(|e| {
+        let mut command = std::process::Command::new("cargo");
+        command
+            .args(["build", "--target", target, "--release"])
+            .current_dir(&temp_dir);
+        if target.starts_with("wasm32") {
+            let compiler = wasm_c_compiler().ok_or_else(|| {
                 LabcoatError::new(
-                    "TOOLKIT_ERROR",
-                    format!("failed to run cargo: {}", e),
-                    "is the Rust toolchain with the wasm32-unknown-unknown target installed?",
+                    "COMPILE_FAILED",
+                    "no C compiler with a wasm32 backend was found",
+                    "install LLVM (`brew install llvm` on macOS, `apt install clang` on Linux)",
                 )
             })?;
+            command.env(format!("CC_{}", target.replace('-', "_")), compiler);
+        }
+        let output = command.output().map_err(|e| {
+            LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!("failed to run cargo: {}", e),
+                "is the Rust toolchain with the wasm32-unknown-unknown target installed?",
+            )
+        })?;
         if !output.status.success() {
             return Err(LabcoatError::new(
                 "COMPILE_FAILED",
@@ -139,7 +187,9 @@ pub fn compile(source_path: &Path, name: Option<String>, out_dir: &Path) -> Resu
         }
 
         let wasm_built = temp_dir
-            .join("target/wasm32-unknown-unknown/release/alkanes_contract.wasm");
+            .join("target")
+            .join(target)
+            .join("release/alkanes_contract.wasm");
         let wasm = std::fs::read(&wasm_built).map_err(|e| {
             LabcoatError::new(
                 "COMPILE_FAILED",
@@ -173,11 +223,8 @@ pub fn compile(source_path: &Path, name: Option<String>, out_dir: &Path) -> Resu
         if abi_named.name == "UnknownContract" {
             abi_named.name = contract_name.clone();
         }
-        std::fs::write(
-            &abi_path,
-            serde_json::to_string_pretty(&abi_named).unwrap(),
-        )
-        .map_err(|e| LabcoatError::new("TOOLKIT_ERROR", e.to_string(), "check disk space"))?;
+        std::fs::write(&abi_path, serde_json::to_string_pretty(&abi_named).unwrap())
+            .map_err(|e| LabcoatError::new("TOOLKIT_ERROR", e.to_string(), "check disk space"))?;
 
         use sha2::Digest;
         let hash = hex::encode(sha2::Sha256::digest(&wasm));
@@ -367,5 +414,16 @@ fn ptr() {
         assert_eq!(abi.opcodes["GetName"], 99);
         assert_eq!(abi.storage.len(), 1);
         assert_eq!(abi.storage[0].key, "/value");
+    }
+
+    #[test]
+    fn detected_wasm_compiler_reports_a_wasm_backend_when_available() {
+        if let Some(compiler) = wasm_c_compiler() {
+            let output = std::process::Command::new(compiler)
+                .arg("--print-targets")
+                .output()
+                .unwrap();
+            assert!(String::from_utf8_lossy(&output.stdout).contains("wasm32"));
+        }
     }
 }

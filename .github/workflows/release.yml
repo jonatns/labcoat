@@ -16,6 +16,21 @@ on:
         default: "app"
 
 jobs:
+  publish-test-crate:
+    if: startsWith(github.ref_name, 'cli-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+      - name: Publish labcoat-test
+        run: cargo publish --locked -p labcoat-test
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   app:
     if: startsWith(github.ref_name, 'isomer-v') || inputs.kind == 'app'
     permissions:
@@ -80,7 +95,8 @@ jobs:
           args: ${{ matrix.args }}
 
   cli:
-    if: startsWith(github.ref_name, 'cli-v') || inputs.kind == 'cli'
+    needs: publish-test-crate
+    if: always() && (needs.publish-test-crate.result == 'success' || needs.publish-test-crate.result == 'skipped') && (startsWith(github.ref_name, 'cli-v') || inputs.kind == 'cli')
     permissions:
       contents: write
     strategy:

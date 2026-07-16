@@ -8,6 +8,9 @@ mod contract;
 mod docs;
 mod doctor;
 mod mcp;
+mod project;
+mod settings;
+mod test_command;
 
 use clap::{Parser, Subcommand};
 use isomer_core::Devnet;
@@ -24,16 +27,16 @@ struct Cli {
     json: bool,
 
     /// Network: regtest | signet | testnet | mainnet
-    #[arg(long, global = true, env = "LABCOAT_NETWORK", default_value = "regtest")]
-    network: String,
+    #[arg(long, global = true)]
+    network: Option<String>,
 
     /// Unified JSON-RPC endpoint (defaults to the local devnet gateway)
-    #[arg(long, global = true, env = "LABCOAT_RPC_URL", default_value = "http://localhost:18888")]
-    rpc_url: String,
+    #[arg(long, global = true)]
+    rpc_url: Option<String>,
 
     /// Wallet keystore path (project-local by default)
-    #[arg(long, global = true, env = "LABCOAT_WALLET_FILE", default_value = ".labcoat/wallet.json")]
-    wallet_file: String,
+    #[arg(long, global = true)]
+    wallet_file: Option<String>,
 
     /// Fee rate in sat/vB for state-changing operations
     #[arg(long, global = true)]
@@ -45,6 +48,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Scaffold a Rust-first Labcoat project
+    Init {
+        /// Destination directory (defaults to the current directory)
+        directory: Option<String>,
+        /// Overlay the template onto a non-empty directory
+        #[arg(long)]
+        force: bool,
+    },
+    /// Compile WASIp1 WebAssembly and run native Rust integration tests
+    Test {
+        /// Specific contract source or directory (defaults to contracts/)
+        path: Option<String>,
+    },
     /// Download binaries if needed and boot the full devnet stack
     Up {
         /// Skip the binary download/check step
@@ -204,17 +220,58 @@ async fn main() {
 
 async fn run(cli: Cli) -> i32 {
     let json = cli.json;
-    let ctx = contract::Ctx::new(&cli.network, &cli.rpc_url, &cli.wallet_file, cli.fee_rate);
+    if let Commands::Init { directory, force } = &cli.command {
+        return finish_contract(json, "init", project::init(directory.as_deref(), *force));
+    }
+    let resolved = match settings::resolve(settings::Overrides {
+        network: cli.network.as_deref(),
+        rpc_url: cli.rpc_url.as_deref(),
+        wallet_file: cli.wallet_file.as_deref(),
+        fee_rate: cli.fee_rate,
+    }) {
+        Ok(settings) => settings,
+        Err(message) => {
+            return finish_contract(
+                json,
+                "config",
+                Err(contract::EnvelopeError {
+                    code: "CONFIG_INVALID",
+                    message,
+                    hint: "fix labcoat.toml or override the setting with a CLI flag",
+                }),
+            )
+        }
+    };
+    let wallet_file = resolved.wallet_file.to_string_lossy();
+    let ctx = contract::Ctx::new(
+        &resolved.network,
+        &resolved.rpc_url,
+        &wallet_file,
+        resolved.fee_rate,
+    );
     match cli.command {
+        Commands::Init { .. } => unreachable!("init handled before configuration loading"),
+        Commands::Test { path } => {
+            finish_contract(json, "test", test_command::run(path.as_deref()))
+        }
         Commands::Wallet(cmd) => {
             let (name, res) = contract::wallet(&ctx, cmd).await;
             finish_contract(json, name, res)
         }
-        Commands::Compile { path, name, out_dir } => {
+        Commands::Compile {
+            path,
+            name,
+            out_dir,
+        } => {
             let (cmd_name, res) = contract::compile(&path, name, &out_dir);
             finish_contract(json, cmd_name, res)
         }
-        Commands::Deploy { wasm, name, args, dry_run } => {
+        Commands::Deploy {
+            wasm,
+            name,
+            args,
+            dry_run,
+        } => {
             let (cmd_name, res) = if dry_run {
                 contract::deploy_dry_run(&ctx, &wasm, name, &args)
             } else {
@@ -222,7 +279,12 @@ async fn run(cli: Cli) -> i32 {
             };
             finish_contract(json, cmd_name, res)
         }
-        Commands::Call { contract, opcode, args, dry_run } => {
+        Commands::Call {
+            contract,
+            opcode,
+            args,
+            dry_run,
+        } => {
             let (cmd_name, res) = if dry_run {
                 contract::call_dry_run(&ctx, &contract, opcode, &args)
             } else {
@@ -230,7 +292,11 @@ async fn run(cli: Cli) -> i32 {
             };
             finish_contract(json, cmd_name, res)
         }
-        Commands::Simulate { contract, opcode, args } => {
+        Commands::Simulate {
+            contract,
+            opcode,
+            args,
+        } => {
             let (cmd_name, res) = contract::simulate(&ctx, &contract, opcode, &args).await;
             finish_contract(json, cmd_name, res)
         }
@@ -334,7 +400,9 @@ async fn run(cli: Cli) -> i32 {
         }
         Commands::Down => {
             let mut devnet = Devnet::new();
-            let res = devnet.stop().map(|_| serde_json::json!({ "stopped": true }));
+            let res = devnet
+                .stop()
+                .map(|_| serde_json::json!({ "stopped": true }));
             finish(json, "down", res)
         }
         Commands::Status => {
@@ -449,20 +517,7 @@ fn progress_logger() -> impl Fn(isomer_core::ServiceId, f32) + Send + Clone + 's
 /// Envelope printer for contract commands (typed error codes + hints).
 fn finish_contract(json: bool, command: &str, res: contract::CmdResult) -> i32 {
     if json {
-        let envelope = match &res {
-            Ok(v) => serde_json::json!({
-                "ok": true,
-                "command": command,
-                "schema": format!("labcoat/v1/{}", command),
-                "result": v,
-            }),
-            Err(e) => serde_json::json!({
-                "ok": false,
-                "command": command,
-                "schema": "labcoat/v1/error",
-                "error": { "code": e.code, "message": e.message, "hint": e.hint },
-            }),
-        };
+        let envelope = contract_envelope(command, &res);
         println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
         0
     } else {
@@ -477,6 +532,27 @@ fn finish_contract(json: bool, command: &str, res: contract::CmdResult) -> i32 {
                 1
             }
         }
+    }
+}
+
+fn contract_envelope(command: &str, res: &contract::CmdResult) -> serde_json::Value {
+    match res {
+        Ok(value) => serde_json::json!({
+            "ok": true,
+            "command": command,
+            "schema": format!("labcoat/v1/{}", command),
+            "result": value,
+        }),
+        Err(error) => serde_json::json!({
+            "ok": false,
+            "command": command,
+            "schema": "labcoat/v1/error",
+            "error": {
+                "code": error.code,
+                "message": error.message,
+                "hint": error.hint,
+            },
+        }),
     }
 }
 
@@ -516,5 +592,29 @@ fn finish(json: bool, command: &str, res: Result<serde_json::Value, String>) -> 
                 1
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+
+    #[test]
+    fn contract_envelopes_preserve_schema_and_typed_errors() {
+        let success = contract_envelope("test", &Ok(serde_json::json!({ "passed": true })));
+        assert_eq!(success["schema"], "labcoat/v1/test");
+        assert_eq!(success["result"]["passed"], true);
+
+        let failure = contract_envelope(
+            "test",
+            &Err(contract::EnvelopeError {
+                code: "TEST_FAILED",
+                message: "boom".into(),
+                hint: "fix the test",
+            }),
+        );
+        assert_eq!(failure["schema"], "labcoat/v1/error");
+        assert_eq!(failure["error"]["code"], "TEST_FAILED");
+        assert_eq!(failure["error"]["hint"], "fix the test");
     }
 }

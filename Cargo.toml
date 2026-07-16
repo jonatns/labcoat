@@ -4,6 +4,7 @@ members = [
     "crates/isomer-core",
     "crates/labcoat-core",
     "crates/labcoat-cli",
+    "crates/labcoat-test",
     "apps/isomer/src-tauri",
 ]
 
@@ -19,6 +20,7 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
+toml = "0.8"
 
 # Hard constraint (see TOOLCHAIN.md): every alkanes-rs dependency is pinned
 # to a commit on the *develop* branch — never `main`, never a branch ref.

@@ -1,10 +1,8 @@
 //! High-level toolkit operations — the exact functions the CLI, the MCP
-//! server, and (via subprocess) the TS package expose.
+//! server expose.
 
 use crate::error::{LabcoatError, Result};
-use crate::execute::{
-    cellpack_spec, find_created_alkane, find_return_status, ExecuteOutcome,
-};
+use crate::execute::{cellpack_spec, find_created_alkane, find_return_status, ExecuteOutcome};
 use crate::system::ToolkitConfig;
 use crate::{lockfile, simulate as sim, sync, system, trace as trace_mod, wallet};
 use std::path::Path;
@@ -51,7 +49,9 @@ pub async fn deploy(
     config.require_passphrase_policy(&passphrase)?;
     let mut provider = system::connect(config, passphrase, true).await?;
     let to_address = wallet::primary_address(&provider).await?;
-    let indexed = sync::wait_for_indexer(&provider, INDEXER_TIMEOUT).await.ok();
+    let indexed = sync::wait_for_indexer(&provider, INDEXER_TIMEOUT)
+        .await
+        .ok();
 
     // Deploy-new cellpack target is 1:0.
     let spec = cellpack_spec(1, 0, 0, cellpack_args);
@@ -132,7 +132,9 @@ pub async fn call(
     config.require_passphrase_policy(&passphrase)?;
     let mut provider = system::connect(config, passphrase, true).await?;
     let to_address = wallet::primary_address(&provider).await?;
-    let indexed = sync::wait_for_indexer(&provider, INDEXER_TIMEOUT).await.ok();
+    let indexed = sync::wait_for_indexer(&provider, INDEXER_TIMEOUT)
+        .await
+        .ok();
 
     let spec = cellpack_spec(block, tx, opcode, args);
     let result = crate::execute::run(
@@ -218,10 +220,18 @@ pub fn parse_alkanes_id(id: &str) -> Result<(u128, u128)> {
         ));
     };
     let block = b.trim().parse().map_err(|_| {
-        LabcoatError::new("CONFIG_INVALID", format!("bad block in '{}'", id), "expected block:tx")
+        LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("bad block in '{}'", id),
+            "expected block:tx",
+        )
     })?;
     let tx = t.trim().parse().map_err(|_| {
-        LabcoatError::new("CONFIG_INVALID", format!("bad tx in '{}'", id), "expected block:tx")
+        LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("bad tx in '{}'", id),
+            "expected block:tx",
+        )
     })?;
     Ok((block, tx))
 }

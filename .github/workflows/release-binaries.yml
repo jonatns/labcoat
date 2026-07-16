@@ -19,7 +19,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  METASHREW_VERSION: "v9.0.2-alpha.1"
+  METASHREW_VERSION: "v10.0.0-alpha.2"
   FLEXTRS_VERSION: "0.4.1"
   FLEXTRS_COMMIT: "504bd533cf5fb6442f3962ed0d8f0c296e45ef37"
   ALKANES_WASM_VERSION: "0.1.0"
@@ -34,7 +34,7 @@ jobs:
       - name: Checkout metashrew
         uses: actions/checkout@v4
         with:
-          repository: sandshrewmetaprotocols/metashrew
+          repository: kungfuflex/metashrew
           ref: ${{ env.METASHREW_VERSION }}
 
       - name: Install Rust

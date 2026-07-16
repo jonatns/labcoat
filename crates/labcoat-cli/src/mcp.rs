@@ -73,12 +73,17 @@ fn str_args(v: Option<&Value>) -> Vec<String> {
 }
 
 async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String, String)> {
-    let fail = |e: contract::EnvelopeError| (format!("[{}] {}", e.code, e.message), e.hint.to_string());
+    let fail =
+        |e: contract::EnvelopeError| (format!("[{}] {}", e.code, e.message), e.hint.to_string());
 
     match name {
         "devnet_up" => {
             let mut devnet = Devnet::new();
-            if !args.get("noDownload").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if !args
+                .get("noDownload")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 devnet
                     .ensure_binaries(|_, _| {})
                     .await
@@ -106,7 +111,10 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
         "devnet_mine" => {
             let devnet = Devnet::new();
             let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
-            let address = args.get("address").and_then(|v| v.as_str()).map(String::from);
+            let address = args
+                .get("address")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             let height = devnet
                 .mine(count, address)
                 .await
@@ -115,7 +123,10 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
         }
         "devnet_fund" => {
             let devnet = Devnet::new();
-            let address = args.get("address").and_then(|v| v.as_str()).unwrap_or_default();
+            let address = args
+                .get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             let amount = args.get("amount").and_then(|v| v.as_f64()).unwrap_or(1.0);
             let txid = devnet
                 .fund(address, amount)
@@ -132,12 +143,18 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
         }
         "devnet_logs" => {
             let devnet = Devnet::new();
-            let service = args.get("service").and_then(|v| v.as_str()).map(String::from);
+            let service = args
+                .get("service")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
             Ok(serde_json::to_value(devnet.logs(service, limit)).unwrap())
         }
         "wallet_init" => {
-            let mnemonic = args.get("mnemonic").and_then(|v| v.as_str()).map(String::from);
+            let mnemonic = args
+                .get("mnemonic")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             let passphrase = ctx.passphrase();
             let res = async {
                 ctx.config.require_passphrase_policy(&passphrase)?;
@@ -171,20 +188,32 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                 .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))
         }
         "compile" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or_default();
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
-            let out_dir = args.get("outDir").and_then(|v| v.as_str()).unwrap_or("build");
+            let out_dir = args
+                .get("outDir")
+                .and_then(|v| v.as_str())
+                .unwrap_or("build");
             let (_, res) = contract::compile(path, name, out_dir);
             res.map_err(fail)
         }
         "deploy" => {
-            let wasm = args.get("wasm").and_then(|v| v.as_str()).unwrap_or_default();
+            let wasm = args
+                .get("wasm")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
             let (_, res) = contract::deploy(ctx, wasm, name, &str_args(args.get("args"))).await;
             res.map_err(fail)
         }
         "call" | "simulate" => {
-            let contract_ref = args.get("contract").and_then(|v| v.as_str()).unwrap_or_default();
+            let contract_ref = args
+                .get("contract")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             let opcode: u128 = args
                 .get("opcode")
                 .map(|v| match v {
@@ -201,7 +230,10 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map_err(fail)
         }
         "trace" => {
-            let txid = args.get("txid").and_then(|v| v.as_str()).unwrap_or_default();
+            let txid = args
+                .get("txid")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             let wait = args.get("wait").and_then(|v| v.as_bool()).unwrap_or(false);
             let (_, res) = contract::trace(ctx, txid, wait).await;
             res.map_err(fail)

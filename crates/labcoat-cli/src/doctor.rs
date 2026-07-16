@@ -85,6 +85,17 @@ pub async fn run() -> Vec<Check> {
             "rustup target add wasm32-unknown-unknown",
         ));
     }
+    match labcoat_core::compile::wasm_c_compiler() {
+        Some(path) => checks.push(ok(
+            "wasm C compiler",
+            format!("{} supports wasm32", path.display()),
+        )),
+        None => checks.push(fail(
+            "wasm C compiler",
+            "no LLVM clang with a wasm32 backend found",
+            "install LLVM (`brew install llvm` on macOS, `apt install clang` on Linux)",
+        )),
+    }
     match version_of("node", "--version") {
         Some(v) => checks.push(ok("node", v)),
         None => checks.push(fail(
@@ -134,11 +145,14 @@ pub async fn run() -> Vec<Check> {
     // Disk space in the data dir
     let data_dir = isomer_core::get_data_dir();
     let probe = data_dir.join(".doctor-probe");
-    let disk_writable = std::fs::create_dir_all(&data_dir).is_ok()
-        && std::fs::write(&probe, b"ok").is_ok();
+    let disk_writable =
+        std::fs::create_dir_all(&data_dir).is_ok() && std::fs::write(&probe, b"ok").is_ok();
     let _ = std::fs::remove_file(&probe);
     if disk_writable {
-        checks.push(ok("data dir", format!("{} is writable", data_dir.display())));
+        checks.push(ok(
+            "data dir",
+            format!("{} is writable", data_dir.display()),
+        ));
     } else {
         checks.push(fail(
             "data dir",

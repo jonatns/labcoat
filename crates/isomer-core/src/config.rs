@@ -75,8 +75,7 @@ impl Default for MiningConfig {
 }
 
 /// Complete Isomer configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IsomerConfig {
     pub ports: PortConfig,
     pub bitcoind: BitcoindConfig,
@@ -84,7 +83,6 @@ pub struct IsomerConfig {
     /// Mnemonic for deterministic wallet generation (optional)
     pub mnemonic: Option<String>,
 }
-
 
 impl IsomerConfig {
     /// Get the config file path

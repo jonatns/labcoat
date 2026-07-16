@@ -8,6 +8,10 @@ import { resolve } from "path";
 export default defineConfig({
   plugins: [react(), tailwindcss(), wasm(), topLevelAwait()],
   build: {
+    // The extension is a modern Chromium MV3 module and the Alkanes SDK
+    // loads WebAssembly with top-level await. Down-leveling that generated
+    // wrapper to Vite's broad browser baseline is not supported by esbuild.
+    target: "esnext",
     outDir: "dist",
     emptyDirBeforeWrite: true,
     rollupOptions: {

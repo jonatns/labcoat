@@ -10,6 +10,8 @@ Isomer is the one-click local devnet inside it (Foundry ⊃ Anvil).
 ## The core loop
 
 ```bash
+labcoat init my-project                    # embedded Rust-first project template
+cd my-project && labcoat test              # native Rust/WebAssembly integration tests
 labcoat up                                  # boot the devnet (bitcoind regtest + indexers + gateway)
 labcoat wallet init                         # create the project wallet (.labcoat/wallet.json)
 labcoat fund <address> && labcoat mine 1    # give the wallet spendable BTC
@@ -46,6 +48,8 @@ TOOLKIT_ERROR, BINARY_CRASH. The `hint` is always the next command to try.
 - `labcoat reset -y` skips the confirmation prompt.
 - `deploy --dry-run` / `call --dry-run` validate inputs and describe the
   transactions without broadcasting.
+- Public project settings live in `labcoat.toml`. Precedence is CLI flag,
+  then `LABCOAT_*` environment variable, then TOML, then defaults.
 - Global flags/envs: `--network`/`LABCOAT_NETWORK` (regtest default),
   `--rpc-url`/`LABCOAT_RPC_URL` (default http://localhost:18888),
   `--wallet-file`/`LABCOAT_WALLET_FILE`, `--fee-rate`.
@@ -54,6 +58,8 @@ TOOLKIT_ERROR, BINARY_CRASH. The `hint` is always the next command to try.
 
 | Command | What it does |
 |---|---|
+| `init [directory] [--force]` | scaffold the embedded Rust project template; non-empty targets require explicit force |
+| `test [contract.rs \| dir]` | compile WASIp1 WebAssembly and run standard `tests/*.rs` through `labcoat-test` |
 | `up [--no-download]` | fetch missing binaries, boot bitcoind/metashrew/ord/esplora/espo/gateway, bootstrap + fund the dev wallet, emit the endpoint manifest |
 | `down` | stop every devnet service (owned or detached) |
 | `status` | per-service health + block height + mempool + readiness |

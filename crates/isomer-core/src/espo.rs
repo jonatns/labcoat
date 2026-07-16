@@ -100,9 +100,7 @@ pub async fn get_all_alkanes(
                         alkane: item.get("alkane")?.as_str()?.to_string(),
                         creation_txid: item.get("creation_txid")?.as_str()?.to_string(),
                         creation_height: item.get("creation_height")?.as_u64()?,
-                        creation_timestamp: item
-                            .get("creation_timestamp")
-                            .and_then(|v| v.as_u64()),
+                        creation_timestamp: item.get("creation_timestamp").and_then(|v| v.as_u64()),
                         name: item
                             .get("name")
                             .and_then(|v| v.as_str())

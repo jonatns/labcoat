@@ -1,6 +1,6 @@
 [package]
 name = "labcoat-cli"
-version = "0.1.0"
+version = "0.7.0"
 description = "Labcoat command-line interface"
 edition.workspace = true
 license.workspace = true
@@ -20,3 +20,4 @@ sha2 = "0.10"
 hex = "0.4"
 serde_json.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml.workspace = true

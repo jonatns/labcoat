@@ -212,7 +212,7 @@ export function WalletsPanel({ isRunning }: WalletsPanelProps) {
                                             onClick={handleFund}
                                             disabled={fundingLoading || !isRunning}
                                             className="
-                                                px-5 py-2.5 rounded-md bg-zinc-100 text-zinc-950 
+                                                px-5 py-2.5 rounded-md bg-zinc-100 text-zinc-950
                                                 text-sm font-semibold shadow-lg shadow-indigo-500/10
                                                 hover:bg-white hover:scale-[1.02] active:scale-[0.98]
                                                 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100
@@ -254,9 +254,9 @@ export function WalletsPanel({ isRunning }: WalletsPanelProps) {
                                                     <div
                                                         key={`${addrInfo.address}-${i}`}
                                                         className="
-                                                            flex items-center justify-between px-3 py-2 
+                                                            flex items-center justify-between px-3 py-2
                                                             rounded border border-transparent
-                                                            hover:bg-zinc-900 hover:border-zinc-800 
+                                                            hover:bg-zinc-900 hover:border-zinc-800
                                                             group transition-all cursor-default
                                                         "
                                                     >
@@ -276,8 +276,8 @@ export function WalletsPanel({ isRunning }: WalletsPanelProps) {
                                                         <button
                                                             onClick={() => copyToClipboard(addrInfo.address)}
                                                             className="
-                                                                p-1.5 rounded text-zinc-600 
-                                                                hover:text-zinc-100 hover:bg-zinc-800 
+                                                                p-1.5 rounded text-zinc-600
+                                                                hover:text-zinc-100 hover:bg-zinc-800
                                                                 opacity-0 group-hover:opacity-100 transition-all
                                                             "
                                                             title="Copy Address"

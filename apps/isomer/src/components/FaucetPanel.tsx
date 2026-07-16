@@ -52,7 +52,7 @@ export function FaucetPanel({ disabled }: FaucetPanelProps) {
                         onChange={(e) => setAddress(e.target.value)}
                         placeholder="bcrt1..."
                         disabled={disabled || isSending}
-                        className="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg 
+                        className="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg
                                  text-white placeholder-zinc-500 text-sm font-mono
                                  focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                     />
@@ -68,7 +68,7 @@ export function FaucetPanel({ disabled }: FaucetPanelProps) {
                             min="0.001"
                             step="0.1"
                             disabled={disabled || isSending}
-                            className="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg 
+                            className="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg
                                      text-white text-sm
                                      focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                         />
@@ -78,8 +78,8 @@ export function FaucetPanel({ disabled }: FaucetPanelProps) {
                         <button
                             onClick={handleFaucet}
                             disabled={disabled || isSending || !address.trim()}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 
-                                     disabled:cursor-not-allowed rounded-lg text-white font-medium 
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50
+                                     disabled:cursor-not-allowed rounded-lg text-white font-medium
                                      transition-colors whitespace-nowrap"
                         >
                             {isSending ? 'Sending...' : 'Send BTC'}

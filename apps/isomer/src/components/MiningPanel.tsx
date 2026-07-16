@@ -54,15 +54,15 @@ export function MiningPanel({ blockHeight, onMined }: MiningPanelProps) {
                                 setCount('1000');
                             }
                         }}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2
                        text-white font-mono focus:outline-none focus:border-indigo-500"
                     />
                 </div>
                 <button
                     onClick={handleMine}
                     disabled={isMining}
-                    className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 
-                     disabled:cursor-not-allowed rounded-lg font-medium text-white 
+                    className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700
+                     disabled:cursor-not-allowed rounded-lg font-medium text-white
                      transition-colors flex items-center gap-2"
                 >
                     {isMining ? (
