@@ -5,6 +5,9 @@ description: Build, test, deploy, call, and trace Alkanes smart contracts with t
 
 # Labcoat workflow
 
+Add another minimal contract and matching test with
+`labcoat contract new <name>` instead of copying an existing package.
+
 1. Run `labcoat test` for host-side Rust integration tests.
 2. Run `labcoat up --json` and wait for `result.status.is_ready`.
 3. Initialize the keystore with `labcoat wallet init --json`.

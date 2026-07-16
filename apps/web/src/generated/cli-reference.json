@@ -19,6 +19,12 @@
               "false"
             ],
             "required": false
+          },
+          {
+            "description": "Name the initial contract instead of scaffolding the example quickstart",
+            "id": "contract",
+            "possibleValues": [],
+            "required": false
           }
         ],
         "description": "Scaffold a Rust-first Labcoat project",
@@ -26,6 +32,30 @@
         "path": "labcoat init",
         "subcommands": [],
         "usage": "init [OPTIONS] [DIRECTORY]"
+      },
+      {
+        "arguments": [],
+        "description": "Contract source scaffolding",
+        "name": "contract",
+        "path": "labcoat contract",
+        "subcommands": [
+          {
+            "arguments": [
+              {
+                "description": "",
+                "id": "name",
+                "possibleValues": [],
+                "required": true
+              }
+            ],
+            "description": "Add a minimal contract package and host integration test to this project",
+            "name": "new",
+            "path": "labcoat contract new",
+            "subcommands": [],
+            "usage": "new <NAME>"
+          }
+        ],
+        "usage": "contract <COMMAND>"
       },
       {
         "arguments": [

@@ -6,7 +6,9 @@ description: Build, test, deploy, call, and trace Alkanes smart contracts on Bit
 # Labcoat: the Alkanes contract workflow
 
 New projects start with `labcoat init <directory>`. Native integration
-tests live in `tests/*.rs`; run them with `labcoat test`.
+tests live under `tests/`; use `labcoat contract new <name>` to add a minimal
+contract package and matching test without copying the example.
+Run integration tests with `labcoat test`.
 
 Every command supports `--json` and then emits exactly one envelope on
 stdout (`{ok, command, schema, result | error{code, message, hint}}`),

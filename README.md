@@ -59,6 +59,12 @@ cd hello-alkane
 labcoat test
 ```
 
+Name the first contract for your project instead of starting from the example:
+
+```bash
+labcoat init name-service --contract ens-registry
+```
+
 Start the local devnet and initialize the project wallet:
 
 ```bash
@@ -132,11 +138,17 @@ Each contract is an ordinary Cargo package under `contracts/`, so normal
 crates.io, git, path dependencies, modules, and shared workspace crates work.
 The first compile creates `Cargo.lock`; commit it and avoid bare `cargo update`.
 
+Add another minimal contract package and matching host test without copying files:
+
+```bash
+labcoat contract new resolver
+```
+
 ## CLI map
 
 | Area | Commands |
 |---|---|
-| Project | `init`, `doctor`, `docs` |
+| Project | `init`, `contract new`, `doctor`, `docs` |
 | Test and build | `test`, `compile` |
 | Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
 | Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |

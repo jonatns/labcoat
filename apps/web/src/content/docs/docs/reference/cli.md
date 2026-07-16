@@ -55,6 +55,27 @@ Arguments and options:
 
 - `directory` (optional): Destination directory (defaults to the current directory)
 - `force` (optional): Overlay the template onto a non-empty directory Values: `true`, `false`.
+- `contract` (optional): Name the initial contract instead of scaffolding the example quickstart
+
+### `labcoat contract`
+
+Contract source scaffolding
+
+```text
+contract <COMMAND>
+```
+
+#### `labcoat contract new`
+
+Add a minimal contract package and host integration test to this project
+
+```text
+new <NAME>
+```
+
+Arguments and options:
+
+- `name` (required)
 
 ### `labcoat test`
 
