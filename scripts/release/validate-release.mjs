@@ -73,6 +73,10 @@ function validateCargo() {
   }
   const template = read('crates/labcoat-cli/templates/default/Cargo.toml');
   if (!template.includes('labcoat-test = "={{LABCOAT_VERSION}}"')) fail('project template must use the CLI version placeholder');
+  if (!template.includes('metashrew-support = { git = "https://github.com/kungfuflex/metashrew", branch = "develop" }')) {
+    fail('project template must use the same metashrew source as alkanes-rs');
+  }
+  if (template.includes('sandshrewmetaprotocols/metashrew')) fail('project template uses the legacy metashrew remote');
   const trigger = read('crates/labcoat-test/RELEASE_TRIGGER').trim();
   if (!sha256.test(trigger)) fail('labcoat-test release trigger must be a SHA-256 digest');
   if (trigger !== releaseTriggerDigest()) fail('labcoat-test release trigger is stale; run update-release-trigger.mjs');

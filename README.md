@@ -137,6 +137,8 @@ when deployments are part of the project state.
 Each contract is an ordinary Cargo package under `contracts/`, so normal
 crates.io, git, path dependencies, modules, and shared workspace crates work.
 The first compile creates `Cargo.lock`; commit it and avoid bare `cargo update`.
+Host tests use isolated in-memory contract storage that persists across calls
+on the same `ContractHarness`.
 
 Add another minimal contract package and matching host test without copying files:
 

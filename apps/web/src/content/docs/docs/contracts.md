@@ -11,7 +11,9 @@ labcoat test contracts/MyToken.rs
 ```
 
 Native Rust integration tests run contracts through `labcoat-test`, keeping the
-fast feedback loop outside the chain.
+fast feedback loop outside the chain. Each `ContractHarness` has isolated
+in-memory storage that persists across calls on that harness. Use
+`storage_value` to inspect raw state or `set_storage` to seed a test fixture.
 
 ## Compile
 

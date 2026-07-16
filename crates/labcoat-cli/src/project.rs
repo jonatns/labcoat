@@ -116,7 +116,7 @@ pub fn new_contract(name: &str) -> CmdResult {
 fn scaffold_contract(root: &Path, name: &str) -> Result<Vec<String>, EnvelopeError> {
     validate_contract_name(name)?;
     ensure_contract_destinations_available(root, name)?;
-    let rust_name = rust_contract_name(name);
+    let rust_name = rust_type_name(name);
     let relative = contract_paths(name);
     let templates = [CONTRACT_MANIFEST, CONTRACT_SOURCE, CONTRACT_TEST];
     for (path, template) in relative.iter().zip(templates) {
@@ -173,7 +173,7 @@ fn validate_contract_name(name: &str) -> Result<(), EnvelopeError> {
     }
 }
 
-fn rust_contract_name(name: &str) -> String {
+fn rust_type_name(name: &str) -> String {
     let mut result = String::new();
     for part in name.split('-') {
         let mut chars = part.chars();
@@ -182,7 +182,6 @@ fn rust_contract_name(name: &str) -> String {
             result.extend(chars);
         }
     }
-    result.push_str("Contract");
     result
 }
 
@@ -242,8 +241,9 @@ mod tests {
         assert!(!root.join("contracts/example").exists());
         let source =
             std::fs::read_to_string(root.join("contracts/ens-registry/src/lib.rs")).unwrap();
-        assert!(source.contains("pub struct EnsRegistryContract"));
-        assert!(source.contains("enum EnsRegistryContractMessage"));
+        assert!(source.contains("pub struct EnsRegistry"));
+        assert!(source.contains("enum EnsRegistryMessage"));
+        assert!(!source.contains("EnsRegistryContract"));
         std::fs::remove_dir_all(root).ok();
     }
 
@@ -274,7 +274,10 @@ mod tests {
     fn template_pins_match_the_core_toolchain() {
         let manifest = include_str!("../templates/default/Cargo.toml");
         assert!(manifest.contains(labcoat_core::compile::ALKANES_RS_REV));
-        assert!(manifest.contains(labcoat_core::compile::METASHREW_REV));
+        assert!(manifest.contains(
+            "metashrew-support = { git = \"https://github.com/kungfuflex/metashrew\", branch = \"develop\" }"
+        ));
+        assert!(!manifest.contains("sandshrewmetaprotocols/metashrew"));
         assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));
         assert!(manifest.contains("time = { version = \"=0.3.44\""));
         let contract = include_str!("../templates/default/contracts/example/Cargo.toml");

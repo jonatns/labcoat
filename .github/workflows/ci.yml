@@ -103,6 +103,8 @@ jobs:
           PROJECT=$(mktemp -d)/project
           ./target/debug/labcoat init "$PROJECT" --json | grep -q '"ok": true'
           cd "$PROJECT"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            contract new stateful --json | grep -q '"ok": true'
           LABCOAT_TEST_CRATE_PATH="$GITHUB_WORKSPACE/crates/labcoat-test" \
             "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
             | tee "$RUNNER_TEMP/labcoat-test.json"
