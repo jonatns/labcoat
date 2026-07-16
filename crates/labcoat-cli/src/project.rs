@@ -39,10 +39,19 @@ const FILES: &[(&str, &str)] = &[
     ("SKILL.md", include_str!("../templates/default/SKILL.md")),
 ];
 
-pub fn init(directory: Option<&str>, force: bool) -> CmdResult {
+const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml");
+const CONTRACT_SOURCE: &str = include_str!("../templates/contract/src/lib.rs");
+const CONTRACT_TEST: &str = include_str!("../templates/contract/test.rs");
+
+pub fn init(directory: Option<&str>, force: bool, contract: Option<&str>) -> CmdResult {
     let target = directory
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
+
+    if let Some(name) = contract {
+        validate_contract_name(name)?;
+        ensure_contract_destinations_available(&target, name)?;
+    }
 
     if target.exists() && !force && !is_empty(&target)? {
         return Err(EnvelopeError {
@@ -57,6 +66,13 @@ pub fn init(directory: Option<&str>, force: bool) -> CmdResult {
 
     std::fs::create_dir_all(&target).map_err(|e| io_error(&target, e))?;
     for (relative, contents) in FILES {
+        if contract.is_some()
+            && (*relative == "contracts/example/Cargo.toml"
+                || *relative == "contracts/example/src/lib.rs"
+                || *relative == "tests/example.rs")
+        {
+            continue;
+        }
         let destination = target.join(relative);
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
@@ -65,12 +81,109 @@ pub fn init(directory: Option<&str>, force: bool) -> CmdResult {
         std::fs::write(&destination, rendered).map_err(|e| io_error(&destination, e))?;
     }
 
+    let generated = if let Some(name) = contract {
+        scaffold_contract(&target, name)?
+    } else {
+        Vec::new()
+    };
+
+    let initial_contract = contract.unwrap_or("example");
+
     Ok(serde_json::json!({
         "directory": target,
         "template": "default",
-        "files": FILES.iter().map(|(path, _)| *path).collect::<Vec<_>>(),
+        "contract": initial_contract,
+        "files": FILES.iter().map(|(path, _)| *path).filter(|path| {
+            contract.is_none() || !path.starts_with("contracts/example/") && *path != "tests/example.rs"
+        }).chain(generated.iter().map(String::as_str)).collect::<Vec<_>>(),
         "next": ["labcoat test", "labcoat up", "labcoat wallet init"]
     }))
+}
+
+pub fn new_contract(name: &str) -> CmdResult {
+    let root = Path::new(".");
+    if !root.join("labcoat.toml").is_file() || !root.join("Cargo.toml").is_file() {
+        return Err(EnvelopeError {
+            code: "CONFIG_INVALID",
+            message: "current directory is not a Labcoat project".into(),
+            hint: "run this command from a project created by `labcoat init`",
+        });
+    }
+    let files = scaffold_contract(root, name)?;
+    Ok(serde_json::json!({ "contract": name, "files": files }))
+}
+
+fn scaffold_contract(root: &Path, name: &str) -> Result<Vec<String>, EnvelopeError> {
+    validate_contract_name(name)?;
+    ensure_contract_destinations_available(root, name)?;
+    let rust_name = rust_contract_name(name);
+    let relative = contract_paths(name);
+    let templates = [CONTRACT_MANIFEST, CONTRACT_SOURCE, CONTRACT_TEST];
+    for (path, template) in relative.iter().zip(templates) {
+        let destination = root.join(path);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+        }
+        let rendered = template
+            .replace("{{CONTRACT_NAME}}", name)
+            .replace("{{CONTRACT_RUST_NAME}}", &rust_name);
+        std::fs::write(&destination, rendered).map_err(|e| io_error(&destination, e))?;
+    }
+    Ok(relative.into_iter().collect())
+}
+
+fn contract_paths(name: &str) -> [String; 3] {
+    [
+        format!("contracts/{name}/Cargo.toml"),
+        format!("contracts/{name}/src/lib.rs"),
+        format!("tests/{name}.rs"),
+    ]
+}
+
+fn ensure_contract_destinations_available(root: &Path, name: &str) -> Result<(), EnvelopeError> {
+    for path in contract_paths(name) {
+        if root.join(&path).exists() {
+            return Err(EnvelopeError {
+                code: "CONFIG_INVALID",
+                message: format!("refusing to overwrite {}", root.join(path).display()),
+                hint: "choose another contract name or remove the existing files",
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_contract_name(name: &str) -> Result<(), EnvelopeError> {
+    let valid = !name.is_empty()
+        && name.split('-').all(|part| {
+            !part.is_empty()
+                && part.as_bytes()[0].is_ascii_lowercase()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(EnvelopeError {
+            code: "CONFIG_INVALID",
+            message: format!("invalid contract name `{name}`"),
+            hint: "use kebab-case beginning with a lowercase letter, for example `ens-registry`",
+        })
+    }
+}
+
+fn rust_contract_name(name: &str) -> String {
+    let mut result = String::new();
+    for part in name.split('-') {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            result.extend(first.to_uppercase());
+            result.extend(chars);
+        }
+    }
+    result.push_str("Contract");
+    result
 }
 
 fn is_empty(path: &Path) -> Result<bool, EnvelopeError> {
@@ -97,7 +210,7 @@ mod tests {
     fn scaffolds_and_refuses_non_empty_directories() {
         let root = std::env::temp_dir().join(format!("labcoat-init-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
-        let result = init(root.to_str(), false).unwrap();
+        let result = init(root.to_str(), false, None).unwrap();
         assert_eq!(result["template"], "default");
         assert!(root.join("labcoat.toml").exists());
         assert!(root.join("contracts/example/Cargo.toml").exists());
@@ -113,8 +226,47 @@ mod tests {
                 "labcoat-test = \"={}\"",
                 env!("CARGO_PKG_VERSION")
             )));
-        assert!(init(root.to_str(), false).is_err());
-        assert!(init(root.to_str(), true).is_ok());
+        assert!(init(root.to_str(), false, None).is_err());
+        assert!(init(root.to_str(), true, None).is_ok());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn scaffolds_a_named_initial_contract() {
+        let root = std::env::temp_dir().join(format!("labcoat-named-init-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        let result = init(root.to_str(), false, Some("ens-registry")).unwrap();
+        assert_eq!(result["contract"], "ens-registry");
+        assert!(root.join("contracts/ens-registry/Cargo.toml").exists());
+        assert!(root.join("tests/ens-registry.rs").exists());
+        assert!(!root.join("contracts/example").exists());
+        let source =
+            std::fs::read_to_string(root.join("contracts/ens-registry/src/lib.rs")).unwrap();
+        assert!(source.contains("pub struct EnsRegistryContract"));
+        assert!(source.contains("enum EnsRegistryContractMessage"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn adds_contracts_without_overwriting_or_partial_collision_writes() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-contract-new-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        init(root.to_str(), false, None).unwrap();
+        let files = scaffold_contract(&root, "name-registry").unwrap();
+        assert_eq!(files.len(), 3);
+        assert!(root.join("contracts/example/Cargo.toml").exists());
+        assert!(root.join("contracts/name-registry/Cargo.toml").exists());
+        assert!(scaffold_contract(&root, "name-registry").is_err());
+
+        std::fs::write(root.join("tests/collision.rs"), "existing").unwrap();
+        assert!(scaffold_contract(&root, "collision").is_err());
+        assert!(!root.join("contracts/collision").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("tests/collision.rs")).unwrap(),
+            "existing"
+        );
+        assert!(scaffold_contract(&root, "Bad_Name").is_err());
         std::fs::remove_dir_all(root).ok();
     }
 

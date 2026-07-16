@@ -11,6 +11,15 @@ cd hello-alkane
 labcoat test
 ```
 
+For a real project, name the initial contract directly:
+
+```bash
+labcoat init name-service --contract ens-registry
+```
+
+From an existing Labcoat project, `labcoat contract new resolver` adds another
+minimal contract package and matching host test.
+
 The generated project contains Rust contract sources, native integration tests,
 public configuration, deployment state, and agent instructions.
 

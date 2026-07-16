@@ -5,6 +5,9 @@ description: Understand the Labcoat project layout, configuration precedence, se
 
 `labcoat init` creates a Rust-first contract project:
 
+Use `labcoat init my-project --contract ens-registry` to name the initial
+contract, or add another package later with `labcoat contract new resolver`.
+
 ```text
 contracts/          Rust contract sources
 tests/              Native integration tests

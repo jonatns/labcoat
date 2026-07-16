@@ -55,7 +55,13 @@ enum Commands {
         /// Overlay the template onto a non-empty directory
         #[arg(long)]
         force: bool,
+        /// Name the initial contract instead of scaffolding the example quickstart
+        #[arg(long)]
+        contract: Option<String>,
     },
+    /// Contract source scaffolding
+    #[command(subcommand)]
+    Contract(ContractCmd),
     /// Compile WASIp1 WebAssembly and run native Rust integration tests
     Test {
         /// Optional Cargo contract package whose host test should run
@@ -203,6 +209,12 @@ enum McpCmd {
     Serve,
 }
 
+#[derive(Subcommand)]
+enum ContractCmd {
+    /// Add a minimal contract package and host integration test to this project
+    New { name: String },
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -220,8 +232,20 @@ async fn main() {
 
 async fn run(cli: Cli) -> i32 {
     let json = cli.json;
-    if let Commands::Init { directory, force } = &cli.command {
-        return finish_contract(json, "init", project::init(directory.as_deref(), *force));
+    if let Commands::Init {
+        directory,
+        force,
+        contract,
+    } = &cli.command
+    {
+        return finish_contract(
+            json,
+            "init",
+            project::init(directory.as_deref(), *force, contract.as_deref()),
+        );
+    }
+    if let Commands::Contract(ContractCmd::New { name }) = &cli.command {
+        return finish_contract(json, "contract-new", project::new_contract(name));
     }
     let resolved = match settings::resolve(settings::Overrides {
         network: cli.network.as_deref(),
@@ -251,6 +275,9 @@ async fn run(cli: Cli) -> i32 {
     );
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
+        Commands::Contract(_) => {
+            unreachable!("contract scaffolding handled before configuration loading")
+        }
         Commands::Test { package } => {
             finish_contract(json, "test", test_command::run(package.as_deref()))
         }

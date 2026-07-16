@@ -6,6 +6,7 @@ deployment, calls, simulation, tracing, and the local devnet.
 - Contracts: Cargo packages under `contracts/*/`
 - Shared contract libraries: Cargo packages under `crates/*/`
 - Native integration tests: `tests/*.rs` using `labcoat-test`
+- Add contract packages with `labcoat contract new <name>`
 - Public configuration: `labcoat.toml`
 - Secrets: `LABCOAT_WALLET_PASSPHRASE` and `LABCOAT_MNEMONIC` only
 - Deployment ledger: `labcoat.lock`

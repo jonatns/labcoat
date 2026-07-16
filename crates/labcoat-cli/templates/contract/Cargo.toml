@@ -1,0 +1,16 @@
+[package]
+name = "{{CONTRACT_NAME}}"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+alkanes-runtime.workspace = true
+alkanes-support.workspace = true
+metashrew-support.workspace = true
+anyhow.workspace = true
+serde_with.workspace = true
+time.workspace = true
