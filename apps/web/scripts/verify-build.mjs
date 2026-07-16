@@ -61,4 +61,15 @@ if (broken.length) {
   throw new Error(`Broken local references:\n${broken.join('\n')}`);
 }
 
+const appVercel = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
+const hasHostRedirect = (config) => config.redirects?.some((redirect) =>
+  redirect.has?.some((condition) => condition.type === 'host'));
+
+if (hasHostRedirect(appVercel)) {
+  throw new Error('Host redirects belong in Vercel Domains, not vercel.json.');
+}
+if (appVercel.outputDirectory !== 'dist') {
+  throw new Error('Vercel output directory must be dist relative to apps/web.');
+}
+
 console.log(`Verified ${required.length} required outputs and ${htmlFiles.length} HTML files.`);
