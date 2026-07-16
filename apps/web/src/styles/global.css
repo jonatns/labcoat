@@ -154,8 +154,7 @@ a:focus-visible {
   min-height: 76px;
   padding: 0 3.5rem;
   border-bottom: 1px solid var(--line-soft);
-  background: color-mix(in oklch, var(--void), transparent 14%);
-  backdrop-filter: blur(18px);
+  background: color-mix(in oklch, var(--void), var(--surface) 8%);
 }
 
 .brand {
@@ -275,9 +274,7 @@ a:focus-visible {
   width: 34rem;
   height: 34rem;
   border-radius: 50%;
-  background: var(--acid);
-  filter: blur(180px);
-  opacity: 0.075;
+  background: radial-gradient(circle, color-mix(in oklch, var(--acid), transparent 82%), transparent 70%);
   pointer-events: none;
 }
 
@@ -646,6 +643,15 @@ p {
 .section {
   padding: clamp(5rem, 10vw, 10rem) clamp(2rem, 7vw, 7.5rem);
   border-bottom: 1px solid var(--line-soft);
+}
+
+.workflow-section,
+.stack-section,
+.agents-section,
+.final-cta,
+.site-footer {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 800px;
 }
 
 .section-heading {
