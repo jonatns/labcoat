@@ -1,117 +1,353 @@
-//! `labcoat docs --llm` — the whole toolkit as one agent-ready document.
+//! Agent-ready documentation generated from the live Clap and MCP registries.
 
-pub fn llm_reference() -> String {
-    format!(
-        r#"# Labcoat — command reference & protocol cheatsheet (v{version})
+use clap::Command;
+use serde::Serialize;
+use serde_json::Value;
 
-Labcoat is a smart-contract development toolkit for Alkanes on Bitcoin.
-The CLI includes a complete local development network.
+const ERROR_CODES: &[(&str, &str, &str)] = &[
+    (
+        "CONFIG_INVALID",
+        "configuration is invalid",
+        "run `labcoat doctor`",
+    ),
+    (
+        "WALLET_MISSING",
+        "the project wallet does not exist",
+        "run `labcoat wallet init`",
+    ),
+    (
+        "WALLET_LOCKED",
+        "the keystore could not be unlocked",
+        "set `LABCOAT_WALLET_PASSPHRASE`",
+    ),
+    (
+        "RPC_UNREACHABLE",
+        "the configured gateway cannot be reached",
+        "run `labcoat status`",
+    ),
+    (
+        "INDEXER_LAG",
+        "indexed height did not catch chain height",
+        "inspect metashrew logs",
+    ),
+    (
+        "INSUFFICIENT_FUNDS",
+        "spendable BTC cannot cover the operation",
+        "fund the wallet and mine a block",
+    ),
+    (
+        "EXECUTION_REVERT",
+        "the contract explicitly reverted",
+        "inspect the revert reason and trace",
+    ),
+    (
+        "TRACE_TIMEOUT",
+        "a decoded trace did not arrive in time",
+        "retry `labcoat trace --wait`",
+    ),
+    (
+        "ENVELOPE_INVALID",
+        "an Alkanes transaction envelope is invalid",
+        "check the contract and arguments",
+    ),
+    (
+        "COMPILE_FAILED",
+        "Rust or WebAssembly compilation failed",
+        "read stderr and run `labcoat doctor`",
+    ),
+    (
+        "PACKAGE_NOT_FOUND",
+        "the requested Cargo contract package was not discovered",
+        "run `labcoat compile` or pass a package listed in the error",
+    ),
+    (
+        "ABI_MISMATCH",
+        "local and deployed __meta output differ",
+        "compile the deployed source revision and verify the contract ID",
+    ),
+    (
+        "CONTRACT_NOT_FOUND",
+        "a contract name or ID could not be resolved",
+        "run `labcoat lock show`",
+    ),
+    (
+        "TOOLKIT_ERROR",
+        "the underlying contract toolkit failed",
+        "read the error hint",
+    ),
+    (
+        "BINARY_CRASH",
+        "a managed devnet service exited",
+        "inspect `labcoat logs`",
+    ),
+];
 
-## The core loop
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReference {
+    pub version: String,
+    pub description: String,
+    pub install: String,
+    pub core_loop: Vec<String>,
+    pub configuration_precedence: Vec<String>,
+    pub commands: Vec<CommandReference>,
+    pub mcp_protocol_version: String,
+    pub mcp_tools: Vec<Value>,
+    pub error_codes: Vec<ErrorReference>,
+    pub protocol: Vec<ProtocolReference>,
+}
 
-```bash
-labcoat init my-project                    # embedded Rust-first project template
-cd my-project && labcoat test              # native Rust/WebAssembly integration tests
-labcoat up                                  # boot the devnet (bitcoind regtest + indexers + gateway)
-labcoat wallet init                         # create the project wallet (.labcoat/wallet.json)
-labcoat fund <address> && labcoat mine 1    # give the wallet spendable BTC
-labcoat compile contracts/MyToken.rs        # → build/MyToken.{{wasm,wasm.gz,abi.json}}
-labcoat deploy build/MyToken.wasm           # commit/reveal deploy; records labcoat.lock
-labcoat call MyToken <opcode> [args...]     # state-changing call (auto-mines on regtest)
-labcoat simulate MyToken <opcode> [args...] # read-only, no transaction
-labcoat trace <txid> --wait                 # decoded protostone traces
-labcoat down                                # stop the devnet
-```
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandReference {
+    pub name: String,
+    pub path: String,
+    pub description: String,
+    pub usage: String,
+    pub arguments: Vec<ArgumentReference>,
+    pub subcommands: Vec<CommandReference>,
+}
 
-## JSON envelopes (agent mode)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArgumentReference {
+    pub id: String,
+    pub description: String,
+    pub required: bool,
+    pub possible_values: Vec<String>,
+}
 
-Every command accepts `--json` and then prints exactly one envelope on
-stdout (logs go to stderr; exit code 0 whenever an envelope was emitted):
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorReference {
+    pub code: String,
+    pub meaning: String,
+    pub recovery: String,
+}
 
-```json
-{{"ok": true,  "command": "deploy", "schema": "labcoat/v1/deploy", "result": {{...}}}}
-{{"ok": false, "command": "deploy", "schema": "labcoat/v1/error",
-  "error": {{"code": "WALLET_MISSING", "message": "...", "hint": "run `labcoat wallet init` first"}}}}
-```
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolReference {
+    pub name: String,
+    pub detail: String,
+}
 
-Error codes: CONFIG_INVALID, WALLET_MISSING, WALLET_LOCKED,
-RPC_UNREACHABLE, INDEXER_LAG, INSUFFICIENT_FUNDS, EXECUTION_REVERT,
-TRACE_TIMEOUT, ENVELOPE_INVALID, COMPILE_FAILED, CONTRACT_NOT_FOUND,
-TOOLKIT_ERROR, BINARY_CRASH. The `hint` is always the next command to try.
+pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
+    let commands = command
+        .get_subcommands()
+        .filter(|subcommand| subcommand.get_name() != "help")
+        .map(|subcommand| command_reference(subcommand, "labcoat"))
+        .collect();
 
-## Non-interactive conventions
+    AgentReference {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        description: "Rust-native toolkit for building, testing, deploying, and operating Alkanes smart contracts on Bitcoin.".into(),
+        install: "curl -fsSL https://labcoat.sh/install | sh".into(),
+        core_loop: vec![
+            "labcoat init my-project".into(),
+            "cd my-project && labcoat test".into(),
+            "labcoat up".into(),
+            "labcoat wallet init".into(),
+            "labcoat fund <address> && labcoat mine 1".into(),
+            "labcoat compile example".into(),
+            "labcoat deploy build/example.wasm".into(),
+            "labcoat abi verify example".into(),
+            "labcoat call example <opcode> [args...]".into(),
+            "labcoat trace <txid> --wait".into(),
+            "labcoat down".into(),
+        ],
+        configuration_precedence: vec![
+            "CLI flags".into(),
+            "LABCOAT_* environment variables".into(),
+            "labcoat.toml".into(),
+            "defaults".into(),
+        ],
+        commands,
+        mcp_protocol_version: crate::mcp::PROTOCOL_VERSION.into(),
+        mcp_tools,
+        error_codes: ERROR_CODES
+            .iter()
+            .map(|(code, meaning, recovery)| ErrorReference {
+                code: (*code).into(),
+                meaning: (*meaning).into(),
+                recovery: (*recovery).into(),
+            })
+            .collect(),
+        protocol: vec![
+            ProtocolReference {
+                name: "Cellpack".into(),
+                detail: "[block, tx, opcode, ...args] as u128 values; strings up to 16 bytes are packed little-endian.".into(),
+            },
+            ProtocolReference {
+                name: "Deploy".into(),
+                detail: "Targets [1, 0]; raw Wasm is compressed inside a taproot commit/reveal envelope.".into(),
+            },
+            ProtocolReference {
+                name: "Protostone outputs".into(),
+                detail: "Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.".into(),
+            },
+            ProtocolReference {
+                name: "Synchronization".into(),
+                detail: "State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.".into(),
+            },
+            ProtocolReference {
+                name: "labcoat.lock".into(),
+                detail: "Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.".into(),
+            },
+            ProtocolReference {
+                name: "Contract ABI".into(),
+                detail: "Compile and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.".into(),
+            },
+        ],
+    }
+}
 
-- Secrets never ride argv: passphrase via `LABCOAT_WALLET_PASSPHRASE`
-  (regtest falls back to a fixed dev passphrase with a warning; mainnet
-  and signet refuse to run without one), mnemonic via `LABCOAT_MNEMONIC`
-  or `wallet init --mnemonic-stdin`.
-- `labcoat reset -y` skips the confirmation prompt.
-- `deploy --dry-run` / `call --dry-run` validate inputs and describe the
-  transactions without broadcasting.
-- Public project settings live in `labcoat.toml`. Precedence is CLI flag,
-  then `LABCOAT_*` environment variable, then TOML, then defaults.
-- Global flags/envs: `--network`/`LABCOAT_NETWORK` (regtest default),
-  `--rpc-url`/`LABCOAT_RPC_URL` (default http://localhost:18888),
-  `--wallet-file`/`LABCOAT_WALLET_FILE`, `--fee-rate`.
+fn command_reference(command: &Command, parent: &str) -> CommandReference {
+    let name = command.get_name().to_string();
+    let path = format!("{parent} {name}");
+    let description = command
+        .get_long_about()
+        .or_else(|| command.get_about())
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    let mut usage_command = command.clone();
+    let usage = usage_command
+        .render_usage()
+        .to_string()
+        .replace("Usage: ", "");
+    let arguments = command
+        .get_arguments()
+        .filter(|argument| {
+            let id = argument.get_id().as_str();
+            id != "help" && id != "version" && !argument.is_hide_set()
+        })
+        .map(|argument| ArgumentReference {
+            id: argument.get_id().to_string(),
+            description: argument
+                .get_help()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            required: argument.is_required_set(),
+            possible_values: argument
+                .get_possible_values()
+                .iter()
+                .map(|value| value.get_name().to_string())
+                .collect(),
+        })
+        .collect();
+    let subcommands = command
+        .get_subcommands()
+        .filter(|subcommand| subcommand.get_name() != "help")
+        .map(|subcommand| command_reference(subcommand, &path))
+        .collect();
 
-## Devnet commands
+    CommandReference {
+        name,
+        path,
+        description,
+        usage,
+        arguments,
+        subcommands,
+    }
+}
 
-| Command | What it does |
-|---|---|
-| `init [directory] [--force]` | scaffold the embedded Rust project template; non-empty targets require explicit force |
-| `test [contract.rs \| dir]` | compile WASIp1 WebAssembly and run standard `tests/*.rs` through `labcoat-test` |
-| `up [--no-download]` | fetch missing binaries, boot bitcoind/metashrew/ord/esplora/espo/gateway, bootstrap + fund the dev wallet, emit the endpoint manifest |
-| `down` | stop every devnet service (owned or detached) |
-| `status` | per-service health + block height + mempool + readiness |
-| `mine [count] [--address A]` | mine blocks (max 1000/invocation) |
-| `fund <address> [amount]` | faucet BTC from the dev wallet |
-| `logs [--service S] [--limit N]` | recent service logs (file-backed) |
-| `reset [-y]` | stop + wipe all chain/index data |
-| `snapshot [name] [--list]` / `restore <name>` | copy-on-stop devnet state snapshots |
-| `binaries [--download]` | check/fetch service binaries |
+impl AgentReference {
+    pub fn render_markdown(&self) -> String {
+        let mut markdown = format!(
+            "# Labcoat — command reference & protocol cheatsheet (v{})\n\n{}\n\n",
+            self.version, self.description
+        );
+        markdown.push_str("## Install\n\n```bash\n");
+        markdown.push_str(&self.install);
+        markdown.push_str("\n```\n\n## The core loop\n\n```bash\n");
+        for command in &self.core_loop {
+            markdown.push_str(command);
+            markdown.push('\n');
+        }
+        markdown.push_str("```\n\n## JSON envelopes (agent mode)\n\nEvery command accepts `--json` and prints exactly one envelope on stdout. Logs go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.\n\n```json\n{\"ok\":true,\"command\":\"status\",\"schema\":\"labcoat/v1/status\",\"result\":{}}\n{\"ok\":false,\"command\":\"deploy\",\"schema\":\"labcoat/v1/error\",\"error\":{\"code\":\"WALLET_MISSING\",\"message\":\"...\",\"hint\":\"run `labcoat wallet init` first\"}}\n```\n\n");
+        markdown.push_str("Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `labcoat.toml` → defaults.\n\n");
+        markdown.push_str("## Commands\n\n");
+        render_commands(&mut markdown, &self.commands, 3);
+        markdown.push_str("## MCP mode\n\n`labcoat mcp serve` exposes the same operations over stdio using MCP protocol version `");
+        markdown.push_str(&self.mcp_protocol_version);
+        markdown.push_str("`.\n\n| Tool | Description |\n|---|---|\n");
+        for tool in &self.mcp_tools {
+            let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
+            let description = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .replace('|', "\\|");
+            markdown.push_str(&format!("| `{name}` | {description} |\n"));
+        }
+        markdown.push_str("\n## Error codes\n\n| Code | Meaning | Recovery |\n|---|---|---|\n");
+        for error in &self.error_codes {
+            markdown.push_str(&format!(
+                "| `{}` | {} | {} |\n",
+                error.code, error.meaning, error.recovery
+            ));
+        }
+        markdown.push_str("\n## Protocol cheatsheet\n\n");
+        for note in &self.protocol {
+            markdown.push_str(&format!("- **{}**: {}\n", note.name, note.detail));
+        }
+        markdown.push_str(&format!(
+            "\n## alkanes-rs pin\n\nAll alkanes-rs code paths are pinned to commit `{}` on the `develop` branch. See TOOLCHAIN.md before changing the pin.\n",
+            labcoat_core::compile::ALKANES_RS_REV
+        ));
+        markdown
+    }
+}
 
-## Contract commands
+fn render_commands(markdown: &mut String, commands: &[CommandReference], level: usize) {
+    for command in commands {
+        markdown.push_str(&format!(
+            "{} `{}`\n\n{}\n\n```text\n{}\n```\n\n",
+            "#".repeat(level),
+            command.path,
+            command.description,
+            command.usage
+        ));
+        if !command.arguments.is_empty() {
+            markdown.push_str("Arguments and options:\n\n");
+            for argument in &command.arguments {
+                let required = if argument.required {
+                    "required"
+                } else {
+                    "optional"
+                };
+                let values = if argument.possible_values.is_empty() {
+                    String::new()
+                } else {
+                    format!(" Values: `{}`.", argument.possible_values.join("`, `"))
+                };
+                markdown.push_str(&format!(
+                    "- `{}` ({required}): {}{}\n",
+                    argument.id, argument.description, values
+                ));
+            }
+            markdown.push('\n');
+        }
+        render_commands(markdown, &command.subcommands, level + 1);
+    }
+}
 
-| Command | What it does |
-|---|---|
-| `wallet init [--mnemonic-stdin]` | create/load the keystore (BIP-86/84/49/44; same mnemonic ⇒ same addresses as ever) |
-| `wallet addresses [--count N]` | receive addresses per script type |
-| `wallet utxos` | spendable UTXOs |
-| `compile <file.rs \| dir> [--name N] [--out-dir D]` | cargo → wasm32-unknown-unknown → raw .wasm + .wasm.gz + ABI (regex over `#[opcode(n)]` grammar) |
-| `deploy <wasm> [--name N] [--args a,b] [--dry-run]` | commit/reveal envelope deploy of the RAW .wasm (never .wasm.gz — the envelope compresses internally); waits for the create trace; writes labcoat.lock |
-| `call <name\|block:tx> <opcode> [args...] [--dry-run]` | execute; waits for indexer sync + trace; decodes revert reasons |
-| `simulate <name\|block:tx> <opcode> [args...]` | read-only metashrew simulation; result decoded as printable string, then integer |
-| `trace <txid> [--wait]` | decoded traces for every protostone in the tx (vouts auto-computed) |
-| `lock migrate` / `lock show` | one-shot legacy-manifest migration; inspect labcoat.lock |
-| `mcp serve` | Model Context Protocol server over stdio exposing all of the above as tools |
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
 
-## Protocol cheatsheet
-
-- **Cellpack**: the message body of an alkanes call — `[block, tx,
-  opcode, ...args]` as u128 values. String args ≤16 bytes are packed
-  little-endian into a u128.
-- **Deploy** targets cellpack `[1, 0]`: "create a new alkane" — the wasm
-  rides a taproot witness envelope (BIN protocol) in a commit/reveal pair.
-  The new contract id `block:tx` comes from the `create` trace event.
-- **Protostone vouts**: traces attach to virtual outputs `tx.output.len()
-  + 1 + i` for protostone i; `trace <txid>` computes this for you.
-- **Sync**: state-changing ops wait until the alkanes indexer (metashrew)
-  height ≥ chain height so fresh UTXOs are introspectable; `INDEXER_LAG`
-  means it never caught up.
-- **labcoat.lock**: per-network deployment ledger `{{network: {{Contract:
-  {{alkanesId, wasmSha256, txid, status, deployedAt}}}}}}` — `call`/`simulate`
-  accept the contract name and resolve through it.
-- **Endpoints** (regtest defaults): unified JSON-RPC gateway :18888
-  (proxies bitcoind :18443, metashrew :8080, ord :8090, esplora
-  :50010/:50001, espo :8083/:8081).
-
-## alkanes-rs pin
-
-All alkanes-rs code paths are pinned to commit
-`{rev}` on the `develop` branch — see TOOLCHAIN.md before changing
-anything about that.
-"#,
-        version = env!("CARGO_PKG_VERSION"),
-        rev = labcoat_core::compile::ALKANES_RS_REV,
-    )
+    #[test]
+    fn reference_contains_live_cli_and_mcp_metadata() {
+        let reference = reference(crate::Cli::command(), crate::mcp::tools());
+        assert!(reference
+            .commands
+            .iter()
+            .any(|command| command.name == "deploy"));
+        assert!(reference
+            .mcp_tools
+            .iter()
+            .any(|tool| tool.get("name") == Some(&Value::String("deploy".into()))));
+        assert!(reference.render_markdown().contains("command reference"));
+    }
 }

@@ -5,3 +5,9 @@ package-lock.json
 yarn.lock
 *-labcoat-*.tgz
 .labcoat/
+.astro/
+.lighthouseci/
+playwright-report/
+test-results/
+.pnpm-store/
+.vercel

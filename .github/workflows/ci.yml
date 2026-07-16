@@ -15,6 +15,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       js: ${{ steps.filter.outputs.js }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -30,6 +31,16 @@ jobs:
             js:
               - 'packages/**'
               - 'apps/isomer/**'
+              - 'pnpm-workspace.yaml'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+            web:
+              - 'apps/web/**'
+              - 'crates/labcoat-cli/src/docs.rs'
+              - 'crates/labcoat-cli/src/main.rs'
+              - 'crates/labcoat-cli/src/mcp.rs'
+              - 'skills/SKILL.md'
+              - 'vercel.json'
               - 'pnpm-workspace.yaml'
               - 'pnpm-lock.yaml'
               - 'package.json'
@@ -82,8 +93,10 @@ jobs:
       - name: MCP + agent-surface smoke
         run: |
           ./target/debug/labcoat docs --llm | grep -q "command reference"
+          ./target/debug/labcoat docs --json | grep -q '"schema": "labcoat/v1/docs"'
+          node apps/web/scripts/sync-reference.mjs --check --bin ./target/debug/labcoat
           printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' \
-            | ./target/debug/labcoat mcp serve | grep -q '"devnet_status"'
+            | ./target/debug/labcoat mcp serve | grep -q '"abi_verify"'
       - name: Rust-first project smoke
         run: |
           PROJECT=$(mktemp -d)/project
@@ -94,11 +107,16 @@ jobs:
             | tee "$RUNNER_TEMP/labcoat-test.json"
           grep -q '"passed": true' "$RUNNER_TEMP/labcoat-test.json"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            compile contracts/Example.rs --json \
+            compile example --json \
             | tee "$RUNNER_TEMP/labcoat-compile.json"
           grep -q '"ok": true' "$RUNNER_TEMP/labcoat-compile.json"
+          cmp build/example.abi.json .labcoat/test-artifacts/example.abi.json
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            deploy build/Example.wasm --dry-run --json \
+            compile contracts/Example.rs --json \
+            | tee "$RUNNER_TEMP/labcoat-loose-contract.json"
+          grep -q '"code": "CONFIG_INVALID"' "$RUNNER_TEMP/labcoat-loose-contract.json"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            deploy build/example.wasm --dry-run --json \
             | tee "$RUNNER_TEMP/labcoat-deploy.json"
           grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
 
@@ -114,7 +132,25 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r build
+      - run: pnpm --filter @isomer/desktop build
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @labcoat/web check
+      - run: pnpm --filter @labcoat/web build
+      - run: pnpm --filter @labcoat/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @labcoat/web test:e2e
+      - run: pnpm --filter @labcoat/web test:lighthouse
 
   # NOTE: no extension job for now. apps/isomer-extension builds standalone
   # (`cd apps/isomer-extension && pnpm --ignore-workspace install --no-frozen-lockfile

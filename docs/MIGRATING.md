@@ -27,6 +27,31 @@ fee_rate = 2.0
 Never put mnemonic or passphrase material in the file. Use
 `LABCOAT_MNEMONIC`, mnemonic stdin, and `LABCOAT_WALLET_PASSPHRASE`.
 
+## Contracts are Cargo packages
+
+Loose `contracts/Example.rs` sources are no longer supported. Move each
+contract into its own Cargo package:
+
+```text
+contracts/example/
+  Cargo.toml
+  src/lib.rs
+```
+
+The contract manifest needs `[lib] crate-type = ["cdylib", "rlib"]` and may
+declare ordinary crates.io, git, workspace, and path dependencies. Put code
+shared by several contracts in Cargo libraries under `crates/`. The root
+manifest is both the host-test package and workspace manifest.
+
+`labcoat compile` builds every discovered contract; `labcoat compile example`
+builds one. The first build creates a workspace `Cargo.lock`. Commit it because
+upstream transitive git dependencies use moving branch references, and never
+run an unscoped `cargo update`.
+
+ABIs now come from the compiled contract's `__meta` export. Contracts using
+`MessageDispatch` and `declare_alkane!` provide it automatically. Source-based
+ABI scanning and storage-key discovery have been removed.
+
 ## Script migration
 
 Replace SDK orchestration such as `labcoat.setup()` with direct commands or
@@ -35,10 +60,10 @@ ordinary shell scripts:
 ```bash
 labcoat up
 labcoat wallet init
-labcoat compile contracts/Example.rs
-labcoat deploy build/Example.wasm
-labcoat simulate Example 1 World
-labcoat call Example 1 World
+labcoat compile example
+labcoat deploy build/example.wasm
+labcoat simulate example 1 World
+labcoat call example 1 World
 ```
 
 The old `labcoat run` command no longer exists.

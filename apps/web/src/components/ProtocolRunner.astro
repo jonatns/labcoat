@@ -1,0 +1,85 @@
+---
+const stages = [
+  {
+    id: 'init',
+    number: '01',
+    label: 'init',
+    command: 'labcoat init hello-alkane',
+    detail: 'Scaffolded a Rust-first contract workspace',
+    schema: 'labcoat/v1/init',
+    result: '{ "path": "hello-alkane", "created": true }',
+  },
+  {
+    id: 'test',
+    number: '02',
+    label: 'test',
+    command: 'labcoat test --json',
+    detail: 'Native integration suite passed',
+    schema: 'labcoat/v1/test',
+    result: '{ "passed": true, "contracts": 1 }',
+  },
+  {
+    id: 'up',
+    number: '03',
+    label: 'up',
+    command: 'labcoat up --json',
+    detail: 'Bitcoin regtest stack is ready',
+    schema: 'labcoat/v1/up',
+    result: '{ "isReady": true, "rpc": ":18888" }',
+  },
+  {
+    id: 'deploy',
+    number: '04',
+    label: 'deploy',
+    command: 'labcoat deploy build/Hello.wasm --json',
+    detail: 'Commit/reveal confirmed and recorded',
+    schema: 'labcoat/v1/deploy',
+    result: '{ "alkanesId": "103:1", "status": "success" }',
+  },
+  {
+    id: 'trace',
+    number: '05',
+    label: 'trace',
+    command: 'labcoat trace 4f2a…c901 --wait --json',
+    detail: 'Decoded every protostone event',
+    schema: 'labcoat/v1/trace',
+    result: '{ "events": ["invoke", "return"] }',
+  },
+];
+---
+
+<section class="protocol-runner" aria-labelledby="runner-title">
+  <div class="runner-bar">
+    <div class="runner-lights" aria-hidden="true"><i></i><i></i><i></i></div>
+    <p id="runner-title">LOCAL PROTOCOL / REGTEST</p>
+    <span class="runner-live"><i></i> READY</span>
+  </div>
+  <div class="runner-body">
+    <div class="runner-steps" role="tablist" aria-label="Labcoat workflow">
+      {stages.map((stage, index) => (
+        <button
+          type="button"
+          role="tab"
+          id={`tab-${stage.id}`}
+          aria-controls="runner-output"
+          aria-selected={index === 0 ? 'true' : 'false'}
+          tabindex={index === 0 ? 0 : -1}
+          data-runner-stage={JSON.stringify(stage)}
+        >
+          <span>{stage.number}</span>
+          <strong>{stage.label}</strong>
+          <i aria-hidden="true"></i>
+        </button>
+      ))}
+    </div>
+    <div class="runner-terminal" id="runner-output" role="tabpanel" aria-live="polite" aria-labelledby="tab-init">
+      <p class="runner-command"><span>$</span> <code data-runner-command>{stages[0].command}</code></p>
+      <div class="runner-response">
+        <p><span>ok</span> <strong>true</strong></p>
+        <p><span>schema</span> <code data-runner-schema>"{stages[0].schema}"</code></p>
+        <p><span>result</span> <code data-runner-result>{stages[0].result}</code></p>
+      </div>
+      <p class="runner-detail"><span aria-hidden="true">✓</span> <span data-runner-detail>{stages[0].detail}</span></p>
+    </div>
+  </div>
+</section>

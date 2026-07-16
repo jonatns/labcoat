@@ -16,20 +16,23 @@ workflow:
 
 The supported public interface is the **`labcoat` CLI**.
 
+[Website](https://labcoat.sh) · [Documentation](https://labcoat.sh/docs/) ·
+[Agent index](https://labcoat.sh/llms.txt)
+
 ## Install
 
 macOS and Linux binaries are published for arm64 and x86_64. Windows CLI
 support is not available yet.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jonatns/labcoat/main/install-labcoat.sh | sh
+curl -fsSL https://labcoat.sh/install | sh
 ```
 
 The installer verifies the release checksum and writes the binary to
 `${LABCOAT_INSTALL_DIR:-$HOME/.local/bin}`. Install a specific version with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jonatns/labcoat/main/install-labcoat.sh \
+curl -fsSL https://labcoat.sh/install \
   | sh -s -- 0.7.0
 ```
 
@@ -76,16 +79,18 @@ labcoat wallet utxos
 Compile and deploy the example contract:
 
 ```bash
-labcoat compile contracts/Example.rs
-labcoat deploy build/Example.wasm --dry-run
-labcoat deploy build/Example.wasm
+labcoat compile example
+labcoat deploy build/example.wasm --dry-run
+labcoat deploy build/example.wasm
+labcoat abi fetch example
+labcoat abi verify example
 ```
 
 Interact with the deployed contract:
 
 ```bash
-labcoat simulate Example 1 World
-labcoat call Example 1 World
+labcoat simulate example 1 World
+labcoat call example 1 World
 labcoat trace <txid> --wait
 ```
 
@@ -100,9 +105,11 @@ labcoat down
 `labcoat init` creates:
 
 ```text
-contracts/          Rust contract sources
+contracts/          Cargo contract packages
+crates/             Shared contract libraries
 tests/              Native integration tests using labcoat-test
-Cargo.toml          Host-side test project
+Cargo.toml          Host-side test package and workspace manifest
+Cargo.lock          Reproducible dependency lock (created on first build)
 labcoat.toml        Public project configuration
 AGENTS.md           Agent instructions
 SKILL.md            Agent workflow
@@ -121,6 +128,10 @@ CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
 Deployments are recorded by network in `labcoat.lock`. Commit this file
 when deployments are part of the project state.
 
+Each contract is an ordinary Cargo package under `contracts/`, so normal
+crates.io, git, path dependencies, modules, and shared workspace crates work.
+The first compile creates `Cargo.lock`; commit it and avoid bare `cargo update`.
+
 ## CLI map
 
 | Area | Commands |
@@ -129,7 +140,7 @@ when deployments are part of the project state.
 | Test and build | `test`, `compile` |
 | Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
 | Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |
-| Contracts | `deploy`, `call`, `simulate`, `trace`, `lock` |
+| Contracts | `deploy`, `call`, `simulate`, `trace`, `abi`, `lock` |
 | Automation | `mcp serve`, global `--json` |
 
 Run `labcoat --help`, `labcoat <command> --help`, or `labcoat docs --llm`
@@ -142,7 +153,7 @@ Errors include a typed code, human-readable message, and recovery hint.
 
 ```bash
 labcoat status --json
-labcoat deploy build/Example.wasm --dry-run --json
+labcoat deploy build/example.wasm --dry-run --json
 labcoat mcp serve
 ```
 

@@ -26,8 +26,12 @@ source with itself at a rev, so the reproducibility pin is the **committed
 at the pinned commit) and CI builds with `--locked`. Never run a bare
 `cargo update`.
 
+Generated project templates carry these same direct revisions and create their
+own `Cargo.lock` on first build. Commit that lockfile; it is the reproducibility
+boundary for a Labcoat project.
+
 **Upgrade procedure:** update the rev here and in every `Cargo.toml` /
-template / workflow, `cargo update` only the affected git deps, run the
+contract template / workflow, `cargo update` only the affected git deps, run the
 full integration suite against `labcoat up`, and land it as its own
 reviewed PR. CI verifies the pin is reachable from `develop`.
 

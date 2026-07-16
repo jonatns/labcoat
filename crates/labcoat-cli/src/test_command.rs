@@ -1,27 +1,25 @@
 use crate::contract::{CmdResult, EnvelopeError};
 use std::path::{Path, PathBuf};
 
-pub fn run(path: Option<&str>) -> CmdResult {
-    let sources = contract_sources(path)?;
+pub fn run(package: Option<&str>) -> CmdResult {
     let project_root = std::env::current_dir().map_err(|e| EnvelopeError {
         code: "TOOLKIT_ERROR",
         message: e.to_string(),
         hint: "run the command from a Labcoat project directory",
     })?;
-    let artifact_dir = project_root.join(".labcoat/test-artifacts");
-    std::fs::create_dir_all(&artifact_dir).map_err(io_error)?;
-
-    let mut artifacts = Vec::new();
-    for source in &sources {
-        let outcome =
-            labcoat_core::compile::compile_for_target(source, None, &artifact_dir, "wasm32-wasip1")
-                .map_err(|e| EnvelopeError {
-                    code: e.code,
-                    message: e.message,
-                    hint: e.hint,
-                })?;
-        artifacts.push(outcome);
+    let workspace = labcoat_core::workspace::discover(&project_root).map_err(core_error)?;
+    if package.is_some() {
+        labcoat_core::workspace::select(&workspace, package).map_err(core_error)?;
     }
+    let artifact_dir = workspace.root.join(".labcoat/test-artifacts");
+    std::fs::create_dir_all(&artifact_dir).map_err(io_error)?;
+    let artifacts = labcoat_core::compile::compile_packages(
+        &workspace,
+        &workspace.contracts,
+        &artifact_dir,
+        "wasm32-wasip1",
+    )
+    .map_err(core_error)?;
 
     let mut command = std::process::Command::new("cargo");
     if let Some(path) = local_labcoat_test_path() {
@@ -33,9 +31,20 @@ pub fn run(path: Option<&str>) -> CmdResult {
             .arg("--config")
             .arg(format!("patch.crates-io.labcoat-test.path=\"{escaped}\""));
     }
-    command.args(["test", "--tests"]);
+    command.arg("test");
+    if let Some(package) = package {
+        let target = labcoat_core::workspace::host_test_for_package(&workspace, package)
+            .ok_or_else(|| EnvelopeError {
+                code: "CONFIG_INVALID",
+                message: format!("no host integration test found at tests/{package}.rs"),
+                hint: "create tests/<package>.rs for the selected contract",
+            })?;
+        command.args(["--test", &target.name]);
+    } else {
+        command.arg("--tests");
+    }
     let output = command
-        .current_dir(&project_root)
+        .current_dir(&workspace.root)
         .env("LABCOAT_TEST_ARTIFACT_DIR", &artifact_dir)
         .output()
         .map_err(|e| EnvelopeError {
@@ -61,6 +70,14 @@ pub fn run(path: Option<&str>) -> CmdResult {
     }))
 }
 
+fn core_error(error: labcoat_core::LabcoatError) -> EnvelopeError {
+    EnvelopeError {
+        code: error.code,
+        message: error.message,
+        hint: error.hint,
+    }
+}
+
 /// Resolve the unpublished test harness while developing Labcoat from source.
 ///
 /// Release builds normally return `None` because their build checkout no longer
@@ -79,35 +96,6 @@ fn sibling_test_crate(cli_manifest_dir: &Path) -> Option<PathBuf> {
     candidate.join("Cargo.toml").is_file().then_some(candidate)
 }
 
-fn contract_sources(path: Option<&str>) -> Result<Vec<PathBuf>, EnvelopeError> {
-    let path = PathBuf::from(path.unwrap_or("contracts"));
-    if path.is_file() {
-        return Ok(vec![path]);
-    }
-    if !path.is_dir() {
-        return Err(EnvelopeError {
-            code: "CONFIG_INVALID",
-            message: format!("contract path {} does not exist", path.display()),
-            hint: "pass a .rs contract or create a contracts/ directory",
-        });
-    }
-    let mut sources: Vec<PathBuf> = std::fs::read_dir(&path)
-        .map_err(io_error)?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("rs"))
-        .collect();
-    sources.sort();
-    if sources.is_empty() {
-        return Err(EnvelopeError {
-            code: "CONFIG_INVALID",
-            message: format!("no .rs contracts found in {}", path.display()),
-            hint: "add a contract source or pass its path explicitly",
-        });
-    }
-    Ok(sources)
-}
-
 fn io_error(error: std::io::Error) -> EnvelopeError {
     EnvelopeError {
         code: "TOOLKIT_ERROR",
@@ -119,20 +107,6 @@ fn io_error(error: std::io::Error) -> EnvelopeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn discovers_sorted_contract_sources() {
-        let root = std::env::temp_dir().join(format!("labcoat-sources-{}", std::process::id()));
-        std::fs::remove_dir_all(&root).ok();
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("B.rs"), "").unwrap();
-        std::fs::write(root.join("A.rs"), "").unwrap();
-        std::fs::write(root.join("ignore.txt"), "").unwrap();
-        let sources = contract_sources(root.to_str()).unwrap();
-        assert_eq!(sources[0].file_name().unwrap(), "A.rs");
-        assert_eq!(sources[1].file_name().unwrap(), "B.rs");
-        std::fs::remove_dir_all(root).ok();
-    }
 
     #[test]
     fn discovers_sibling_test_crate_for_source_builds() {

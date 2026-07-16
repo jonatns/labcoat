@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0v48" fill="none" stroke="#273129" stroke-width="1"/></pattern>
+    <radialGradient id="glow"><stop stop-color="#b8ff65" stop-opacity=".23"/><stop offset="1" stop-color="#b8ff65" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#0a0d0b"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="970" cy="110" r="420" fill="url(#glow)"/>
+  <g transform="translate(72 62)" fill="none">
+    <path d="M20 0h32M28 0v26L3 70a9 9 0 0 0 8 14h50a9 9 0 0 0 8-14L44 26V0" stroke="#f4f8f2" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m14 64 14-12 10 9 9-9 11 12" stroke="#b8ff65" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="41" cy="39" r="4" fill="#ffb347"/>
+  </g>
+  <text x="160" y="117" fill="#f4f8f2" font-family="Arial, sans-serif" font-size="26" font-weight="800" letter-spacing="6">LABCOAT</text>
+  <text x="72" y="292" fill="#f4f8f2" font-family="Arial, sans-serif" font-size="76" font-weight="700" letter-spacing="-4">The full Alkanes loop.</text>
+  <text x="72" y="380" fill="#b8ff65" font-family="Arial, sans-serif" font-size="76" font-weight="700" letter-spacing="-4">One Rust-native tool.</text>
+  <text x="75" y="466" fill="#a7afa9" font-family="Arial, sans-serif" font-size="26">Build · Test · Deploy · Call · Simulate · Trace</text>
+  <rect x="72" y="522" width="1056" height="1" fill="#354039"/>
+  <text x="72" y="568" fill="#b8ff65" font-family="Courier New, monospace" font-size="20">$ curl -fsSL https://labcoat.sh/install | sh</text>
+  <text x="1118" y="568" fill="#737d76" text-anchor="end" font-family="Courier New, monospace" font-size="18">labcoat.sh</text>
+</svg>

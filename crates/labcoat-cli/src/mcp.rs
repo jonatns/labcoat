@@ -10,7 +10,7 @@ use isomer_core::Devnet;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-const PROTOCOL_VERSION: &str = "2024-11-05";
+pub(crate) const PROTOCOL_VERSION: &str = "2024-11-05";
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({
@@ -24,7 +24,7 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
     })
 }
 
-fn tools() -> Vec<Value> {
+pub(crate) fn tools() -> Vec<Value> {
     let arg_array = json!({
         "type": "array", "items": {"type": "string"},
         "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)"
@@ -46,8 +46,14 @@ fn tools() -> Vec<Value> {
         tool("wallet_addresses", "Wallet receive addresses per script type.",
             json!({"count": {"type": "integer", "minimum": 1}}), &[]),
         tool("wallet_utxos", "Spendable wallet UTXOs.", json!({}), &[]),
-        tool("compile", "Compile a contract .rs file (or directory) to build/<name>.{wasm,wasm.gz,abi.json}.",
-            json!({"path": {"type": "string"}, "name": {"type": "string"}, "outDir": {"type": "string"}}), &["path"]),
+        tool("compile", "Compile Cargo contract packages and extract their Wasm-exported ABIs.",
+            json!({"package": {"type": "string"}, "outDir": {"type": "string"}}), &[]),
+        tool("test", "Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.",
+            json!({"package": {"type": "string"}}), &[]),
+        tool("abi_fetch", "Fetch ABI metadata from a deployed contract through Metashrew.",
+            json!({"contract": {"type": "string"}, "out": {"type": "string"}}), &["contract"]),
+        tool("abi_verify", "Compare a deployed ABI with a locally built contract package.",
+            json!({"contract": {"type": "string"}, "package": {"type": "string"}}), &["contract"]),
         tool("deploy", "Deploy a compiled contract (raw .wasm) via commit/reveal. Records it in labcoat.lock.",
             json!({"wasm": {"type": "string", "description": "path to the raw .wasm"}, "name": {"type": "string"}, "args": arg_array.clone()}), &["wasm"]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
@@ -188,16 +194,53 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                 .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))
         }
         "compile" => {
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
-            let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
+            let package = args.get("package").and_then(|v| v.as_str());
             let out_dir = args
                 .get("outDir")
                 .and_then(|v| v.as_str())
                 .unwrap_or("build");
-            let (_, res) = contract::compile(path, name, out_dir);
+            let (_, res) = contract::compile(package, out_dir);
+            res.map_err(fail)
+        }
+        "test" => {
+            let package = args.get("package").and_then(|v| v.as_str());
+            crate::test_command::run(package).map_err(fail)
+        }
+        "abi_fetch" => {
+            let contract_ref = args
+                .get("contract")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let out = args.get("out").and_then(|v| v.as_str()).map(String::from);
+            let (_, res) = contract::abi(
+                ctx,
+                contract::AbiCmd::Fetch {
+                    contract: contract_ref,
+                    out,
+                },
+            )
+            .await;
+            res.map_err(fail)
+        }
+        "abi_verify" => {
+            let contract_ref = args
+                .get("contract")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let package = args
+                .get("package")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let (_, res) = contract::abi(
+                ctx,
+                contract::AbiCmd::Verify {
+                    contract: contract_ref,
+                    package,
+                },
+            )
+            .await;
             res.map_err(fail)
         }
         "deploy" => {
@@ -316,4 +359,33 @@ pub async fn serve(ctx: Ctx) -> i32 {
         let _ = stdout.flush().await;
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cargo_and_abi_tool_schemas_match_the_cli() {
+        let tools = tools();
+        let named = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool["name"] == name)
+                .unwrap_or_else(|| panic!("missing MCP tool {name}"))
+        };
+
+        assert_eq!(named("compile")["inputSchema"]["required"], json!([]));
+        assert!(named("compile")["inputSchema"]["properties"]["package"].is_object());
+        assert_eq!(named("test")["inputSchema"]["required"], json!([]));
+        assert_eq!(
+            named("abi_fetch")["inputSchema"]["required"],
+            json!(["contract"])
+        );
+        assert_eq!(
+            named("abi_verify")["inputSchema"]["required"],
+            json!(["contract"])
+        );
+        assert!(named("abi_verify")["inputSchema"]["properties"]["package"].is_object());
+    }
 }

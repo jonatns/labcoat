@@ -32,6 +32,26 @@ pub enum LockCmd {
     Show,
 }
 
+#[derive(Subcommand)]
+pub enum AbiCmd {
+    /// Fetch ABI metadata from a deployed contract's __meta export
+    Fetch {
+        /// Contract name from labcoat.lock, or a raw block:tx id
+        contract: String,
+        /// Write the exact ABI bytes to a file
+        #[arg(long)]
+        out: Option<String>,
+    },
+    /// Compare deployed ABI metadata with a locally built contract
+    Verify {
+        /// Contract name from labcoat.lock, or a raw block:tx id
+        contract: String,
+        /// Local Cargo contract package (required for raw ids or renamed deployments)
+        #[arg(long)]
+        package: Option<String>,
+    },
+}
+
 pub struct Ctx {
     pub config: ToolkitConfig,
 }
@@ -73,7 +93,7 @@ fn parse_args(args: &[String]) -> Result<Vec<u128>, labcoat_core::LabcoatError> 
 
 /// Resolve "name-or-id" to (block, tx): block:tx ids parse directly,
 /// anything else is looked up in labcoat.lock.
-fn resolve(
+pub(crate) fn resolve(
     config: &ToolkitConfig,
     contract: &str,
 ) -> Result<(u128, u128), labcoat_core::LabcoatError> {
@@ -154,45 +174,124 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd) -> (&'static str, CmdResult) {
     }
 }
 
-pub fn compile(path: &str, name: Option<String>, out_dir: &str) -> (&'static str, CmdResult) {
-    let source = PathBuf::from(path);
-    let res = if source.is_dir() {
-        // Compile every .rs in the directory (the `labcoat compile` contract-dir flow)
-        let mut outcomes = Vec::new();
-        let entries = std::fs::read_dir(&source).map_err(|e| {
+pub fn compile(package: Option<&str>, out_dir: &str) -> (&'static str, CmdResult) {
+    let res = (|| {
+        let cwd = std::env::current_dir().map_err(|e| {
             labcoat_core::LabcoatError::new(
                 "CONFIG_INVALID",
                 e.to_string(),
-                "pass a .rs file or contracts dir",
+                "run Labcoat from a Cargo workspace",
             )
-        });
-        match entries {
-            Ok(entries) => {
-                let mut err = None;
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.extension().and_then(|e| e.to_str()) == Some("rs") {
-                        match labcoat_core::compile::compile(&p, None, &PathBuf::from(out_dir)) {
-                            Ok(o) => outcomes.push(o),
-                            Err(e) => {
-                                err = Some(e);
-                                break;
-                            }
-                        }
-                    }
-                }
-                match err {
-                    Some(e) => Err(e),
-                    None => Ok(serde_json::json!({ "contracts": outcomes })),
-                }
-            }
-            Err(e) => Err(e),
-        }
-    } else {
-        labcoat_core::compile::compile(&source, name, &PathBuf::from(out_dir))
-            .map(|o| serde_json::to_value(o).unwrap())
-    };
+        })?;
+        let workspace = labcoat_core::workspace::discover(&cwd)?;
+        let packages = labcoat_core::workspace::select(&workspace, package)?;
+        let outcomes = labcoat_core::compile::compile_packages(
+            &workspace,
+            &packages,
+            &PathBuf::from(out_dir),
+            "wasm32-unknown-unknown",
+        )?;
+        Ok(serde_json::json!({ "contracts": outcomes }))
+    })();
     ("compile", to_envelope(res))
+}
+
+pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
+    match cmd {
+        AbiCmd::Fetch { contract, out } => {
+            let res = async {
+                let (block, tx) = resolve(&ctx.config, &contract)?;
+                let bytes = labcoat_core::abi::fetch_deployed(&ctx.config, block, tx).await?;
+                if let Some(out) = out {
+                    let path = PathBuf::from(out);
+                    if let Some(parent) = path
+                        .parent()
+                        .filter(|parent| !parent.as_os_str().is_empty())
+                    {
+                        std::fs::create_dir_all(parent).map_err(|e| {
+                            labcoat_core::LabcoatError::new(
+                                "TOOLKIT_ERROR",
+                                format!("cannot create {}: {e}", parent.display()),
+                                "check the output path permissions",
+                            )
+                        })?;
+                    }
+                    std::fs::write(&path, &bytes).map_err(|e| {
+                        labcoat_core::LabcoatError::new(
+                            "TOOLKIT_ERROR",
+                            format!("cannot write {}: {e}", path.display()),
+                            "check the output path permissions",
+                        )
+                    })?;
+                }
+                use sha2::Digest;
+                Ok(serde_json::json!({
+                    "contract": contract,
+                    "alkanesId": format!("{block}:{tx}"),
+                    "abi": serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+                    "abiSha256": hex::encode(sha2::Sha256::digest(&bytes)),
+                }))
+            }
+            .await;
+            ("abi-fetch", to_envelope(res))
+        }
+        AbiCmd::Verify { contract, package } => {
+            let res = async {
+                let package = match package {
+                    Some(package) => package,
+                    None if !contract.contains(':') => contract.clone(),
+                    None => {
+                        return Err(labcoat_core::LabcoatError::new(
+                            "CONFIG_INVALID",
+                            "--package is required when verifying a raw contract id",
+                            "pass `--package <Cargo package name>`",
+                        ))
+                    }
+                };
+                let cwd = std::env::current_dir().map_err(|e| {
+                    labcoat_core::LabcoatError::new(
+                        "CONFIG_INVALID",
+                        e.to_string(),
+                        "run Labcoat from a Cargo workspace",
+                    )
+                })?;
+                let workspace = labcoat_core::workspace::discover(&cwd)?;
+                labcoat_core::workspace::select(&workspace, Some(&package))?;
+                let wasm_path = workspace.root.join("build").join(format!("{package}.wasm"));
+                if !wasm_path.is_file() {
+                    return Err(labcoat_core::LabcoatError::new(
+                        "CONFIG_INVALID",
+                        format!("local Wasm not found at {}", wasm_path.display()),
+                        "run `labcoat compile <package>` first",
+                    ));
+                }
+                let local = labcoat_core::abi::extract_file(&wasm_path)?;
+                let (block, tx) = resolve(&ctx.config, &contract)?;
+                let deployed = labcoat_core::abi::fetch_deployed(&ctx.config, block, tx).await?;
+                let comparison = labcoat_core::abi::compare(&local, &deployed);
+                if !comparison.matches {
+                    return Err(labcoat_core::LabcoatError::new(
+                        "ABI_MISMATCH",
+                        format!(
+                            "ABI mismatch for {block}:{tx}: local {}, deployed {}",
+                            comparison.local_sha256, comparison.deployed_sha256
+                        ),
+                        "compile the deployed source revision or verify the target contract id",
+                    ));
+                }
+                Ok(serde_json::json!({
+                    "contract": contract,
+                    "alkanesId": format!("{block}:{tx}"),
+                    "package": package,
+                    "matches": true,
+                    "localAbiSha256": comparison.local_sha256,
+                    "deployedAbiSha256": comparison.deployed_sha256,
+                }))
+            }
+            .await;
+            ("abi-verify", to_envelope(res))
+        }
+    }
 }
 
 pub async fn deploy(

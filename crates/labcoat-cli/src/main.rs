@@ -12,7 +12,7 @@ mod project;
 mod settings;
 mod test_command;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use isomer_core::Devnet;
 
 #[derive(Parser)]
@@ -58,8 +58,8 @@ enum Commands {
     },
     /// Compile WASIp1 WebAssembly and run native Rust integration tests
     Test {
-        /// Specific contract source or directory (defaults to contracts/)
-        path: Option<String>,
+        /// Optional Cargo contract package whose host test should run
+        package: Option<String>,
     },
     /// Download binaries if needed and boot the full devnet stack
     Up {
@@ -125,17 +125,17 @@ enum Commands {
     /// Wallet management (keystore at --wallet-file)
     #[command(subcommand)]
     Wallet(contract::WalletCmd),
-    /// Compile a contract: .rs → build/<name>.{wasm,wasm.gz,abi.json}
+    /// Compile Cargo contract packages to build/<package>.{wasm,wasm.gz,abi.json}
     Compile {
-        /// Contract source file, or a directory of .rs contracts
-        path: String,
-        /// Override the artifact name (defaults to the file stem)
-        #[arg(long)]
-        name: Option<String>,
+        /// Optional Cargo package name (omitting it builds every contract)
+        package: Option<String>,
         /// Output directory
         #[arg(long, default_value = "build")]
         out_dir: String,
     },
+    /// Fetch or verify Wasm-exported contract ABI metadata
+    #[command(subcommand)]
+    Abi(contract::AbiCmd),
     /// Deploy a compiled contract (raw .wasm) via commit/reveal envelope
     Deploy {
         /// Path to the raw .wasm artifact
@@ -251,19 +251,19 @@ async fn run(cli: Cli) -> i32 {
     );
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
-        Commands::Test { path } => {
-            finish_contract(json, "test", test_command::run(path.as_deref()))
+        Commands::Test { package } => {
+            finish_contract(json, "test", test_command::run(package.as_deref()))
         }
         Commands::Wallet(cmd) => {
             let (name, res) = contract::wallet(&ctx, cmd).await;
             finish_contract(json, name, res)
         }
-        Commands::Compile {
-            path,
-            name,
-            out_dir,
-        } => {
-            let (cmd_name, res) = contract::compile(&path, name, &out_dir);
+        Commands::Compile { package, out_dir } => {
+            let (cmd_name, res) = contract::compile(package.as_deref(), &out_dir);
+            finish_contract(json, cmd_name, res)
+        }
+        Commands::Abi(cmd) => {
+            let (cmd_name, res) = contract::abi(&ctx, cmd).await;
             finish_contract(json, cmd_name, res)
         }
         Commands::Deploy {
@@ -334,11 +334,18 @@ async fn run(cli: Cli) -> i32 {
             }
         }
         Commands::Docs { llm } => {
-            // Only the LLM-oriented single document exists today; --llm is
-            // accepted for forward compatibility with a human docs mode.
+            let reference = docs::reference(Cli::command(), mcp::tools());
             let _ = llm;
-            println!("{}", docs::llm_reference());
-            0
+            if json {
+                finish(
+                    true,
+                    "docs",
+                    Ok(serde_json::to_value(reference).expect("serializable docs reference")),
+                )
+            } else {
+                println!("{}", reference.render_markdown());
+                0
+            }
         }
         Commands::Up { no_download, ci } => {
             let mut devnet = Devnet::new();

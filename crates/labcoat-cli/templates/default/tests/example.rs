@@ -3,7 +3,7 @@ use labcoat_test::{ContractHarness, Value};
 #[test]
 fn greets_from_compiled_wasm() -> Result<(), Box<dyn std::error::Error>> {
     let mut contract = ContractHarness::for_contract("Example")?;
-    let result = contract.call_method("Greet", &[Value::String("World".into())])?;
+    let result = contract.call_method("greet", &[Value::String("World".into())])?;
     assert_eq!(result.data_text(), "Hello World!");
     Ok(())
 }

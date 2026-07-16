@@ -13,6 +13,7 @@ tokio.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+wasmi.workspace = true
 hex = "0.4"
 bitcoin = "0.32.4"
 prost = "0.12.6"
@@ -23,3 +24,6 @@ sha2 = "0.10"
 # this crate is to replace @oyl/sdk with these.
 alkanes-support.workspace = true
 alkanes-cli-common.workspace = true
+
+[dev-dependencies]
+wat = "1"

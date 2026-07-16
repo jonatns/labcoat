@@ -6,6 +6,7 @@
 //! labcoat.lock deployment ledger. The Rust `labcoat` CLI and MCP server
 //! drive this crate — no oyl-sdk anywhere in the tree.
 
+pub mod abi;
 pub mod compile;
 pub mod error;
 pub mod execute;
@@ -16,6 +17,7 @@ pub mod system;
 pub mod toolkit;
 pub mod trace;
 pub mod wallet;
+pub mod workspace;
 
 pub use error::{LabcoatError, Result};
 pub use system::ToolkitConfig;

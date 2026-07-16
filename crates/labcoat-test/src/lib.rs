@@ -88,7 +88,13 @@ pub enum HarnessError {
 
 #[derive(Debug, Deserialize)]
 struct ContractAbi {
-    opcodes: std::collections::BTreeMap<String, u64>,
+    methods: Vec<AbiMethod>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AbiMethod {
+    name: String,
+    opcode: u128,
 }
 
 struct HostState {
@@ -157,11 +163,12 @@ impl ContractHarness {
     ) -> Result<CallResult, HarnessError> {
         let opcode = self
             .abi
-            .opcodes
-            .get(method)
-            .copied()
+            .methods
+            .iter()
+            .find(|entry| entry.name == method)
+            .map(|entry| entry.opcode)
             .ok_or_else(|| HarnessError::UnknownMethod(method.to_owned()))?;
-        self.call_opcode(opcode as u128, args)
+        self.call_opcode(opcode, args)
     }
 
     pub fn call_opcode(
@@ -408,10 +415,14 @@ mod tests {
         let wasm_path = root.join("Example.wasm");
         let abi_path = root.join("Example.abi.json");
         std::fs::write(&wasm_path, wasm).unwrap();
-        std::fs::write(&abi_path, r#"{"opcodes":{"Greet":1}}"#).unwrap();
+        std::fs::write(
+            &abi_path,
+            r#"{"contract":"Example","methods":[{"name":"greet","opcode":1,"params":[],"returns":"String"}]}"#,
+        )
+        .unwrap();
 
         let mut harness = ContractHarness::from_files(&wasm_path, &abi_path).unwrap();
-        let result = harness.call_method("Greet", &[]).unwrap();
+        let result = harness.call_method("greet", &[]).unwrap();
         assert_eq!(result.data_text(), "hi");
         assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "hi");
         assert!(matches!(
@@ -428,7 +439,7 @@ mod tests {
         .unwrap();
         std::fs::write(&wasm_path, trap).unwrap();
         let mut harness = ContractHarness::from_files(&wasm_path, &abi_path).unwrap();
-        assert_revert(harness.call_method("Greet", &[]), "contract trapped");
+        assert_revert(harness.call_method("greet", &[]), "contract trapped");
 
         let expected_revert = wat::parse_str(
             r#"(module
@@ -446,7 +457,7 @@ mod tests {
         .unwrap();
         std::fs::write(&wasm_path, expected_revert).unwrap();
         let mut harness = ContractHarness::from_files(&wasm_path, &abi_path).unwrap();
-        assert_revert(harness.call_method("Greet", &[]), "WASM abort at 12:34");
+        assert_revert(harness.call_method("greet", &[]), "WASM abort at 12:34");
         std::fs::remove_dir_all(root).ok();
     }
 }

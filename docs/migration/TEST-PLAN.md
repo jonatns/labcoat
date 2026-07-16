@@ -49,20 +49,22 @@ PROJECT=$(mktemp -d)/project
 labcoat init "$PROJECT"
 cd "$PROJECT"
 labcoat test
-labcoat compile contracts/Example.rs
+labcoat compile example
 labcoat wallet init
 labcoat wallet addresses
 labcoat fund <address>
 labcoat mine 1
-labcoat deploy build/Example.wasm --dry-run
-labcoat deploy build/Example.wasm
-labcoat simulate Example 1 World
-labcoat call Example 1 World
+labcoat deploy build/example.wasm --dry-run
+labcoat deploy build/example.wasm
+labcoat simulate example 1 World
+labcoat call example 1 World
 labcoat trace <txid> --wait
 ```
 
 - [ ] The test harness returns `Hello World!`.
 - [ ] Raw `.wasm`, `.wasm.gz`, and ABI artifacts are produced.
+- [ ] Deploy and test artifacts expose identical ABI JSON through `__meta`.
+- [ ] `labcoat abi fetch example` and `labcoat abi verify example` succeed.
 - [ ] Dry-run broadcasts nothing.
 - [ ] Deployment is recorded in `labcoat.lock`.
 - [ ] Simulation and state-changing calls return expected data.

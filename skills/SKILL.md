@@ -1,6 +1,6 @@
 ---
 name: labcoat
-description: Build, test, deploy, call, and trace Alkanes smart contracts on Bitcoin with the Rust-first Labcoat CLI and its local devnet. Use when working in a labcoat project (labcoat.toml / labcoat.lock / contracts/*.rs) or when asked to develop Alkanes contracts.
+description: Build, test, deploy, call, and trace Alkanes smart contracts on Bitcoin with the Rust-first Labcoat CLI and its local devnet. Use when working in a labcoat project (labcoat.toml / labcoat.lock / contracts/*/Cargo.toml) or when asked to develop Alkanes contracts.
 ---
 
 # Labcoat: the Alkanes contract workflow
@@ -40,18 +40,18 @@ Never place either on argv.
 ## 3. Compile
 
 ```bash
-labcoat compile contracts/MyToken.rs --json
+labcoat compile my-token --json
 ```
 
-Result: `build/MyToken.wasm` (raw — what deploy consumes),
-`build/MyToken.wasm.gz`, `build/MyToken.abi.json`. The ABI lists
-`methods[]` with `opcode`, `name`, `inputs`, `outputs` parsed from the
-`#[opcode(n)]` attribute grammar.
+Result: `build/my-token.wasm` (raw — what deploy consumes),
+`build/my-token.wasm.gz`, `build/my-token.abi.json`. The ABI is extracted
+from the compiled Wasm's `__meta` export. Commit the `Cargo.lock` created by
+the first build.
 
 ## 4. Deploy
 
 ```bash
-labcoat deploy build/MyToken.wasm --json          # add --dry-run to preview
+labcoat deploy build/my-token.wasm --json          # add --dry-run to preview
 ```
 
 Deploys via commit/reveal envelope, waits for the `create` trace, returns
@@ -62,12 +62,12 @@ never `.wasm.gz`.
 ## 5. Call & simulate
 
 ```bash
-# look up the opcode in build/MyToken.abi.json first
-labcoat simulate MyToken 99 --json          # read-only; decoded result
-labcoat call MyToken 77 500 --json          # state-changing; auto-mines
+# look up the opcode in build/my-token.abi.json first
+labcoat simulate my-token 99 --json          # read-only; decoded result
+labcoat call my-token 77 500 --json          # state-changing; auto-mines
 ```
 
-Contract references: the labcoat.lock name (`MyToken`) or a raw
+Contract references: the labcoat.lock name (`my-token`) or a raw
 `block:tx` id. Args: decimal u128, `0x`-hex, or short strings (≤16 bytes,
 packed little-endian). `result.status` is `success` or `revert` (with
 `result.revertReason` decoded).
@@ -85,7 +85,7 @@ Returns decoded events for every protostone in the tx (`create`,
 
 `labcoat mcp serve` exposes the same operations as MCP tools over stdio
 (devnet_up/down/status/mine/fund/reset/logs, wallet_init/addresses/utxos,
-compile, deploy, call, simulate, trace). Prefer it when a host supports
+compile, test, abi_fetch, abi_verify, deploy, call, simulate, trace). Prefer it when a host supports
 MCP; the JSON envelopes above are the fallback.
 
 ## Ground rules

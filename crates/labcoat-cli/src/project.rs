@@ -11,8 +11,20 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../templates/default/src/lib.rs"),
     ),
     (
-        "contracts/Example.rs",
-        include_str!("../templates/default/contracts/Example.rs"),
+        "contracts/example/Cargo.toml",
+        include_str!("../templates/default/contracts/example/Cargo.toml"),
+    ),
+    (
+        "contracts/example/src/lib.rs",
+        include_str!("../templates/default/contracts/example/src/lib.rs"),
+    ),
+    (
+        "crates/shared/Cargo.toml",
+        include_str!("../templates/default/crates/shared/Cargo.toml"),
+    ),
+    (
+        "crates/shared/src/lib.rs",
+        include_str!("../templates/default/crates/shared/src/lib.rs"),
     ),
     (
         "tests/example.rs",
@@ -87,10 +99,26 @@ mod tests {
         let result = init(root.to_str(), false).unwrap();
         assert_eq!(result["template"], "default");
         assert!(root.join("labcoat.toml").exists());
-        assert!(root.join("contracts/Example.rs").exists());
+        assert!(root.join("contracts/example/Cargo.toml").exists());
+        assert!(root.join("contracts/example/src/lib.rs").exists());
+        assert!(root.join("crates/shared/Cargo.toml").exists());
         assert!(root.join("tests/example.rs").exists());
         assert!(init(root.to_str(), false).is_err());
         assert!(init(root.to_str(), true).is_ok());
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn template_pins_match_the_core_toolchain() {
+        let manifest = include_str!("../templates/default/Cargo.toml");
+        assert!(manifest.contains(labcoat_core::compile::ALKANES_RS_REV));
+        assert!(manifest.contains(labcoat_core::compile::METASHREW_REV));
+        assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));
+        assert!(manifest.contains("time = { version = \"=0.3.44\""));
+        let contract = include_str!("../templates/default/contracts/example/Cargo.toml");
+        assert!(contract.contains("serde_with.workspace = true"));
+        assert!(contract.contains("time.workspace = true"));
+        let workspace_manifest = include_str!("../../../Cargo.toml");
+        assert!(workspace_manifest.contains("wasmi = \"=0.37.2\""));
     }
 }
