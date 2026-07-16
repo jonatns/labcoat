@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -14,7 +14,7 @@ const files = execFileSync(
 )
   .toString()
   .split('\0')
-  .filter((path) => path && path !== trigger)
+  .filter((path) => path && path !== trigger && existsSync(resolve(root, path)))
   .sort();
 
 const hash = createHash('sha256');

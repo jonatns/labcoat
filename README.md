@@ -112,7 +112,6 @@ labcoat down
 
 ```text
 contracts/          Cargo contract packages
-crates/             Shared contract libraries
 tests/              Native integration tests using labcoat-test
 Cargo.toml          Host-side test package and workspace manifest
 Cargo.lock          Reproducible dependency lock (created on first build)
@@ -139,6 +138,10 @@ crates.io, git, path dependencies, modules, and shared workspace crates work.
 The first compile creates `Cargo.lock`; commit it and avoid bare `cargo update`.
 Host tests use isolated in-memory contract storage that persists across calls
 on the same `ContractHarness`.
+
+When multiple contracts need common Rust code, add a Cargo library under
+`crates/<name>/`. The workspace glob discovers it automatically; new projects
+do not create an unused shared crate.
 
 Add another minimal contract package and matching host test without copying files:
 

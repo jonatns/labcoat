@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
@@ -46,7 +46,7 @@ function releaseTriggerDigest() {
   )
     .toString()
     .split('\0')
-    .filter((path) => path && path !== trigger)
+    .filter((path) => path && path !== trigger && existsSync(resolve(root, path)))
     .sort();
   const hash = createHash('sha256');
   for (const path of files) {

@@ -19,14 +19,6 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../templates/default/contracts/example/src/lib.rs"),
     ),
     (
-        "crates/shared/Cargo.toml",
-        include_str!("../templates/default/crates/shared/Cargo.toml"),
-    ),
-    (
-        "crates/shared/src/lib.rs",
-        include_str!("../templates/default/crates/shared/src/lib.rs"),
-    ),
-    (
         "tests/example.rs",
         include_str!("../templates/default/tests/example.rs"),
     ),
@@ -214,7 +206,7 @@ mod tests {
         assert!(root.join("labcoat.toml").exists());
         assert!(root.join("contracts/example/Cargo.toml").exists());
         assert!(root.join("contracts/example/src/lib.rs").exists());
-        assert!(root.join("crates/shared/Cargo.toml").exists());
+        assert!(!root.join("crates").exists());
         assert!(root.join("tests/example.rs").exists());
         assert!(std::fs::read_to_string(root.join("tests/example.rs"))
             .unwrap()
