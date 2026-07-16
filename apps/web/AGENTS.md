@@ -1,6 +1,10 @@
 # Working on the Labcoat website
 
 The site is a static Astro + Starlight app deployed at `https://labcoat.sh`.
+Vercel's project Root Directory is `apps/web`; its output directory is `dist`
+as declared in this directory's `vercel.json`. The repository-root
+`vercel.json` is the CLI/repo-root fallback, so keep shared headers and redirects
+aligned between both files.
 
 - Product page: `src/pages/index.astro`
 - Public documentation: `src/content/docs/docs/**/*.md`

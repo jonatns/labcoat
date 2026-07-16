@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "pnpm generate:og && astro build && pnpm verify:build",
+    "build": "node scripts/generate-og.mjs && astro build && node scripts/verify-build.mjs",
     "preview": "astro preview",
     "check": "ASTRO_TELEMETRY_DISABLED=1 astro check",
     "sync:reference": "node scripts/sync-reference.mjs",
