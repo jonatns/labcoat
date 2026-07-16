@@ -97,6 +97,11 @@ alkanes-runtime = {{ git = "https://github.com/kungfuflex/alkanes-rs", rev = "{r
 alkanes-support = {{ git = "https://github.com/kungfuflex/alkanes-rs", rev = "{rev}" }}
 metashrew-support = {{ git = "https://github.com/sandshrewmetaprotocols/metashrew", rev = "{meta}" }}
 anyhow = "1.0"
+
+# Keep temporary contract builds compatible with Labcoat's Rust 1.86 MSRV.
+# These transitive ranges otherwise resolve to releases requiring Rust 1.88.
+serde_with = {{ version = "=3.16.1", default-features = false }}
+time = {{ version = "=0.3.44", default-features = false }}
 "#,
         rev = ALKANES_RS_REV,
         meta = METASHREW_REV
@@ -414,6 +419,13 @@ fn ptr() {
         assert_eq!(abi.opcodes["GetName"], 99);
         assert_eq!(abi.storage.len(), 1);
         assert_eq!(abi.storage[0].key, "/value");
+    }
+
+    #[test]
+    fn contract_manifest_pins_rust_1_86_compatible_transitives() {
+        let manifest = cargo_template();
+        assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));
+        assert!(manifest.contains("time = { version = \"=0.3.44\""));
     }
 
     #[test]
