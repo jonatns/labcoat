@@ -205,7 +205,9 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           published=false
-          if curl -fsSL "https://crates.io/api/v1/crates/labcoat-test/$VERSION" >/dev/null 2>&1; then
+          if curl -fsSL \
+            -H "User-Agent: labcoat-release ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY)" \
+            "https://crates.io/api/v1/crates/labcoat-test/$VERSION" >/dev/null 2>&1; then
             published=true
           fi
           echo "published=$published" >> "$GITHUB_OUTPUT"
