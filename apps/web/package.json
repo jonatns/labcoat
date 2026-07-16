@@ -16,17 +16,17 @@
     "test:lighthouse": "lhci autorun"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.6.0",
-    "@astrojs/starlight": "^0.39.2",
-    "astro": "^6.3.8"
+    "@astrojs/sitemap": "^3.7.3",
+    "@astrojs/starlight": "^0.41.3",
+    "astro": "^7.0.9"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.4",
-    "@axe-core/playwright": "^4.10.2",
+    "@astrojs/check": "^0.9.9",
+    "@axe-core/playwright": "^4.12.1",
     "@lhci/cli": "^0.15.1",
-    "@playwright/test": "^1.55.0",
-    "@types/node": "^24.0.0",
-    "sharp": "^0.34.3",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^24.13.3",
+    "sharp": "^0.34.5",
     "typescript": "~5.9.3"
   }
 }

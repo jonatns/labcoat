@@ -120,7 +120,7 @@ fund <ADDRESS> [AMOUNT]
 
 Arguments and options:
 
-- `address` (required): 
+- `address` (required)
 - `amount` (optional): Amount in BTC
 
 ### `labcoat logs`
@@ -158,7 +158,7 @@ snapshot [OPTIONS] [NAME]
 
 Arguments and options:
 
-- `name` (optional): 
+- `name` (optional)
 - `list` (optional): List existing snapshots Values: `true`, `false`.
 
 ### `labcoat restore`
@@ -171,7 +171,7 @@ restore <NAME>
 
 Arguments and options:
 
-- `name` (required): 
+- `name` (required)
 
 ### `labcoat binaries`
 
@@ -183,7 +183,7 @@ binaries [OPTIONS]
 
 Arguments and options:
 
-- `download` (optional):  Values: `true`, `false`.
+- `download` (optional): Values: `true`, `false`.
 
 ### `labcoat wallet`
 
@@ -215,7 +215,7 @@ addresses [OPTIONS]
 
 Arguments and options:
 
-- `count` (optional): 
+- `count` (optional)
 
 #### `labcoat wallet utxos`
 
@@ -326,7 +326,7 @@ trace [OPTIONS] <TXID>
 
 Arguments and options:
 
-- `txid` (required): 
+- `txid` (required)
 - `wait` (optional): Poll until the trace is available Values: `true`, `false`.
 
 ### `labcoat lock`

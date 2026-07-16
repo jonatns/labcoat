@@ -316,15 +316,23 @@ fn render_commands(markdown: &mut String, commands: &[CommandReference], level: 
                 } else {
                     "optional"
                 };
-                let values = if argument.possible_values.is_empty() {
-                    String::new()
-                } else {
-                    format!(" Values: `{}`.", argument.possible_values.join("`, `"))
-                };
-                markdown.push_str(&format!(
-                    "- `{}` ({required}): {}{}\n",
-                    argument.id, argument.description, values
-                ));
+                let mut details = Vec::new();
+                let description = argument.description.trim();
+                if !description.is_empty() {
+                    details.push(description.to_owned());
+                }
+                if !argument.possible_values.is_empty() {
+                    details.push(format!(
+                        "Values: `{}`.",
+                        argument.possible_values.join("`, `")
+                    ));
+                }
+                markdown.push_str(&format!("- `{}` ({required})", argument.id));
+                if !details.is_empty() {
+                    markdown.push_str(": ");
+                    markdown.push_str(&details.join(" "));
+                }
+                markdown.push('\n');
             }
             markdown.push('\n');
         }
@@ -348,6 +356,10 @@ mod tests {
             .mcp_tools
             .iter()
             .any(|tool| tool.get("name") == Some(&Value::String("deploy".into()))));
-        assert!(reference.render_markdown().contains("command reference"));
+        let markdown = reference.render_markdown();
+        assert!(markdown.contains("command reference"));
+        assert!(!markdown
+            .lines()
+            .any(|line| line.ends_with(' ') || line.ends_with('\t')));
     }
 }
