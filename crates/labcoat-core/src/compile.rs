@@ -39,6 +39,28 @@ pub fn wasm_c_compiler() -> Option<PathBuf> {
     })
 }
 
+fn wasi_include_dir() -> Option<PathBuf> {
+    if let Some(root) = std::env::var_os("WASI_SYSROOT") {
+        if let Some(include) = wasi_include_in(Path::new(&root)) {
+            return Some(include);
+        }
+    }
+
+    [
+        PathBuf::from("/usr/include/wasm32-wasi"),
+        PathBuf::from("/usr/local/share/wasi-sysroot/include"),
+        PathBuf::from("/opt/wasi-sdk/share/wasi-sysroot/include"),
+    ]
+    .into_iter()
+    .find(|path| path.is_dir())
+}
+
+fn wasi_include_in(root: &Path) -> Option<PathBuf> {
+    [root.join("include/wasm32-wasi"), root.join("include")]
+        .into_iter()
+        .find(|path| path.is_dir())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AbiInput {
     pub name: String,
@@ -175,6 +197,14 @@ pub fn compile_for_target(
                 )
             })?;
             command.env(format!("CC_{}", target.replace('-', "_")), compiler);
+            if target == "wasm32-wasip1" {
+                let cflags_key = format!("CFLAGS_{}", target.replace('-', "_"));
+                if std::env::var_os(&cflags_key).is_none() {
+                    if let Some(include) = wasi_include_dir() {
+                        command.env(cflags_key, format!("-isystem{}", include.display()));
+                    }
+                }
+            }
         }
         let output = command.output().map_err(|e| {
             LabcoatError::new(
@@ -426,6 +456,18 @@ fn ptr() {
         let manifest = cargo_template();
         assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));
         assert!(manifest.contains("time = { version = \"=0.3.44\""));
+    }
+
+    #[test]
+    fn discovers_wasi_headers_below_a_sysroot() {
+        let root = std::env::temp_dir().join(format!("labcoat-wasi-{}", std::process::id()));
+        let include = root.join("include/wasm32-wasi");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&include).unwrap();
+
+        assert_eq!(wasi_include_in(&root), Some(include));
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
