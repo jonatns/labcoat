@@ -60,11 +60,25 @@ jobs:
         run: |
           cargo build --locked -p labcoat-cli
           ./scripts/devnet-smoke/install-stubs.sh
+          trap './target/debug/labcoat down --json || true' EXIT
           ./target/debug/labcoat up --no-download
-          ./target/debug/labcoat status --json | grep -q '"is_ready": true'
-          ./target/debug/labcoat mine 5 --json | grep -q '"ok": true'
+          for attempt in {1..10}; do
+            ./target/debug/labcoat status --json \
+              | tee "$RUNNER_TEMP/labcoat-status.json"
+            if grep -q '"is_ready": true' "$RUNNER_TEMP/labcoat-status.json"; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q '"is_ready": true' "$RUNNER_TEMP/labcoat-status.json"
+          ./target/debug/labcoat mine 5 --json \
+            | tee "$RUNNER_TEMP/labcoat-mine.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-mine.json"
           ./target/debug/labcoat logs --service bitcoind --limit 3
-          ./target/debug/labcoat down --json | grep -q '"ok": true'
+          ./target/debug/labcoat down --json \
+            | tee "$RUNNER_TEMP/labcoat-down.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-down.json"
+          trap - EXIT
       - name: MCP + agent-surface smoke
         run: |
           ./target/debug/labcoat docs --llm | grep -q "command reference"
