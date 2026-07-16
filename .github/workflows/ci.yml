@@ -76,12 +76,16 @@ jobs:
           cd "$PROJECT"
           LABCOAT_TEST_CRATE_PATH="$GITHUB_WORKSPACE/crates/labcoat-test" \
             "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
-            | grep -q '"passed": true'
+            | tee "$RUNNER_TEMP/labcoat-test.json"
+          grep -q '"passed": true' "$RUNNER_TEMP/labcoat-test.json"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            compile contracts/Example.rs --json | grep -q '"ok": true'
+            compile contracts/Example.rs --json \
+            | tee "$RUNNER_TEMP/labcoat-compile.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-compile.json"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
             deploy build/Example.wasm --dry-run --json \
-            | grep -q '"dryRun": true'
+            | tee "$RUNNER_TEMP/labcoat-deploy.json"
+          grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
 
   js:
     needs: changes
