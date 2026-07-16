@@ -1,68 +1,93 @@
 # Releasing Labcoat
 
-Labcoat has two tag-driven Rust release tracks. Never release with a dirty
-`Cargo.lock` or an unpinned `alkanes-rs` reference.
+Labcoat has two independent release tracks. Generic `v*` tags are historical
+and must not be reused.
 
-## CLI release (`cli-v*`)
+## One-time repository setup
 
-Keep `labcoat-cli`, `labcoat-core`, and `labcoat-test` on the same version.
-The generated project template must pin `labcoat-test` to that version too.
+1. Create a GitHub environment named `release`.
+2. If `labcoat-test` has never been published, an owner must publish version
+   `0.7.0` once with `cargo publish --locked -p labcoat-test` to claim the
+   crate. crates.io requires this initial publication before trusted
+   publishing can be configured. Do not merge the bootstrap release PR first.
+3. In the `labcoat-test` crates.io settings, add a trusted publisher for this
+   repository, `.github/workflows/release-cli.yml`, and the `release`
+   environment. No `CARGO_REGISTRY_TOKEN` secret is needed.
+4. Allow GitHub Actions to create pull requests.
+5. Enable immutable GitHub releases after the first CLI and runtime dry runs
+   succeed. Published assets and tags then cannot be replaced.
+6. Protect `main` with the repository CI checks.
 
-Before tagging:
+Actions are pinned to full commit SHAs. Dependabot proposes grouped weekly
+updates to those pins.
 
-```bash
-cargo fmt --all -- --check
-cargo check --workspace --locked
-cargo test --workspace --locked
-cargo clippy --workspace --locked -- -D warnings
-cargo publish --locked -p labcoat-test --dry-run
-./scripts/tests/install-labcoat-test.sh
-```
+The previous `release.yml` and `release-binaries.yml` workflows are retained
+temporarily as a rollback path. Do not invoke them for a new release. Remove
+them only after both new dry runs and the first `cli-v0.7.0` publication have
+succeeded.
 
-Confirm `CARGO_REGISTRY_TOKEN` is configured, then tag:
+## CLI release (`cli-vX.Y.Z`)
 
-```bash
-git tag cli-v0.7.0
-git push origin cli-v0.7.0
-```
+Release-plz maintains one release PR from Conventional Commit history. The
+three Labcoat crates share the version in `[workspace.package]`, but only
+`labcoat-test` is published to crates.io.
 
-The workflow publishes `labcoat-test` first and then builds four CLI assets:
+Because Cargo correctly marks the CLI and core packages non-publishable,
+Release-plz tracks them through the deterministic `labcoat-test/RELEASE_TRIGGER`
+digest refreshed by the PR workflow. This makes changes in any of the three
+packages part of the one release without weakening their publish settings.
 
-```text
-labcoat-darwin-arm64
-labcoat-darwin-x86_64
-labcoat-linux-arm64
-labcoat-linux-x86_64
-```
+1. Review the bot's `release-plz-*` PR and generated `CHANGELOG.md`.
+2. Approve its GitHub Actions run when prompted. Bot-created PR workflows need
+   this approval because the bot uses the built-in `GITHUB_TOKEN`.
+3. Merge the PR. The merge is the publication approval.
 
-Each binary must have a matching `.sha256` file. Verify the draft assets,
-publish the release, and test both latest-version and explicit-version
-installer paths. Windows CLI support is deferred.
+The CLI release workflow builds four native binaries, verifies their embedded
+version, creates checksums and attestations, uploads all eight assets to a
+draft, publishes `labcoat-test` through crates.io OIDC, then publishes the
+GitHub release as latest. Reruns are safe only when the existing tag points to
+the same merge commit.
 
-After the first Rust CLI release is public and the installer has been
-verified, retire the old npm entry points:
+Run **Release Labcoat CLI** manually with `dry_run=true` to exercise all builds
+without creating a tag, release, or crate version.
 
-```bash
-npm deprecate '@jonatns/labcoat@*' 'Retired; install the Rust CLI: https://github.com/jonatns/labcoat#readme'
-npm deprecate 'create-labcoat@*' 'Retired; use labcoat init: https://github.com/jonatns/labcoat/blob/main/docs/MIGRATING.md'
-```
+The first release on this track is a bootstrap release PR that keeps version
+`0.7.0`; merging it creates `cli-v0.7.0`.
 
-## Service-binary release (`binaries-v*`)
+## Runtime release (`runtime-vYYYY.MM.DD.N`)
 
-This track rebuilds the pinned devnet dependencies and publishes them with
-checksums:
+`runtime.json` is the reviewed source of truth for active downloads, exact
+upstream refs, component metadata, supported platforms, and legacy checksums.
+Never use `main`, `master`, `develop`, `trunk`, or `HEAD` as a source ref.
 
-```bash
-git tag binaries-v0.2.0
-git push origin binaries-v0.2.0
-```
+1. Change upstream refs and versions in `runtime.json` through a normal PR.
+2. Merge that PR and run **Build and release runtime bundle** from `main`.
+3. Start with `dry_run=true`. When it passes, rerun with `dry_run=false`.
+4. Review the generated `runtime-promotion/*` PR and merge it when ready.
 
-After publishing, deliberately update `CHECKSUMS_URL` and the service
-release base in `crates/isomer-core/src/binary_manager.rs`. A binary release
-does not affect the CLI until that reviewed URL and checksum change lands.
+The workflow calculates the calendar version, builds only the assets used by
+the CLI, creates a checksum file and machine-readable release manifest,
+attests and publishes the runtime release without marking it latest, then opens
+the promotion PR. Promotion aborts if the source section changed after the
+build began.
 
-## Updating the Alkanes pin
+The active legacy bundle remains `jonatns/isomer@binaries-v0.1.3` until the
+first promotion PR is merged.
 
-Update the revision in the workspace, contract template, binary workflow,
-and `TOOLCHAIN.md`. Refresh only affected lockfile entries, run the real
-devnet and contract loop, and land the pin update separately.
+## Legacy desktop app
+
+The Isomer desktop application has no automatic release trigger. Use **Build
+legacy Isomer desktop** only for a deliberate maintenance build. It can create
+a draft `isomer-v*` release and can optionally attempt the standalone browser
+extension build. Desktop and extension artifacts never enter CLI runtime
+releases.
+
+## Failure policy
+
+- A missing or invalid checksum is fatal; runtime downloads never continue
+  unverified.
+- Never move a published tag or replace a published asset. Issue a new patch
+  CLI release or a new runtime calendar sequence instead.
+- A failed crates.io publication leaves the GitHub release as a draft. Fix the
+  cause and rerun the same workflow.
+- Runtime builds and promotions are independent from CLI SemVer.

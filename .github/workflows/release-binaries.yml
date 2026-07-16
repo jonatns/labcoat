@@ -32,19 +32,19 @@ jobs:
     runs-on: macos-14 # M1/M2 runner
     steps:
       - name: Checkout metashrew
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: kungfuflex/metashrew
           ref: ${{ env.METASHREW_VERSION }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Install protoc
         run: brew install protobuf
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Build rockshrew-mono
         run: cargo build --release -p rockshrew-mono
@@ -53,13 +53,13 @@ jobs:
         run: cargo build --release -p memshrew-p2p
 
       - name: Upload rockshrew-mono
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rockshrew-mono-darwin-arm64
           path: target/release/rockshrew-mono
 
       - name: Upload memshrew-p2p
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: memshrew-p2p-darwin-arm64
           path: target/release/memshrew-p2p
@@ -68,19 +68,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout metashrew
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: sandshrewmetaprotocols/metashrew
           ref: ${{ env.METASHREW_VERSION }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Build rockshrew-mono
         run: cargo build --release -p rockshrew-mono
@@ -89,13 +89,13 @@ jobs:
         run: cargo build --release -p memshrew-p2p
 
       - name: Upload rockshrew-mono
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rockshrew-mono-linux-x86_64
           path: target/release/rockshrew-mono
 
       - name: Upload memshrew-p2p
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: memshrew-p2p-linux-x86_64
           path: target/release/memshrew-p2p
@@ -104,22 +104,22 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout flextrs
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: kungfuflex/flextrs
           ref: ${{ env.FLEXTRS_COMMIT }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Build flextrs
         run: cargo build --release
 
       - name: Upload flextrs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: flextrs-darwin-arm64
           path: target/release/flextrs
@@ -128,22 +128,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout flextrs
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: kungfuflex/flextrs
           ref: ${{ env.FLEXTRS_COMMIT }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Build flextrs
         run: cargo build --release
 
       - name: Upload flextrs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: flextrs-linux-x86_64
           path: target/release/flextrs
@@ -152,27 +152,27 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout espo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ env.ESPO_REPO }}
           ref: ${{ env.ESPO_VERSION }}
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Build espo
         run: cargo build --release
 
       - name: Upload espo
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: espo-darwin-arm64
           path: target/release/espo
@@ -181,27 +181,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout espo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ env.ESPO_REPO }}
           ref: ${{ env.ESPO_VERSION }}
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Build espo
         run: cargo build --release
 
       - name: Upload espo
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: espo-linux-x86_64
           path: target/release/espo
@@ -210,7 +210,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout alkanes
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: kungfuflex/alkanes-rs
           # Pinned commit on the develop branch — see TOOLCHAIN.md. Never a
@@ -218,12 +218,12 @@ jobs:
           ref: 5b7f43567b828d0bb7b8907ce78fa0242943c54d
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: wasm32-unknown-unknown
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Install wasm-opt and protoc
         run: |
@@ -236,7 +236,7 @@ jobs:
           wasm-opt -O3 target/wasm32-unknown-unknown/release/alkanes.wasm -o alkanes.wasm
 
       - name: Upload alkanes.wasm
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alkanes-wasm
           path: alkanes.wasm
@@ -245,18 +245,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout alkanes
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: kungfuflex/alkanes
           ref: main
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@eae0cfeb286e66ffb5155f1a79b90583a127a68b # v2
         with:
           version: 8
 
@@ -269,7 +269,7 @@ jobs:
           tar -czvf alkanes-jsonrpc-bundle.tar.gz jsonrpc
 
       - name: Upload jsonrpc bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alkanes-jsonrpc-bundle
           path: alkanes-jsonrpc-bundle.tar.gz
@@ -278,15 +278,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout isomer
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@eae0cfeb286e66ffb5155f1a79b90583a127a68b # v2
         with:
           version: 9
 
@@ -302,7 +302,7 @@ jobs:
           zip -r isomer-extension.zip dist/
 
       - name: Upload extension
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: isomer-extension
           path: apps/extension/isomer-extension.zip
@@ -323,7 +323,7 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
 
@@ -398,7 +398,7 @@ jobs:
           fi
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           tag_name: ${{ steps.get_tag.outputs.tag }}
           name: "Isomer Binaries ${{ steps.get_tag.outputs.tag }}"

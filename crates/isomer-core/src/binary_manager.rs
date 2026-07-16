@@ -57,11 +57,75 @@ pub struct BinaryManager {
     releases: HashMap<ServiceId, BinaryRelease>,
     /// Cached checksums fetched from the release
     checksums_cache: Option<HashMap<String, String>>,
+    manifest: RuntimeManifest,
 }
 
-/// URL for the checksums.json file in the release
-const CHECKSUMS_URL: &str =
-    "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.3/checksums.json";
+const RUNTIME_MANIFEST: &str = include_str!("../../../runtime.json");
+
+#[derive(Debug, Clone, Deserialize)]
+struct RuntimeManifest {
+    schema: u32,
+    active_release: ActiveRelease,
+    #[allow(dead_code)] // consumed by release automation from the same manifest
+    sources: HashMap<String, RuntimeSource>,
+    hosted: HashMap<String, HostedComponent>,
+    external: HashMap<String, ExternalComponent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ActiveRelease {
+    owner: String,
+    repository: String,
+    tag: String,
+    checksums_asset: Option<String>,
+}
+
+#[allow(dead_code)] // consumed by release automation from the same manifest
+#[derive(Debug, Clone, Deserialize)]
+struct RuntimeSource {
+    repository: String,
+    revision: String,
+    version: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HostedComponent {
+    version: String,
+    asset_pattern: String,
+    size_bytes: u64,
+    archive_path: Option<String>,
+    sha256: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ExternalComponent {
+    version: String,
+    size_bytes: u64,
+    platforms: HashMap<String, ExternalPlatform>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ExternalPlatform {
+    url: String,
+    sha256: String,
+    archive_path: Option<String>,
+}
+
+impl RuntimeManifest {
+    fn load() -> Self {
+        let manifest: Self =
+            serde_json::from_str(RUNTIME_MANIFEST).expect("embedded runtime.json must be valid");
+        assert_eq!(manifest.schema, 1, "unsupported runtime.json schema");
+        manifest
+    }
+
+    fn release_base(&self) -> String {
+        format!(
+            "https://github.com/{}/{}/releases/download/{}",
+            self.active_release.owner, self.active_release.repository, self.active_release.tag
+        )
+    }
+}
 
 impl Default for BinaryManager {
     fn default() -> Self {
@@ -71,9 +135,11 @@ impl Default for BinaryManager {
 
 impl BinaryManager {
     pub fn new() -> Self {
+        let manifest = RuntimeManifest::load();
         Self {
-            releases: Self::get_releases_for_platform(),
+            releases: Self::get_releases_for_platform(&manifest),
             checksums_cache: None,
+            manifest,
         }
     }
 
@@ -83,18 +149,25 @@ impl BinaryManager {
             return Ok(());
         }
 
-        tracing::info!("Fetching checksums from {}", CHECKSUMS_URL);
+        let Some(asset) = self.manifest.active_release.checksums_asset.as_ref() else {
+            return Ok(());
+        };
+        let url = format!("{}/{}", self.manifest.release_base(), asset);
+        tracing::info!("Fetching checksums from {}", url);
 
         let client = reqwest::Client::new();
         let response = client
-            .get(CHECKSUMS_URL)
+            .get(&url)
             .send()
             .await
             .map_err(|e| format!("Failed to fetch checksums: {}", e))?;
 
         if !response.status().is_success() {
-            tracing::warn!("Failed to fetch checksums, will skip verification");
-            return Ok(());
+            return Err(format!(
+                "Failed to fetch runtime checksums from {}: {}",
+                url,
+                response.status()
+            ));
         }
 
         let checksums: HashMap<String, String> = response
@@ -138,149 +211,69 @@ impl BinaryManager {
     }
 
     /// Get the latest release info for all binaries based on platform
-    fn get_releases_for_platform() -> HashMap<ServiceId, BinaryRelease> {
-        let mut releases = HashMap::new();
+    fn get_releases_for_platform(manifest: &RuntimeManifest) -> HashMap<ServiceId, BinaryRelease> {
         let (os, arch) = Self::get_platform();
+        Self::get_releases_for(manifest, os, arch)
+    }
 
-        // Bitcoin Core
-        let (btc_url, btc_sha) = if os == "darwin" && arch == "arm64" {
-            (
-                "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-arm64-apple-darwin.tar.gz",
-                "bd07450f76d149d094842feab58e6240673120c8a317a1c51d45ba30c34e85ef",
-            )
-        } else if os == "darwin" && arch == "x86_64" {
-            (
-                "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-x86_64-apple-darwin.tar.gz",
-                "69ca05fbe838123091cf4d6d2675352f36cf55f49e2e6fb3b52fcf32b5e8dd9f",
-            )
-        } else if os == "linux" && arch == "x86_64" {
-            (
-                "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-x86_64-linux-gnu.tar.gz",
-                "1fd58d0ae94b8a9e21bbaeab7d53395a44976e82bd5492b0a894826c135f9009",
-            )
-        } else if os == "linux" && arch == "arm64" {
-            (
-                "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-aarch64-linux-gnu.tar.gz",
-                "f88f72a3c5bf526581aae573be8c1f62133eaecfe3d34646c9ffca7b79dfdc7a",
-            )
-        } else {
-            (
-                "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-x86_64-linux-gnu.tar.gz",
-                "1fd58d0ae94b8a9e21bbaeab7d53395a44976e82bd5492b0a894826c135f9009",
-            )
-        };
+    fn get_releases_for(
+        manifest: &RuntimeManifest,
+        os: &str,
+        arch: &str,
+    ) -> HashMap<ServiceId, BinaryRelease> {
+        let mut releases = HashMap::new();
+        let platform = format!("{}-{}", os, arch);
 
-        releases.insert(
-            ServiceId::Bitcoind,
-            BinaryRelease {
-                version: "29.2".to_string(),
-                url: btc_url.to_string(),
-                sha256: btc_sha.to_string(),
-                size_bytes: 45_000_000,
-                archive_path: Some("bitcoin-29.2/bin/bitcoind".to_string()),
-                is_archive: true,
-            },
-        );
+        for (service, key) in [(ServiceId::Bitcoind, "bitcoind"), (ServiceId::Ord, "ord")] {
+            let Some(component) = manifest.external.get(key) else {
+                continue;
+            };
+            let Some(asset) = component.platforms.get(&platform) else {
+                continue;
+            };
+            releases.insert(
+                service,
+                BinaryRelease {
+                    version: component.version.clone(),
+                    url: asset.url.clone(),
+                    sha256: asset.sha256.clone(),
+                    size_bytes: component.size_bytes,
+                    archive_path: asset.archive_path.clone(),
+                    is_archive: true,
+                },
+            );
+        }
 
-        // Ord - official releases from ordinals/ord
-        let (ord_url, ord_sha) = if os == "darwin" && arch == "arm64" {
-            (
-                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-aarch64-apple-darwin.tar.gz",
-                "f4a6c9e1bdbc00b0fb01e053078ce9577aa83495dbcd396e8c9df1ad66064037",
-            )
-        } else if os == "darwin" && arch == "x86_64" {
-            (
-                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-apple-darwin.tar.gz",
-                "",
-            )
-        } else {
-            // linux x86_64 and any other platform fall back to the linux build
-            (
-                "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz",
-                "",
-            )
-        };
-
-        releases.insert(
-            ServiceId::Ord,
-            BinaryRelease {
-                version: "0.22.1".to_string(),
-                url: ord_url.to_string(),
-                sha256: ord_sha.to_string(),
-                size_bytes: 15_000_000,
-                archive_path: Some("ord".to_string()),
-                is_archive: true,
-            },
-        );
-
-        // For metashrew binaries (rockshrew-mono, memshrew-p2p, flextrs),
-        // these need to be pre-built and hosted. Using placeholder URLs that
-        // would point to your release infrastructure.
-        let isomer_release_base =
-            "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.3";
-
-        // Determine SHA based on platform (placeholder, will be updated on next release)
-        let rockshrew_sha = "";
-
-        releases.insert(
-            ServiceId::Metashrew,
-            BinaryRelease {
-                version: "9.0.2-alpha.1".to_string(),
-                // Format: rockshrew-mono-darwin-arm64
-                url: format!("{}/rockshrew-mono-{}-{}", isomer_release_base, os, arch),
-                sha256: rockshrew_sha.to_string(),
-                size_bytes: 25_000_000,
-                archive_path: None,
-                is_archive: false,
-            },
-        );
-
-        let flextrs_sha = if os == "darwin" && arch == "arm64" {
-            "ae38e7a5bc3b10b7b0fd74f84288ae2470972cb1f227029c8d9d54682119cafe"
-        } else {
-            ""
-        };
-
-        releases.insert(
-            ServiceId::Esplora,
-            BinaryRelease {
-                version: "0.4.1".to_string(),
-                url: format!("{}/flextrs-{}-{}", isomer_release_base, os, arch),
-                sha256: flextrs_sha.to_string(),
-                size_bytes: 15_000_000,
-                archive_path: None,
-                is_archive: false,
-            },
-        );
-
-        // JSON-RPC is a Node.js app - bundle it differently
-        releases.insert(
-            ServiceId::JsonRpc,
-            BinaryRelease {
-                version: "0.1.0".to_string(),
-                url: format!("{}/alkanes-jsonrpc-bundle.tar.gz", isomer_release_base),
-                sha256: "bedc8928c7c48eb45ab51f9094b06a732ee7542e091cf4e75fd902e8aea84a55"
-                    .to_string(),
-                size_bytes: 10_000_000,
-                archive_path: None,
-                is_archive: true,
-            },
-        );
-
-        // Espo
-        let espo_sha = "";
-
-        releases.insert(
-            ServiceId::Espo,
-            BinaryRelease {
-                version: "0.1.0".to_string(),
-                url: format!("{}/espo-{}-{}", isomer_release_base, os, arch),
-                sha256: espo_sha.to_string(),
-                size_bytes: 30_000_000,
-                archive_path: None,
-                is_archive: false,
-            },
-        );
+        let release_base = manifest.release_base();
+        for (service, key) in [
+            (ServiceId::Metashrew, "metashrew"),
+            (ServiceId::Esplora, "esplora"),
+            (ServiceId::Espo, "espo"),
+            (ServiceId::JsonRpc, "jsonrpc"),
+        ] {
+            let Some(component) = manifest.hosted.get(key) else {
+                continue;
+            };
+            let checksum = component
+                .sha256
+                .get(&platform)
+                .or_else(|| component.sha256.get("all"));
+            let Some(checksum) = checksum else {
+                continue;
+            };
+            let asset = component.asset_pattern.replace("{platform}", &platform);
+            releases.insert(
+                service,
+                BinaryRelease {
+                    version: component.version.clone(),
+                    url: format!("{}/{}", release_base, asset),
+                    sha256: checksum.clone(),
+                    size_bytes: component.size_bytes,
+                    archive_path: component.archive_path.clone(),
+                    is_archive: component.asset_pattern.ends_with(".tar.gz"),
+                },
+            );
+        }
 
         releases
     }
@@ -520,7 +513,8 @@ impl BinaryManager {
 
         progress_callback(0.9);
 
-        // Get checksum - prefer dynamic from checksums.json, fallback to hardcoded
+        // Prefer the promoted release checksum manifest, then the reviewed
+        // embedded checksum used by the legacy bootstrap release.
         let filename = release.url.split('/').next_back().unwrap_or("");
         let expected_checksum = self.get_checksum_for_file(filename).or_else(|| {
             if !release.sha256.is_empty() {
@@ -530,32 +524,13 @@ impl BinaryManager {
             }
         });
 
-        if let Some(expected) = expected_checksum {
-            tracing::info!("Verifying checksum for {}...", service.display_name());
-            let mut hasher = Sha256::new();
-            hasher.update(&bytes);
-            let result = hasher.finalize();
-            let digest = hex::encode(result);
-
-            if digest != expected {
-                tracing::error!(
-                    "Checksum mismatch for {}: expected {}, got {}",
-                    service.display_name(),
-                    expected,
-                    digest
-                );
-                return Err(format!(
-                    "Checksum verification failed for {}",
-                    service.display_name()
-                ));
-            }
-            tracing::info!("Checksum verified for {}", service.display_name());
-        } else {
-            tracing::warn!(
-                "No checksum available for {}, skipping verification",
+        let expected_checksum = expected_checksum.ok_or_else(|| {
+            format!(
+                "No checksum available for {}; refusing unverified download",
                 service.display_name()
-            );
-        }
+            )
+        })?;
+        Self::verify_checksum(&bytes, &expected_checksum, service.display_name())?;
 
         if release.is_archive {
             if let Some(ref archive_path) = release.archive_path {
@@ -653,8 +628,22 @@ impl BinaryManager {
                 .map_err(|e| format!("Failed to create bin directory: {}", e))?;
         }
 
-        let wasm_url =
-            "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.0/alkanes.wasm";
+        let mut manager = Self::new();
+        manager.fetch_checksums().await?;
+        let component = manager
+            .manifest
+            .hosted
+            .get("alkanes_wasm")
+            .ok_or_else(|| "runtime manifest is missing alkanes_wasm".to_string())?;
+        let wasm_url = format!(
+            "{}/{}",
+            manager.manifest.release_base(),
+            component.asset_pattern
+        );
+        let expected = manager
+            .get_checksum_for_file(&component.asset_pattern)
+            .or_else(|| component.sha256.get("all").cloned())
+            .ok_or_else(|| "runtime manifest is missing the alkanes.wasm checksum".to_string())?;
 
         tracing::info!("Downloading alkanes.wasm from {}", wasm_url);
 
@@ -674,6 +663,8 @@ impl BinaryManager {
             .await
             .map_err(|e| format!("Failed to read response: {}", e))?;
 
+        Self::verify_checksum(&bytes, &expected, "alkanes.wasm")?;
+
         std::fs::write(&wasm_path, &bytes)
             .map_err(|e| format!("Failed to write alkanes.wasm: {}", e))?;
 
@@ -690,84 +681,76 @@ impl BinaryManager {
     }
 
     pub async fn download_extension() -> Result<PathBuf, String> {
-        use crate::config::get_data_dir;
+        Err("the Isomer browser extension is maintained by the manual legacy desktop workflow and is not part of Labcoat runtime releases".to_string())
+    }
 
-        let extension_dir = get_data_dir().join("extension");
-        let manifest_path = extension_dir.join("manifest.json");
-
-        if manifest_path.exists() {
-            tracing::info!("Extension already installed at {}", extension_dir.display());
-            return Ok(extension_dir);
+    fn verify_checksum(bytes: &[u8], expected: &str, name: &str) -> Result<(), String> {
+        if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!("Invalid SHA-256 checksum configured for {}", name));
         }
-
-        // Ensure extension directory exists
-        std::fs::create_dir_all(&extension_dir)
-            .map_err(|e| format!("Failed to create extension directory: {}", e))?;
-
-        let extension_url =
-            "https://github.com/jonatns/isomer/releases/download/binaries-v0.1.3/isomer-extension.zip";
-
-        tracing::info!("Downloading Chrome extension from {}", extension_url);
-
-        let response = reqwest::get(extension_url)
-            .await
-            .map_err(|e| format!("Download failed: {}", e))?;
-
-        if !response.status().is_success() {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        let digest = hex::encode(hasher.finalize());
+        if digest != expected.to_ascii_lowercase() {
             return Err(format!(
-                "Download failed with status: {}",
-                response.status()
+                "Checksum verification failed for {}: expected {}, got {}",
+                name, expected, digest
             ));
         }
+        tracing::info!("Checksum verified for {}", name);
+        Ok(())
+    }
+}
 
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        // Extract the zip file
-        let reader = std::io::Cursor::new(bytes.as_ref());
-        let mut archive = zip::ZipArchive::new(reader)
-            .map_err(|e| format!("Failed to read zip archive: {}", e))?;
+    #[test]
+    fn runtime_manifest_maps_every_declared_platform_without_fallbacks() {
+        let manifest = RuntimeManifest::load();
+        let darwin_arm = BinaryManager::get_releases_for(&manifest, "darwin", "arm64");
+        let linux_x86 = BinaryManager::get_releases_for(&manifest, "linux", "x86_64");
+        assert_eq!(darwin_arm.len(), ServiceId::all().len());
+        assert_eq!(linux_x86.len(), ServiceId::all().len());
 
-        for i in 0..archive.len() {
-            let mut file = archive
-                .by_index(i)
-                .map_err(|e| format!("Failed to read zip entry: {}", e))?;
+        let darwin_x86 = BinaryManager::get_releases_for(&manifest, "darwin", "x86_64");
+        assert!(darwin_x86.contains_key(&ServiceId::Bitcoind));
+        assert!(darwin_x86.contains_key(&ServiceId::Ord));
+        assert!(darwin_x86.contains_key(&ServiceId::JsonRpc));
+        assert!(!darwin_x86.contains_key(&ServiceId::Metashrew));
 
-            let outpath = match file.enclosed_name() {
-                Some(path) => {
-                    // Strip the "dist/" prefix if present
-                    let path_str = path.to_string_lossy();
-                    if let Some(stripped) = path_str.strip_prefix("dist/") {
-                        extension_dir.join(stripped)
-                    } else {
-                        extension_dir.join(path)
-                    }
-                }
-                None => continue,
-            };
+        let linux_arm = BinaryManager::get_releases_for(&manifest, "linux", "arm64");
+        assert!(linux_arm.contains_key(&ServiceId::Bitcoind));
+        assert!(linux_arm.contains_key(&ServiceId::JsonRpc));
+        assert!(!linux_arm.contains_key(&ServiceId::Ord));
+        assert!(!linux_arm.contains_key(&ServiceId::Metashrew));
+    }
 
-            if file.name().ends_with('/') {
-                // Directory
-                std::fs::create_dir_all(&outpath)
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            } else {
-                // File
-                if let Some(parent) = outpath.parent() {
-                    if !parent.exists() {
-                        std::fs::create_dir_all(parent)
-                            .map_err(|e| format!("Failed to create parent directory: {}", e))?;
-                    }
-                }
-                let mut outfile = std::fs::File::create(&outpath)
-                    .map_err(|e| format!("Failed to create file: {}", e))?;
-                std::io::copy(&mut file, &mut outfile)
-                    .map_err(|e| format!("Failed to write file: {}", e))?;
-            }
+    #[test]
+    fn runtime_manifest_has_reviewed_sources_and_checksums() {
+        let manifest = RuntimeManifest::load();
+        assert_eq!(manifest.sources.len(), 5);
+        for source in manifest.sources.values() {
+            assert!(!source.repository.is_empty());
+            assert!(!source.revision.is_empty());
+            assert!(!matches!(
+                source.revision.as_str(),
+                "main" | "master" | "develop"
+            ));
+            assert!(!source.version.is_empty());
         }
+        for component in manifest.hosted.values() {
+            assert!(!component.sha256.is_empty());
+            assert!(component.sha256.values().all(|hash| hash.len() == 64));
+        }
+    }
 
-        tracing::info!("Extension extracted to {}", extension_dir.display());
-        Ok(extension_dir)
+    #[test]
+    fn checksum_verification_fails_closed() {
+        let digest = hex::encode(Sha256::digest(b"runtime"));
+        assert!(BinaryManager::verify_checksum(b"runtime", &digest, "fixture").is_ok());
+        assert!(BinaryManager::verify_checksum(b"tampered", &digest, "fixture").is_err());
+        assert!(BinaryManager::verify_checksum(b"runtime", "", "fixture").is_err());
     }
 }

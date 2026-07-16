@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "active_release": {
+    "owner": "jonatns",
+    "repository": "isomer",
+    "tag": "binaries-v0.1.3",
+    "checksums_asset": null
+  },
+  "sources": {
+    "rockshrew-mono": {
+      "repository": "kungfuflex/metashrew",
+      "revision": "v10.0.0-alpha.2",
+      "version": "10.0.0-alpha.2"
+    },
+    "flextrs": {
+      "repository": "kungfuflex/flextrs",
+      "revision": "504bd533cf5fb6442f3962ed0d8f0c296e45ef37",
+      "version": "0.4.1"
+    },
+    "espo": {
+      "repository": "bitapeslabs/espo",
+      "revision": "explorer-v9.0.1-rc1-metashrew",
+      "version": "9.0.1-rc1"
+    },
+    "alkanes-wasm": {
+      "repository": "kungfuflex/alkanes-rs",
+      "revision": "5b7f43567b828d0bb7b8907ce78fa0242943c54d",
+      "version": "0.1.0"
+    },
+    "alkanes-jsonrpc": {
+      "repository": "kungfuflex/alkanes",
+      "revision": "2b196f9c9a2123146c0153957c548eb88d5126a3",
+      "version": "0.1.0"
+    }
+  },
+  "hosted": {
+    "metashrew": {
+      "version": "10.0.0-alpha.2",
+      "asset_pattern": "rockshrew-mono-{platform}",
+      "size_bytes": 36000000,
+      "archive_path": null,
+      "sha256": {
+        "darwin-arm64": "c930a6a786d7491c5cf418c260ce7f0e230eaad810df7fd2b53945c772e54fef",
+        "linux-x86_64": "1295fcb7fbe4c22da1dc8f516841daae95daa04ca4f7e15713bb19ae881d042b"
+      }
+    },
+    "esplora": {
+      "version": "0.4.1",
+      "asset_pattern": "flextrs-{platform}",
+      "size_bytes": 17000000,
+      "archive_path": null,
+      "sha256": {
+        "darwin-arm64": "ae38e7a5bc3b10b7b0fd74f84288ae2470972cb1f227029c8d9d54682119cafe",
+        "linux-x86_64": "8ed04187944e2d9925efab96a520d9e98f44ca8feb021603928269d6b2fbd357"
+      }
+    },
+    "espo": {
+      "version": "9.0.1-rc1",
+      "asset_pattern": "espo-{platform}",
+      "size_bytes": 33000000,
+      "archive_path": null,
+      "sha256": {
+        "darwin-arm64": "ec0d8d9af33da863832babc2e8607cdd9124a169c95f13d3b20545f188eb3877",
+        "linux-x86_64": "f8da12b7a5b3268f5115f74ca90fb21c46d42d18458905933858e48e326a5f03"
+      }
+    },
+    "jsonrpc": {
+      "version": "0.1.0",
+      "asset_pattern": "alkanes-jsonrpc-bundle.tar.gz",
+      "size_bytes": 74000000,
+      "archive_path": null,
+      "sha256": {
+        "all": "bedc8928c7c48eb45ab51f9094b06a732ee7542e091cf4e75fd902e8aea84a55"
+      }
+    },
+    "alkanes_wasm": {
+      "version": "0.1.0",
+      "asset_pattern": "alkanes.wasm",
+      "size_bytes": 6200000,
+      "archive_path": null,
+      "sha256": {
+        "all": "5e3c1ccecb4c2277bb080c8a5705d2ddb171d83afabdab108665ddb3d07ff7a8"
+      }
+    }
+  },
+  "external": {
+    "bitcoind": {
+      "version": "29.2",
+      "size_bytes": 45000000,
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-arm64-apple-darwin.tar.gz",
+          "sha256": "bd07450f76d149d094842feab58e6240673120c8a317a1c51d45ba30c34e85ef",
+          "archive_path": "bitcoin-29.2/bin/bitcoind"
+        },
+        "darwin-x86_64": {
+          "url": "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-x86_64-apple-darwin.tar.gz",
+          "sha256": "69ca05fbe838123091cf4d6d2675352f36cf55f49e2e6fb3b52fcf32b5e8dd9f",
+          "archive_path": "bitcoin-29.2/bin/bitcoind"
+        },
+        "linux-arm64": {
+          "url": "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-aarch64-linux-gnu.tar.gz",
+          "sha256": "f88f72a3c5bf526581aae573be8c1f62133eaecfe3d34646c9ffca7b79dfdc7a",
+          "archive_path": "bitcoin-29.2/bin/bitcoind"
+        },
+        "linux-x86_64": {
+          "url": "https://bitcoincore.org/bin/bitcoin-core-29.2/bitcoin-29.2-x86_64-linux-gnu.tar.gz",
+          "sha256": "1fd58d0ae94b8a9e21bbaeab7d53395a44976e82bd5492b0a894826c135f9009",
+          "archive_path": "bitcoin-29.2/bin/bitcoind"
+        }
+      }
+    },
+    "ord": {
+      "version": "0.22.1",
+      "size_bytes": 15000000,
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-aarch64-apple-darwin.tar.gz",
+          "sha256": "f4a6c9e1bdbc00b0fb01e053078ce9577aa83495dbcd396e8c9df1ad66064037",
+          "archive_path": "ord"
+        },
+        "darwin-x86_64": {
+          "url": "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-apple-darwin.tar.gz",
+          "sha256": "eda515575211174e8f99a15f9c6389d63d65596b3dd1c4dc2519e38011bdd77f",
+          "archive_path": "ord"
+        },
+        "linux-x86_64": {
+          "url": "https://github.com/ordinals/ord/releases/download/0.22.1/ord-0.22.1-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "a51cbd8ab2c2485f2ca033731807324ba120ef034374a86730ceabce97edf87e",
+          "archive_path": "ord"
+        }
+      }
+    }
+  }
+}

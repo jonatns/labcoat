@@ -1,6 +1,7 @@
 [package]
 name = "labcoat-test"
-version = "0.7.0"
+version.workspace = true
+publish = true
 description = "Host-side Rust test harness for Labcoat Alkanes WASM contracts"
 edition.workspace = true
 license.workspace = true

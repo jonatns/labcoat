@@ -8,6 +8,10 @@ LABCOAT_INSTALLER_SOURCE_ONLY=1 . "$ROOT/install-labcoat.sh"
 [ "$(LABCOAT_UNAME_S=Darwin LABCOAT_UNAME_M=x86_64 detect_platform)" = "darwin-x86_64" ]
 [ "$(LABCOAT_UNAME_S=Linux LABCOAT_UNAME_M=x86_64 detect_platform)" = "linux-x86_64" ]
 [ "$(LABCOAT_UNAME_S=Linux LABCOAT_UNAME_M=aarch64 detect_platform)" = "linux-arm64" ]
+if LABCOAT_UNAME_S=Plan9 LABCOAT_UNAME_M=x86_64 detect_platform >/dev/null 2>&1; then
+    echo "unsupported platform was accepted" >&2
+    exit 1
+fi
 [ "$(normalize_version 0.7.0)" = "cli-v0.7.0" ]
 [ "$(normalize_version v0.7.0)" = "cli-v0.7.0" ]
 
@@ -36,5 +40,24 @@ case "$hint" in
     *"export PATH="*) ;;
     *) echo "PATH hint missing" >&2; exit 1 ;;
 esac
+
+# A missing release asset must abort without leaving an installed binary.
+curl() {
+    out=""
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "-o" ]; then out="$2"; shift 2; else shift; fi
+    done
+    [ -n "$out" ] || return 1
+    case "$out" in
+        *.sha256) return 22 ;;
+        *) printf 'binary' > "$out" ;;
+    esac
+}
+INSTALL_DIR="$tmp/missing-asset"
+if (LABCOAT_UNAME_S=Darwin LABCOAT_UNAME_M=arm64 main --version 0.7.0) >/dev/null 2>&1; then
+    echo "installer accepted a release with a missing checksum asset" >&2
+    exit 1
+fi
+[ ! -e "$INSTALL_DIR/labcoat" ]
 
 echo "install-labcoat tests passed"

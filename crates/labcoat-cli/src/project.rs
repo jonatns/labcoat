@@ -61,7 +61,8 @@ pub fn init(directory: Option<&str>, force: bool) -> CmdResult {
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
         }
-        std::fs::write(&destination, contents).map_err(|e| io_error(&destination, e))?;
+        let rendered = contents.replace("{{LABCOAT_VERSION}}", env!("CARGO_PKG_VERSION"));
+        std::fs::write(&destination, rendered).map_err(|e| io_error(&destination, e))?;
     }
 
     Ok(serde_json::json!({
@@ -106,6 +107,12 @@ mod tests {
         assert!(std::fs::read_to_string(root.join("tests/example.rs"))
             .unwrap()
             .contains("for_contract(\"example\")"));
+        assert!(std::fs::read_to_string(root.join("Cargo.toml"))
+            .unwrap()
+            .contains(&format!(
+                "labcoat-test = \"={}\"",
+                env!("CARGO_PKG_VERSION")
+            )));
         assert!(init(root.to_str(), false).is_err());
         assert!(init(root.to_str(), true).is_ok());
         std::fs::remove_dir_all(root).ok();

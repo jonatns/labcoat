@@ -1,6 +1,7 @@
 [package]
 name = "labcoat-core"
-version = "0.7.0"
+version.workspace = true
+publish = false
 description = "Alkanes smart-contract toolkit core: compile, deploy, call, simulate, trace"
 edition.workspace = true
 license.workspace = true

@@ -1,6 +1,7 @@
 [package]
 name = "isomer-core"
 version = "0.1.0"
+publish = false
 description = "Headless Alkanes devnet engine: binary management, service orchestration, chain control"
 edition.workspace = true
 license.workspace = true
@@ -17,7 +18,6 @@ sha2 = "0.10"
 hex = "0.4"
 tar = "0.4"
 flate2 = "1.0"
-zip = "2"
 futures-util = "0.3.31"
 bytes = "1.11.0"
 
