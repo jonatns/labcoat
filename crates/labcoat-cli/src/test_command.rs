@@ -1,5 +1,5 @@
 use crate::contract::{CmdResult, EnvelopeError};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn run(path: Option<&str>) -> CmdResult {
     let sources = contract_sources(path)?;
@@ -24,12 +24,14 @@ pub fn run(path: Option<&str>) -> CmdResult {
     }
 
     let mut command = std::process::Command::new("cargo");
-    if let Ok(path) = std::env::var("LABCOAT_TEST_CRATE_PATH") {
-        let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
-        command.args([
-            "--config",
-            &format!("patch.crates-io.labcoat-test.path=\"{}\"", escaped),
-        ]);
+    if let Some(path) = local_labcoat_test_path() {
+        let escaped = path
+            .to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        command
+            .arg("--config")
+            .arg(format!("patch.crates-io.labcoat-test.path=\"{escaped}\""));
     }
     command.args(["test", "--tests"]);
     let output = command
@@ -57,6 +59,24 @@ pub fn run(path: Option<&str>) -> CmdResult {
         "passed": true,
         "output": String::from_utf8_lossy(&output.stdout),
     }))
+}
+
+/// Resolve the unpublished test harness while developing Labcoat from source.
+///
+/// Release builds normally return `None` because their build checkout no longer
+/// exists, so generated projects resolve the version pinned in Cargo.toml from
+/// crates.io. `LABCOAT_TEST_CRATE_PATH` remains available for CI and packagers.
+fn local_labcoat_test_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("LABCOAT_TEST_CRATE_PATH") {
+        return Some(PathBuf::from(path));
+    }
+
+    sibling_test_crate(Path::new(env!("CARGO_MANIFEST_DIR")))
+}
+
+fn sibling_test_crate(cli_manifest_dir: &Path) -> Option<PathBuf> {
+    let candidate = cli_manifest_dir.parent()?.join("labcoat-test");
+    candidate.join("Cargo.toml").is_file().then_some(candidate)
 }
 
 fn contract_sources(path: Option<&str>) -> Result<Vec<PathBuf>, EnvelopeError> {
@@ -111,6 +131,29 @@ mod tests {
         let sources = contract_sources(root.to_str()).unwrap();
         assert_eq!(sources[0].file_name().unwrap(), "A.rs");
         assert_eq!(sources[1].file_name().unwrap(), "B.rs");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn discovers_sibling_test_crate_for_source_builds() {
+        let root = std::env::temp_dir().join(format!(
+            "labcoat-test-crate-discovery-{}",
+            std::process::id()
+        ));
+        let cli = root.join("labcoat-cli");
+        let harness = root.join("labcoat-test");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&cli).unwrap();
+        std::fs::create_dir_all(&harness).unwrap();
+
+        assert_eq!(sibling_test_crate(&cli), None);
+        std::fs::write(
+            harness.join("Cargo.toml"),
+            "[package]\nname='labcoat-test'\n",
+        )
+        .unwrap();
+        assert_eq!(sibling_test_crate(&cli), Some(harness));
+
         std::fs::remove_dir_all(root).ok();
     }
 }
