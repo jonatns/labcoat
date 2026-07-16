@@ -1,0 +1,220 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      js: ${{ steps.filter.outputs.js }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'apps/isomer/src-tauri/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+            js:
+              - 'packages/**'
+              - 'apps/isomer/**'
+              - 'pnpm-workspace.yaml'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+            web:
+              - 'apps/web/**'
+              - 'crates/labcoat-cli/src/docs.rs'
+              - 'crates/labcoat-cli/src/main.rs'
+              - 'crates/labcoat-cli/src/mcp.rs'
+              - 'skills/SKILL.md'
+              - 'vercel.json'
+              - 'pnpm-workspace.yaml'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev protobuf-compiler \
+            clang wasi-libc
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+          components: rustfmt,clippy
+          targets: wasm32-unknown-unknown,wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo check --workspace --locked
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --locked -- -D warnings
+      - name: Devnet smoke test (protocol stubs)
+        run: |
+          cargo build --locked -p labcoat-cli
+          ./scripts/devnet-smoke/install-stubs.sh
+          trap './target/debug/labcoat down --json || true' EXIT
+          ./target/debug/labcoat up --no-download
+          for attempt in {1..10}; do
+            ./target/debug/labcoat status --json \
+              | tee "$RUNNER_TEMP/labcoat-status.json"
+            if grep -q '"is_ready": true' "$RUNNER_TEMP/labcoat-status.json"; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q '"is_ready": true' "$RUNNER_TEMP/labcoat-status.json"
+          ./target/debug/labcoat mine 5 --json \
+            | tee "$RUNNER_TEMP/labcoat-mine.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-mine.json"
+          ./target/debug/labcoat logs --service bitcoind --limit 3
+          ./target/debug/labcoat down --json \
+            | tee "$RUNNER_TEMP/labcoat-down.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-down.json"
+          trap - EXIT
+      - name: MCP + agent-surface smoke
+        run: |
+          ./target/debug/labcoat docs --llm | grep -q "command reference"
+          ./target/debug/labcoat docs --json | grep -q '"schema": "labcoat/v1/docs"'
+          node apps/web/scripts/sync-reference.mjs --check --bin ./target/debug/labcoat
+          printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' \
+            | ./target/debug/labcoat mcp serve | grep -q '"abi_verify"'
+      - name: Rust-first project smoke
+        run: |
+          PROJECT=$(mktemp -d)/project
+          ./target/debug/labcoat init "$PROJECT" --json | grep -q '"ok": true'
+          cd "$PROJECT"
+          LABCOAT_TEST_CRATE_PATH="$GITHUB_WORKSPACE/crates/labcoat-test" \
+            "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
+            | tee "$RUNNER_TEMP/labcoat-test.json"
+          grep -q '"passed": true' "$RUNNER_TEMP/labcoat-test.json"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            compile example --json \
+            | tee "$RUNNER_TEMP/labcoat-compile.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-compile.json"
+          cmp build/example.abi.json .labcoat/test-artifacts/example.abi.json
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            compile contracts/Example.rs --json \
+            | tee "$RUNNER_TEMP/labcoat-loose-contract.json"
+          grep -q '"code": "CONFIG_INVALID"' "$RUNNER_TEMP/labcoat-loose-contract.json"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            deploy build/example.wasm --dry-run --json \
+            | tee "$RUNNER_TEMP/labcoat-deploy.json"
+          grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
+
+  js:
+    needs: changes
+    if: needs.changes.outputs.js == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @isomer/desktop build
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @labcoat/web check
+      - run: pnpm --filter @labcoat/web build
+      - run: pnpm --filter @labcoat/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @labcoat/web test:e2e
+      - run: pnpm --filter @labcoat/web test:lighthouse
+
+  # NOTE: no extension job for now. apps/isomer-extension builds standalone
+  # (`cd apps/isomer-extension && pnpm --ignore-workspace install --no-frozen-lockfile
+  # && pnpm --ignore-workspace build`) — its
+  # @alkanes/ts-sdk dep is a raw tarball URL on pkg.alkanes.build, which
+  # makes CI flaky whenever that host is slow/unreachable. Re-add a job
+  # here once the dep comes from a proper registry.
+
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: "Guard: diff has no whitespace errors"
+        run: git diff --check
+      - name: "Guard: no whitespace errors"
+        run: |
+          if git grep -nI -E '[[:blank:]]+$'; then
+            echo '::error::tracked files contain trailing whitespace'
+            exit 1
+          fi
+      - name: Installer unit tests
+        run: ./scripts/tests/install-labcoat-test.sh
+      - name: "Guard: oyl-sdk is banned from the npm tree (direct or transitive)"
+        run: |
+          pnpm install --frozen-lockfile
+          if pnpm ls -r --depth Infinity --parseable 2>/dev/null | grep -iE 'oyl[/+-]sdk'; then
+            echo '::error::@oyl/sdk found in the resolved npm tree (banned — see TOOLCHAIN.md)'
+            exit 1
+          fi
+          if grep -riE 'oyl[/+-]sdk' pnpm-lock.yaml apps/isomer-extension/pnpm-lock.yaml 2>/dev/null; then
+            echo '::error::oyl-sdk reference found in a lockfile (banned — see TOOLCHAIN.md)'
+            exit 1
+          fi
+      - name: "Guard: oyl-sdk is banned from the cargo tree"
+        run: |
+          if grep -riE 'oyl[_/-]?sdk|"oyl"|/oyl[-.]' Cargo.lock; then
+            echo '::error::oyl reference found in Cargo.lock (banned — see TOOLCHAIN.md)'
+            exit 1
+          fi
+      - name: "Guard: every alkanes-rs reference is pinned to the TOOLCHAIN.md rev on develop"
+        run: |
+          PIN=$(grep -oE '\*\*Pinned commit\*\* \| `[0-9a-f]{40}`' TOOLCHAIN.md | grep -oE '[0-9a-f]{40}')
+          echo "Pinned rev: $PIN"
+          test -n "$PIN" || { echo '::error::could not read pin from TOOLCHAIN.md'; exit 1; }
+          # 1) No unpinned/branch refs to alkanes-rs anywhere in the tree
+          #    (Cargo git deps must use rev=, workflows must use the SHA).
+          BAD=$(grep -rn --include='*.toml' --include='*.yml' --include='*.yaml' --include='*.ts' 'alkanes-rs' \
+                 | grep -vE "$PIN" \
+                 | grep -viE 'toolchain\.md|docs/|branch of record' \
+                 | grep -iE 'branch *= *"|ref: *(main|develop)$|alkanes-rs(\.git)?" *\}' || true)
+          if [ -n "$BAD" ]; then
+            echo "$BAD"
+            echo '::error::alkanes-rs referenced without the pinned rev (see TOOLCHAIN.md)'
+            exit 1
+          fi
+          # 2) The pin itself must be reachable from develop (and not from main)
+          git clone --bare --filter=blob:none https://github.com/kungfuflex/alkanes-rs /tmp/alkanes-rs-check
+          cd /tmp/alkanes-rs-check
+          git merge-base --is-ancestor "$PIN" refs/heads/develop \
+            || { echo '::error::pinned rev is not reachable from alkanes-rs develop'; exit 1; }
+          if git merge-base --is-ancestor "$PIN" refs/heads/main; then
+            echo '::warning::pinned rev is also on main — verify it was pinned from develop'
+          fi

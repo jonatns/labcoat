@@ -1,0 +1,12 @@
+packages:
+  - "apps/isomer"
+  - "apps/web"
+  # apps/isomer-extension is deliberately NOT a workspace member: its
+  # @alkanes/ts-sdk dependency is a direct tarball URL on pkg.alkanes.build,
+  # and pnpm workspace resolution makes that host a hard requirement for
+  # EVERY `pnpm install` in the repo. It installs/builds standalone
+  # (`cd apps/isomer-extension && pnpm install`) — see its README and the
+  # dedicated CI job.
+allowBuilds:
+  esbuild: true
+  sharp: true

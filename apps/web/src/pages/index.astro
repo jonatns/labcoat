@@ -1,0 +1,250 @@
+---
+import Brand from '@/components/Brand.astro';
+import CopyCommand from '@/components/CopyCommand.astro';
+import ProtocolRunner from '@/components/ProtocolRunner.astro';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+import '@/styles/global.css';
+
+const description = 'Build, test, deploy, and operate Alkanes smart contracts on Bitcoin with one Rust-native CLI.';
+const softwareSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Labcoat',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'macOS, Linux',
+  description,
+  url: 'https://labcoat.sh',
+  downloadUrl: 'https://github.com/jonatns/labcoat/releases',
+  softwareVersion: '0.7.0',
+  license: 'https://opensource.org/license/mit',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  codeRepository: 'https://github.com/jonatns/labcoat',
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0a0d0b" />
+    <link rel="canonical" href="https://labcoat.sh/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Labcoat" />
+    <meta property="og:title" content="Labcoat — The full Alkanes loop" />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content="https://labcoat.sh/" />
+    <meta property="og:image" content="https://labcoat.sh/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>Labcoat — The full Alkanes loop</title>
+    <script is:inline>
+      (() => {
+        const saved = localStorage.getItem('labcoat-theme');
+        const system = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = saved || system;
+      })();
+    </script>
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(softwareSchema)} />
+  </head>
+  <body class="landing-page">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="site-shell">
+      <header class="site-header">
+        <Brand />
+        <nav aria-label="Primary navigation">
+          <a href="#workflow">Workflow</a>
+          <a href="#agents">Agents</a>
+          <a href="/docs/">Docs</a>
+          <a href="https://github.com/jonatns/labcoat">GitHub <span aria-hidden="true">↗</span></a>
+        </nav>
+        <div class="header-actions">
+          <ThemeToggle />
+          <a class="header-cta" href="/docs/getting-started/installation/">Install <span aria-hidden="true">→</span></a>
+        </div>
+      </header>
+
+      <main id="main">
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-glow" aria-hidden="true"></div>
+          <div class="hero-copy">
+            <p class="eyebrow"><span></span> ALKANES DEVELOPMENT TOOLKIT</p>
+            <h1 id="hero-title">The full Alkanes loop.<br /><em>One Rust-native tool.</em></h1>
+            <p class="hero-lede">Build, test, deploy, call, simulate, and trace smart contracts on Bitcoin—without assembling the infrastructure yourself.</p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="/docs/getting-started/quickstart/">Start building <span aria-hidden="true">→</span></a>
+              <a class="button button-ghost" href="https://github.com/jonatns/labcoat">View source <span aria-hidden="true">↗</span></a>
+            </div>
+            <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
+            <p class="hero-support">macOS and Linux · arm64 and x86_64 · MIT licensed</p>
+          </div>
+          <ProtocolRunner />
+        </section>
+
+        <section class="signal-strip" aria-label="Labcoat capabilities">
+          <p>RUST FIRST</p><i></i><p>NATIVE WASM TESTS</p><i></i><p>COMPLETE REGTEST</p><i></i><p>MCP + JSON</p><i></i><p>ONE BINARY</p>
+        </section>
+
+        <section class="section workflow-section" id="workflow" aria-labelledby="workflow-title">
+          <div class="section-heading">
+            <p class="eyebrow"><span></span> 01 / CORE LOOP</p>
+            <h2 id="workflow-title">From empty directory<br />to decoded trace.</h2>
+            <p>Labcoat owns every phase of the contract lifecycle, with one vocabulary and one set of recovery rules.</p>
+          </div>
+          <ol class="workflow-grid">
+            <li><span>01</span><div class="workflow-icon">{ }</div><h3>Author</h3><p>Scaffold a Rust contract project with tests, configuration, and agent instructions included.</p><code>labcoat init</code></li>
+            <li><span>02</span><div class="workflow-icon">✓</div><h3>Prove</h3><p>Compile WASIp1 and run native integration tests before touching a chain.</p><code>labcoat test</code></li>
+            <li><span>03</span><div class="workflow-icon">⌁</div><h3>Operate</h3><p>Boot Bitcoin, indexers, explorer, and a unified RPC gateway as one local system.</p><code>labcoat up</code></li>
+            <li><span>04</span><div class="workflow-icon">⇧</div><h3>Ship</h3><p>Deploy commit/reveal envelopes, call opcodes, simulate reads, and decode traces.</p><code>labcoat deploy</code></li>
+          </ol>
+        </section>
+
+        <section class="section stack-section" aria-labelledby="stack-title">
+          <div class="stack-visual" aria-label="Labcoat local development stack">
+            <div class="stack-topline"><span>LABCOAT DEVNET</span><span class="status-dot">SYSTEM READY</span></div>
+            <div class="stack-gateway">
+              <span>UNIFIED JSON-RPC GATEWAY</span><strong>localhost:18888</strong>
+            </div>
+            <div class="stack-services">
+              <div><i class="green"></i><strong>bitcoind</strong><span>regtest</span></div>
+              <div><i class="green"></i><strong>metashrew</strong><span>alkanes index</span></div>
+              <div><i class="green"></i><strong>ord</strong><span>inscriptions</span></div>
+              <div><i class="green"></i><strong>esplora</strong><span>chain API</span></div>
+              <div><i class="green"></i><strong>espo</strong><span>explorer</span></div>
+            </div>
+            <div class="stack-command"><span>$</span><code>labcoat up</code><em>5 services · 1 endpoint · ready</em></div>
+          </div>
+          <div class="stack-copy">
+            <p class="eyebrow"><span></span> 02 / COMPLETE ENVIRONMENT</p>
+            <h2 id="stack-title">The chain is part<br />of the tool.</h2>
+            <p>No Docker choreography. No hand-wired ports. Labcoat downloads pinned binaries, starts the full Alkanes stack, waits for readiness, and tells you exactly what failed.</p>
+            <ul>
+              <li><span>✓</span> Deterministic service versions</li>
+              <li><span>✓</span> Built-in wallet and faucet</li>
+              <li><span>✓</span> Snapshots and instant resets</li>
+              <li><span>✓</span> Service-level health and logs</li>
+            </ul>
+            <a class="text-link" href="/docs/devnet-wallets/">Explore the local devnet <span aria-hidden="true">→</span></a>
+          </div>
+        </section>
+
+        <section class="section agents-section" id="agents" aria-labelledby="agents-title">
+          <div class="section-heading centered">
+            <p class="eyebrow"><span></span> 03 / AGENT NATIVE</p>
+            <h2 id="agents-title">Built for hands.<br /><em>Documented for agents.</em></h2>
+            <p>Every operation is inspectable, typed, non-interactive, and recoverable.</p>
+          </div>
+          <div class="agent-grid">
+            <article class="agent-card agent-card-large">
+              <div class="card-kicker"><span>JSON ENVELOPES</span><code>labcoat/v1/*</code></div>
+              <div class="json-window" aria-label="Example Labcoat JSON error envelope">
+                <p>{'{'}</p>
+                <p><span>"ok"</span>: <strong>false</strong>,</p>
+                <p><span>"command"</span>: <em>"deploy"</em>,</p>
+                <p><span>"error"</span>: {'{'}</p>
+                <p class="indent"><span>"code"</span>: <b>"WALLET_MISSING"</b>,</p>
+                <p class="indent"><span>"hint"</span>: <em>"run `labcoat wallet init` first"</em></p>
+                <p>{'}'}</p><p>{'}'}</p>
+              </div>
+              <h3>Errors that explain the next move.</h3>
+              <p>Stable schemas on stdout. Diagnostics on stderr. Typed failure codes with an actionable recovery command.</p>
+            </article>
+            <article class="agent-card">
+              <div class="card-kicker"><span>MCP SERVER</span><i class="live-pill">STDIO</i></div>
+              <div class="mcp-orbit" aria-hidden="true"><span>MCP</span><i></i><i></i><i></i></div>
+              <h3>Native tools, not shell guesses.</h3>
+              <p>Expose devnet, wallet, compile, deploy, call, simulate, and trace operations over Model Context Protocol.</p>
+              <code class="card-command">labcoat mcp serve</code>
+            </article>
+            <article class="agent-card">
+              <div class="card-kicker"><span>CONTEXT SURFACES</span><i class="live-pill">LIVE</i></div>
+              <div class="surface-list">
+                <a href="/llms.txt"><span>TXT</span><strong>/llms.txt</strong><em>↗</em></a>
+                <a href="/llms-full.txt"><span>TXT</span><strong>/llms-full.txt</strong><em>↗</em></a>
+                <a href="/reference/cli.json"><span>{ }</span><strong>/reference/cli.json</strong><em>↗</em></a>
+                <a href="/skill.md"><span>MD</span><strong>/skill.md</strong><em>↗</em></a>
+              </div>
+              <h3>One source. Every useful format.</h3>
+              <p>Human docs, raw Markdown, machine-readable reference, and embedded agent instructions stay synchronized.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="final-cta" aria-labelledby="cta-title">
+          <div class="cta-glow" aria-hidden="true"></div>
+          <p class="eyebrow"><span></span> READY WHEN YOU ARE</p>
+          <h2 id="cta-title">Put the protocol<br />on your bench.</h2>
+          <p>From first contract to final trace, keep the entire Alkanes workflow inside one tool.</p>
+          <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
+          <div class="cta-links"><a href="/docs/getting-started/quickstart/">Read the quick start →</a><a href="https://github.com/jonatns/labcoat">Star on GitHub ↗</a></div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <Brand />
+        <p>Rust-native tooling for Alkanes on Bitcoin.</p>
+        <nav aria-label="Footer navigation"><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/jonatns/labcoat">GitHub</a><a href="https://opensource.org/license/mit">MIT License</a></nav>
+        <p class="footer-meta">Built in Puerto Rico <span aria-hidden="true">·</span> Open source</p>
+      </footer>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
+        const theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+        root.dataset.theme = theme;
+        localStorage.setItem('labcoat-theme', theme);
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const command = button.dataset.copy ?? '';
+          await navigator.clipboard.writeText(command);
+          const label = button.querySelector('[data-copy-label]');
+          if (label) label.textContent = 'Copied';
+          button.dataset.copied = 'true';
+          window.setTimeout(() => {
+            if (label) label.textContent = 'Copy';
+            delete button.dataset.copied;
+          }, 1800);
+        });
+      });
+
+      const runnerTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-runner-stage]')];
+      function selectRunnerTab(tab: HTMLButtonElement) {
+        const stage = JSON.parse(tab.dataset.runnerStage ?? '{}');
+        runnerTabs.forEach((item) => {
+          const selected = item === tab;
+          item.setAttribute('aria-selected', String(selected));
+          item.tabIndex = selected ? 0 : -1;
+        });
+        const panel = document.querySelector<HTMLElement>('#runner-output');
+        panel?.setAttribute('aria-labelledby', tab.id);
+        const command = document.querySelector('[data-runner-command]');
+        const schema = document.querySelector('[data-runner-schema]');
+        const result = document.querySelector('[data-runner-result]');
+        const detail = document.querySelector('[data-runner-detail]');
+        if (command) command.textContent = stage.command;
+        if (schema) schema.textContent = `"${stage.schema}"`;
+        if (result) result.textContent = stage.result;
+        if (detail) detail.textContent = stage.detail;
+      }
+      runnerTabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => selectRunnerTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          let next = index;
+          if (event.key === 'ArrowRight') next = (index + 1) % runnerTabs.length;
+          if (event.key === 'ArrowLeft') next = (index - 1 + runnerTabs.length) % runnerTabs.length;
+          if (event.key === 'Home') next = 0;
+          if (event.key === 'End') next = runnerTabs.length - 1;
+          runnerTabs[next].focus();
+          selectRunnerTab(runnerTabs[next]);
+        });
+      });
+    </script>
+  </body>
+</html>

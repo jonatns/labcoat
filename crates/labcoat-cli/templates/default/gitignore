@@ -1,0 +1,4 @@
+/build/
+/.labcoat/
+/labcoat.lock
+/target/

@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Generic HTTP stub for devnet smoke tests.
+
+Serves the port(s) of whichever service name it is installed as
+(rockshrew-mono, ord, flextrs, espo) and answers the health-check and
+API endpoints isomer-core actually hits.
+"""
+import json
+import os
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+NAME = os.path.basename(sys.argv[0])
+
+# isomer-core probes binaries with `--version` and waits for exit
+if "--version" in sys.argv:
+    print(f"{NAME} 0.0.0-stub")
+    sys.exit(0)
+
+PORTS = {
+    "rockshrew-mono": [8080],
+    "ord": [8090],
+    "flextrs": [50010, 50001],
+    "espo": [8081, 8083],
+}.get(NAME, [8099])
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        print(f"[stub-{NAME}]", fmt % args, flush=True)
+
+    def _send(self, body: bytes, content_type="application/json"):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path.startswith("/api/blocks/carousel"):
+            self._send(json.dumps({"espo_tip": 0, "blocks": []}).encode())
+        elif self.path == "/blocks/tip/height":
+            self._send(b"0", "text/plain")
+        else:
+            self._send(b"ok", "text/plain")
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        self.rfile.read(length)
+        if self.path == "/rpc":
+            self._send(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "stub",
+                        "result": {
+                            "ok": True,
+                            "page": 1,
+                            "limit": 50,
+                            "total": 0,
+                            "items": [],
+                        },
+                    }
+                ).encode()
+            )
+        else:
+            self._send(b"{}")
+
+
+def serve(port: int):
+    print(f"[stub-{NAME}] listening on {port}", flush=True)
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    for extra in PORTS[1:]:
+        threading.Thread(target=serve, args=(extra,), daemon=True).start()
+    serve(PORTS[0])

@@ -1,0 +1,972 @@
+{
+  "command": "docs",
+  "ok": true,
+  "result": {
+    "commands": [
+      {
+        "arguments": [
+          {
+            "description": "Destination directory (defaults to the current directory)",
+            "id": "directory",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Overlay the template onto a non-empty directory",
+            "id": "force",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Scaffold a Rust-first Labcoat project",
+        "name": "init",
+        "path": "labcoat init",
+        "subcommands": [],
+        "usage": "init [OPTIONS] [DIRECTORY]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Optional Cargo contract package whose host test should run",
+            "id": "package",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Compile WASIp1 WebAssembly and run native Rust integration tests",
+        "name": "test",
+        "path": "labcoat test",
+        "subcommands": [],
+        "usage": "test [PACKAGE]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Skip the binary download/check step",
+            "id": "no_download",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          },
+          {
+            "description": "CI mode: wait (bounded) for full readiness, then emit the machine-readable endpoint manifest; non-zero exit if the stack never becomes ready",
+            "id": "ci",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Download binaries if needed and boot the full devnet stack",
+        "name": "up",
+        "path": "labcoat up",
+        "subcommands": [],
+        "usage": "up [OPTIONS]"
+      },
+      {
+        "arguments": [],
+        "description": "Stop all devnet services",
+        "name": "down",
+        "path": "labcoat down",
+        "subcommands": [],
+        "usage": "down"
+      },
+      {
+        "arguments": [],
+        "description": "Show devnet status (services, block height, mempool)",
+        "name": "status",
+        "path": "labcoat status",
+        "subcommands": [],
+        "usage": "status"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Number of blocks",
+            "id": "count",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Address to mine to (defaults to the dev address)",
+            "id": "address",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Mine blocks on the devnet",
+        "name": "mine",
+        "path": "labcoat mine",
+        "subcommands": [],
+        "usage": "mine [OPTIONS] [COUNT]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "",
+            "id": "address",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Amount in BTC",
+            "id": "amount",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Send BTC from the dev wallet to an address",
+        "name": "fund",
+        "path": "labcoat fund",
+        "subcommands": [],
+        "usage": "fund <ADDRESS> [AMOUNT]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Filter to one service (bitcoind, metashrew, ord, esplora, espo, jsonrpc)",
+            "id": "service",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Max entries",
+            "id": "limit",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Show recent service logs",
+        "name": "logs",
+        "path": "labcoat logs",
+        "subcommands": [],
+        "usage": "logs [OPTIONS]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Skip the confirmation prompt",
+            "id": "yes",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Stop services and wipe all chain/index data",
+        "name": "reset",
+        "path": "labcoat reset",
+        "subcommands": [],
+        "usage": "reset [OPTIONS]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "",
+            "id": "name",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "List existing snapshots",
+            "id": "list",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Snapshot the devnet data directory (stops services first)",
+        "name": "snapshot",
+        "path": "labcoat snapshot",
+        "subcommands": [],
+        "usage": "snapshot [OPTIONS] [NAME]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "",
+            "id": "name",
+            "possibleValues": [],
+            "required": true
+          }
+        ],
+        "description": "Restore a devnet snapshot (stops services first)",
+        "name": "restore",
+        "path": "labcoat restore",
+        "subcommands": [],
+        "usage": "restore <NAME>"
+      },
+      {
+        "arguments": [
+          {
+            "description": "",
+            "id": "download",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Check (and with --download, fetch) service binaries",
+        "name": "binaries",
+        "path": "labcoat binaries",
+        "subcommands": [],
+        "usage": "binaries [OPTIONS]"
+      },
+      {
+        "arguments": [],
+        "description": "Wallet management (keystore at --wallet-file)",
+        "name": "wallet",
+        "path": "labcoat wallet",
+        "subcommands": [
+          {
+            "arguments": [
+              {
+                "description": "Read the mnemonic from stdin (one line)",
+                "id": "mnemonic_stdin",
+                "possibleValues": [
+                  "true",
+                  "false"
+                ],
+                "required": false
+              }
+            ],
+            "description": "Create (or load) the project wallet. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv",
+            "name": "init",
+            "path": "labcoat wallet init",
+            "subcommands": [],
+            "usage": "init [OPTIONS]"
+          },
+          {
+            "arguments": [
+              {
+                "description": "",
+                "id": "count",
+                "possibleValues": [],
+                "required": false
+              }
+            ],
+            "description": "Show receive addresses",
+            "name": "addresses",
+            "path": "labcoat wallet addresses",
+            "subcommands": [],
+            "usage": "addresses [OPTIONS]"
+          },
+          {
+            "arguments": [],
+            "description": "Show spendable UTXOs",
+            "name": "utxos",
+            "path": "labcoat wallet utxos",
+            "subcommands": [],
+            "usage": "utxos"
+          }
+        ],
+        "usage": "wallet <COMMAND>"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Optional Cargo package name (omitting it builds every contract)",
+            "id": "package",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Output directory",
+            "id": "out_dir",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Compile Cargo contract packages to build/<package>.{wasm,wasm.gz,abi.json}",
+        "name": "compile",
+        "path": "labcoat compile",
+        "subcommands": [],
+        "usage": "compile [OPTIONS] [PACKAGE]"
+      },
+      {
+        "arguments": [],
+        "description": "Fetch or verify Wasm-exported contract ABI metadata",
+        "name": "abi",
+        "path": "labcoat abi",
+        "subcommands": [
+          {
+            "arguments": [
+              {
+                "description": "Contract name from labcoat.lock, or a raw block:tx id",
+                "id": "contract",
+                "possibleValues": [],
+                "required": true
+              },
+              {
+                "description": "Write the exact ABI bytes to a file",
+                "id": "out",
+                "possibleValues": [],
+                "required": false
+              }
+            ],
+            "description": "Fetch ABI metadata from a deployed contract's __meta export",
+            "name": "fetch",
+            "path": "labcoat abi fetch",
+            "subcommands": [],
+            "usage": "fetch [OPTIONS] <CONTRACT>"
+          },
+          {
+            "arguments": [
+              {
+                "description": "Contract name from labcoat.lock, or a raw block:tx id",
+                "id": "contract",
+                "possibleValues": [],
+                "required": true
+              },
+              {
+                "description": "Local Cargo contract package (required for raw ids or renamed deployments)",
+                "id": "package",
+                "possibleValues": [],
+                "required": false
+              }
+            ],
+            "description": "Compare deployed ABI metadata with a locally built contract",
+            "name": "verify",
+            "path": "labcoat abi verify",
+            "subcommands": [],
+            "usage": "verify [OPTIONS] <CONTRACT>"
+          }
+        ],
+        "usage": "abi <COMMAND>"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Path to the raw .wasm artifact",
+            "id": "wasm",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Contract name recorded in labcoat.lock (defaults to file stem)",
+            "id": "name",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Constructor cellpack args (u128 / 0x-hex / short strings)",
+            "id": "args",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Validate inputs and show what would happen without broadcasting",
+            "id": "dry_run",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Deploy a compiled contract (raw .wasm) via commit/reveal envelope",
+        "name": "deploy",
+        "path": "labcoat deploy",
+        "subcommands": [],
+        "usage": "deploy [OPTIONS] <WASM>"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Contract: labcoat.lock name or block:tx alkanes id",
+            "id": "contract",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Opcode number",
+            "id": "opcode",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Cellpack args (u128 / 0x-hex / short strings)",
+            "id": "args",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Validate inputs and show what would happen without broadcasting",
+            "id": "dry_run",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Execute a state-changing call on a deployed contract",
+        "name": "call",
+        "path": "labcoat call",
+        "subcommands": [],
+        "usage": "call [OPTIONS] <CONTRACT> <OPCODE> [ARGS]..."
+      },
+      {
+        "arguments": [
+          {
+            "description": "Contract: labcoat.lock name or block:tx alkanes id",
+            "id": "contract",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Opcode number",
+            "id": "opcode",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Cellpack args (u128 / 0x-hex / short strings)",
+            "id": "args",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Read-only simulation of a contract call",
+        "name": "simulate",
+        "path": "labcoat simulate",
+        "subcommands": [],
+        "usage": "simulate <CONTRACT> <OPCODE> [ARGS]..."
+      },
+      {
+        "arguments": [
+          {
+            "description": "",
+            "id": "txid",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Poll until the trace is available",
+            "id": "wait",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Decoded protostone traces for a transaction",
+        "name": "trace",
+        "path": "labcoat trace",
+        "subcommands": [],
+        "usage": "trace [OPTIONS] <TXID>"
+      },
+      {
+        "arguments": [],
+        "description": "labcoat.lock utilities",
+        "name": "lock",
+        "path": "labcoat lock",
+        "subcommands": [
+          {
+            "arguments": [],
+            "description": "Migrate a legacy deployments/manifest.json into labcoat.lock",
+            "name": "migrate",
+            "path": "labcoat lock migrate",
+            "subcommands": [],
+            "usage": "migrate"
+          },
+          {
+            "arguments": [],
+            "description": "Show the lockfile",
+            "name": "show",
+            "path": "labcoat lock show",
+            "subcommands": [],
+            "usage": "show"
+          }
+        ],
+        "usage": "lock <COMMAND>"
+      },
+      {
+        "arguments": [],
+        "description": "Model Context Protocol server (agent integration)",
+        "name": "mcp",
+        "path": "labcoat mcp",
+        "subcommands": [
+          {
+            "arguments": [],
+            "description": "Serve MCP over stdio (newline-delimited JSON-RPC)",
+            "name": "serve",
+            "path": "labcoat mcp serve",
+            "subcommands": [],
+            "usage": "serve"
+          }
+        ],
+        "usage": "mcp <COMMAND>"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Emit the full command reference + protocol cheatsheet as one LLM-ready markdown document",
+            "id": "llm",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Print documentation",
+        "name": "docs",
+        "path": "labcoat docs",
+        "subcommands": [],
+        "usage": "docs [OPTIONS]"
+      },
+      {
+        "arguments": [],
+        "description": "Diagnose the environment (toolchain, ports, binaries, project state)",
+        "name": "doctor",
+        "path": "labcoat doctor",
+        "subcommands": [],
+        "usage": "doctor"
+      }
+    ],
+    "configurationPrecedence": [
+      "CLI flags",
+      "LABCOAT_* environment variables",
+      "labcoat.toml",
+      "defaults"
+    ],
+    "coreLoop": [
+      "labcoat init my-project",
+      "cd my-project && labcoat test",
+      "labcoat up",
+      "labcoat wallet init",
+      "labcoat fund <address> && labcoat mine 1",
+      "labcoat compile example",
+      "labcoat deploy build/example.wasm",
+      "labcoat abi verify example",
+      "labcoat call example <opcode> [args...]",
+      "labcoat trace <txid> --wait",
+      "labcoat down"
+    ],
+    "description": "Rust-native toolkit for building, testing, deploying, and operating Alkanes smart contracts on Bitcoin.",
+    "errorCodes": [
+      {
+        "code": "CONFIG_INVALID",
+        "meaning": "configuration is invalid",
+        "recovery": "run `labcoat doctor`"
+      },
+      {
+        "code": "WALLET_MISSING",
+        "meaning": "the project wallet does not exist",
+        "recovery": "run `labcoat wallet init`"
+      },
+      {
+        "code": "WALLET_LOCKED",
+        "meaning": "the keystore could not be unlocked",
+        "recovery": "set `LABCOAT_WALLET_PASSPHRASE`"
+      },
+      {
+        "code": "RPC_UNREACHABLE",
+        "meaning": "the configured gateway cannot be reached",
+        "recovery": "run `labcoat status`"
+      },
+      {
+        "code": "INDEXER_LAG",
+        "meaning": "indexed height did not catch chain height",
+        "recovery": "inspect metashrew logs"
+      },
+      {
+        "code": "INSUFFICIENT_FUNDS",
+        "meaning": "spendable BTC cannot cover the operation",
+        "recovery": "fund the wallet and mine a block"
+      },
+      {
+        "code": "EXECUTION_REVERT",
+        "meaning": "the contract explicitly reverted",
+        "recovery": "inspect the revert reason and trace"
+      },
+      {
+        "code": "TRACE_TIMEOUT",
+        "meaning": "a decoded trace did not arrive in time",
+        "recovery": "retry `labcoat trace --wait`"
+      },
+      {
+        "code": "ENVELOPE_INVALID",
+        "meaning": "an Alkanes transaction envelope is invalid",
+        "recovery": "check the contract and arguments"
+      },
+      {
+        "code": "COMPILE_FAILED",
+        "meaning": "Rust or WebAssembly compilation failed",
+        "recovery": "read stderr and run `labcoat doctor`"
+      },
+      {
+        "code": "PACKAGE_NOT_FOUND",
+        "meaning": "the requested Cargo contract package was not discovered",
+        "recovery": "run `labcoat compile` or pass a package listed in the error"
+      },
+      {
+        "code": "ABI_MISMATCH",
+        "meaning": "local and deployed __meta output differ",
+        "recovery": "compile the deployed source revision and verify the contract ID"
+      },
+      {
+        "code": "CONTRACT_NOT_FOUND",
+        "meaning": "a contract name or ID could not be resolved",
+        "recovery": "run `labcoat lock show`"
+      },
+      {
+        "code": "TOOLKIT_ERROR",
+        "meaning": "the underlying contract toolkit failed",
+        "recovery": "read the error hint"
+      },
+      {
+        "code": "BINARY_CRASH",
+        "meaning": "a managed devnet service exited",
+        "recovery": "inspect `labcoat logs`"
+      }
+    ],
+    "install": "curl -fsSL https://labcoat.sh/install | sh",
+    "mcpProtocolVersion": "2024-11-05",
+    "mcpTools": [
+      {
+        "description": "Boot the full Alkanes devnet stack (downloads binaries when missing). Returns service status and the endpoint manifest.",
+        "inputSchema": {
+          "properties": {
+            "noDownload": {
+              "description": "skip the binary check/download",
+              "type": "boolean"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "devnet_up"
+      },
+      {
+        "description": "Stop all devnet services.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "devnet_down"
+      },
+      {
+        "description": "Devnet service health, block height, and mempool size.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "devnet_status"
+      },
+      {
+        "description": "Mine blocks on the devnet.",
+        "inputSchema": {
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "count": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "count"
+          ],
+          "type": "object"
+        },
+        "name": "devnet_mine"
+      },
+      {
+        "description": "Send BTC from the devnet faucet wallet to an address.",
+        "inputSchema": {
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "amount": {
+              "description": "BTC, defaults to 1",
+              "type": "number"
+            }
+          },
+          "required": [
+            "address"
+          ],
+          "type": "object"
+        },
+        "name": "devnet_fund"
+      },
+      {
+        "description": "Stop services and wipe all devnet chain data.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "devnet_reset"
+      },
+      {
+        "description": "Recent devnet service logs.",
+        "inputSchema": {
+          "properties": {
+            "limit": {
+              "type": "integer"
+            },
+            "service": {
+              "enum": [
+                "bitcoind",
+                "metashrew",
+                "ord",
+                "esplora",
+                "espo",
+                "jsonrpc"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "devnet_logs"
+      },
+      {
+        "description": "Create or load the project wallet keystore. Optional mnemonic (else generated).",
+        "inputSchema": {
+          "properties": {
+            "mnemonic": {
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "wallet_init"
+      },
+      {
+        "description": "Wallet receive addresses per script type.",
+        "inputSchema": {
+          "properties": {
+            "count": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "wallet_addresses"
+      },
+      {
+        "description": "Spendable wallet UTXOs.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "wallet_utxos"
+      },
+      {
+        "description": "Compile Cargo contract packages and extract their Wasm-exported ABIs.",
+        "inputSchema": {
+          "properties": {
+            "outDir": {
+              "type": "string"
+            },
+            "package": {
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "compile"
+      },
+      {
+        "description": "Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.",
+        "inputSchema": {
+          "properties": {
+            "package": {
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "test"
+      },
+      {
+        "description": "Fetch ABI metadata from a deployed contract through Metashrew.",
+        "inputSchema": {
+          "properties": {
+            "contract": {
+              "type": "string"
+            },
+            "out": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "contract"
+          ],
+          "type": "object"
+        },
+        "name": "abi_fetch"
+      },
+      {
+        "description": "Compare a deployed ABI with a locally built contract package.",
+        "inputSchema": {
+          "properties": {
+            "contract": {
+              "type": "string"
+            },
+            "package": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "contract"
+          ],
+          "type": "object"
+        },
+        "name": "abi_verify"
+      },
+      {
+        "description": "Deploy a compiled contract (raw .wasm) via commit/reveal. Records it in labcoat.lock.",
+        "inputSchema": {
+          "properties": {
+            "args": {
+              "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "name": {
+              "type": "string"
+            },
+            "wasm": {
+              "description": "path to the raw .wasm",
+              "type": "string"
+            }
+          },
+          "required": [
+            "wasm"
+          ],
+          "type": "object"
+        },
+        "name": "deploy"
+      },
+      {
+        "description": "Execute a state-changing contract call and wait for its trace.",
+        "inputSchema": {
+          "properties": {
+            "args": {
+              "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "contract": {
+              "description": "labcoat.lock name or block:tx id",
+              "type": "string"
+            },
+            "opcode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "contract",
+            "opcode"
+          ],
+          "type": "object"
+        },
+        "name": "call"
+      },
+      {
+        "description": "Read-only simulation of a contract call (no transaction).",
+        "inputSchema": {
+          "properties": {
+            "args": {
+              "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "contract": {
+              "type": "string"
+            },
+            "opcode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "contract",
+            "opcode"
+          ],
+          "type": "object"
+        },
+        "name": "simulate"
+      },
+      {
+        "description": "Decoded protostone traces for a transaction.",
+        "inputSchema": {
+          "properties": {
+            "txid": {
+              "type": "string"
+            },
+            "wait": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "txid"
+          ],
+          "type": "object"
+        },
+        "name": "trace"
+      }
+    ],
+    "protocol": [
+      {
+        "detail": "[block, tx, opcode, ...args] as u128 values; strings up to 16 bytes are packed little-endian.",
+        "name": "Cellpack"
+      },
+      {
+        "detail": "Targets [1, 0]; raw Wasm is compressed inside a taproot commit/reveal envelope.",
+        "name": "Deploy"
+      },
+      {
+        "detail": "Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.",
+        "name": "Protostone outputs"
+      },
+      {
+        "detail": "State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.",
+        "name": "Synchronization"
+      },
+      {
+        "detail": "Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.",
+        "name": "labcoat.lock"
+      },
+      {
+        "detail": "Compile and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.",
+        "name": "Contract ABI"
+      }
+    ],
+    "version": "0.7.0"
+  },
+  "schema": "labcoat/v1/docs"
+}

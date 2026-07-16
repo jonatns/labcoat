@@ -1,0 +1,5 @@
+# Matches the alkanes-rs develop pin's toolchain (see TOOLCHAIN.md).
+[toolchain]
+channel = "1.86.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1"]

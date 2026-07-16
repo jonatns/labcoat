@@ -1,6 +1,13 @@
 node_modules/
 dist/
+target/
 package-lock.json
-pnpm-lock.yaml
 yarn.lock
 *-labcoat-*.tgz
+.labcoat/
+.astro/
+.lighthouseci/
+playwright-report/
+test-results/
+.pnpm-store/
+.vercel

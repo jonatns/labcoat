@@ -1,0 +1,21 @@
+[package]
+name = "labcoat-test"
+version = "0.7.0"
+description = "Host-side Rust test harness for Labcoat Alkanes WASM contracts"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+wasmtime = "31"
+wasmtime-wasi = "31"
+# Wasmtime accepts this older psm release; pin it to preserve Rust 1.86
+# compatibility (newer psm build dependencies require Rust 1.88).
+psm = "=0.1.24"
+
+[dev-dependencies]
+wat = "1"
