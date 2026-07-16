@@ -2,11 +2,10 @@
 
 The site is a static Astro + Starlight app deployed at `https://labcoat.sh`.
 Vercel's project Root Directory is `apps/web`; its output directory is `dist`
-as declared in this directory's `vercel.json`. The repository-root
-`vercel.json` is the CLI/repo-root fallback, so keep shared headers aligned
-between both files. Configure apex and `www` redirects only in Vercel Domains;
-do not add host redirects here because they can conflict with domain-level
-redirects and loop static assets.
+as declared in this directory's `vercel.json`. This is the repository's only
+Vercel configuration. Configure apex and `www` redirects only in Vercel
+Domains; do not add host redirects here because they can conflict with
+domain-level redirects and loop static assets.
 
 - Product page: `src/pages/index.astro`
 - Public documentation: `src/content/docs/docs/**/*.md`
