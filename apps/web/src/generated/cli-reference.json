@@ -303,11 +303,11 @@
             "required": false
           }
         ],
-        "description": "Compile Cargo contract packages to build/<package>.{wasm,wasm.gz,abi.json}",
-        "name": "compile",
-        "path": "labcoat compile",
+        "description": "Build Cargo contract packages into build/<package>.{wasm,wasm.gz,abi.json}",
+        "name": "build",
+        "path": "labcoat build",
         "subcommands": [],
-        "usage": "compile [OPTIONS] [PACKAGE]"
+        "usage": "build [OPTIONS] [PACKAGE]"
       },
       {
         "arguments": [],
@@ -570,7 +570,7 @@
       "labcoat up",
       "labcoat wallet init",
       "labcoat fund <address> && labcoat mine 1",
-      "labcoat compile counter",
+      "labcoat build counter",
       "labcoat deploy counter",
       "labcoat abi verify counter",
       "labcoat call counter <opcode> [args...]",
@@ -632,12 +632,12 @@
       {
         "code": "PACKAGE_NOT_FOUND",
         "meaning": "the requested Cargo contract package was not discovered",
-        "recovery": "run `labcoat compile` or pass a package listed in the error"
+        "recovery": "run `labcoat build` or pass a package listed in the error"
       },
       {
         "code": "ABI_MISMATCH",
         "meaning": "local and deployed __meta output differ",
-        "recovery": "compile the deployed source revision and verify the contract ID"
+        "recovery": "build the deployed source revision and verify the contract ID"
       },
       {
         "code": "CONTRACT_NOT_FOUND",
@@ -799,7 +799,7 @@
         "name": "wallet_utxos"
       },
       {
-        "description": "Compile Cargo contract packages and extract their Wasm-exported ABIs.",
+        "description": "Build Cargo contract packages and extract their Wasm-exported ABIs.",
         "inputSchema": {
           "properties": {
             "outDir": {
@@ -812,7 +812,7 @@
           "required": [],
           "type": "object"
         },
-        "name": "compile"
+        "name": "build"
       },
       {
         "description": "Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.",

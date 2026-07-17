@@ -1,6 +1,6 @@
 ---
 title: Quick start
-description: Scaffold, test, fund, compile, deploy, call, and trace an Alkanes contract.
+description: Scaffold, test, fund, build, deploy, call, and trace an Alkanes contract.
 ---
 
 ## Create and test a contract
@@ -15,7 +15,7 @@ Every project starts with a fixed Counter contract. Add another minimal
 contract package and matching host test from anywhere inside the project:
 
 ```bash
-labcoat new resolver
+labcoat new token
 ```
 
 The generated project contains Rust contract sources, native integration tests,
@@ -41,7 +41,7 @@ labcoat wallet utxos
 ## Compile and deploy
 
 ```bash
-labcoat compile counter
+labcoat build counter
 labcoat deploy counter --dry-run
 labcoat deploy counter
 ```

@@ -1,6 +1,6 @@
 ---
 title: Contracts
-description: Test, compile, deploy, simulate, call, and trace Alkanes contracts.
+description: Test, build, deploy, simulate, call, and trace Alkanes contracts.
 ---
 
 ## Test before compiling
@@ -15,10 +15,10 @@ fast feedback loop outside the chain. Each `ContractHarness` has isolated
 in-memory storage that persists across calls on that harness. Use
 `storage_value` to inspect raw state or `set_storage` to seed a test fixture.
 
-## Compile
+## Build
 
 ```bash
-labcoat compile my-token
+labcoat build my-token
 ```
 
 Compilation writes:

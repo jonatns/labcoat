@@ -22,7 +22,7 @@ cd my-project && labcoat test
 labcoat up
 labcoat wallet init
 labcoat fund <address> && labcoat mine 1
-labcoat compile counter
+labcoat build counter
 labcoat deploy counter
 labcoat abi verify counter
 labcoat call counter <opcode> [args...]
@@ -237,12 +237,12 @@ Show spendable UTXOs
 utxos
 ```
 
-### `labcoat compile`
+### `labcoat build`
 
-Compile Cargo contract packages to build/<package>.{wasm,wasm.gz,abi.json}
+Build Cargo contract packages into build/<package>.{wasm,wasm.gz,abi.json}
 
 ```text
-compile [OPTIONS] [PACKAGE]
+build [OPTIONS] [PACKAGE]
 ```
 
 Arguments and options:
@@ -418,7 +418,7 @@ doctor
 | `wallet_init` | Create or load the project wallet keystore. Optional mnemonic (else generated). |
 | `wallet_addresses` | Wallet receive addresses per script type. |
 | `wallet_utxos` | Spendable wallet UTXOs. |
-| `compile` | Compile Cargo contract packages and extract their Wasm-exported ABIs. |
+| `build` | Build Cargo contract packages and extract their Wasm-exported ABIs. |
 | `test` | Build every contract for WASIp1 and run host integration tests; the first build may take several minutes. |
 | `abi_fetch` | Fetch ABI metadata from a deployed contract through Metashrew. |
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
@@ -441,8 +441,8 @@ doctor
 | `TRACE_TIMEOUT` | a decoded trace did not arrive in time | retry `labcoat trace --wait` |
 | `ENVELOPE_INVALID` | an Alkanes transaction envelope is invalid | check the contract and arguments |
 | `COMPILE_FAILED` | Rust or WebAssembly compilation failed | read stderr and run `labcoat doctor` |
-| `PACKAGE_NOT_FOUND` | the requested Cargo contract package was not discovered | run `labcoat compile` or pass a package listed in the error |
-| `ABI_MISMATCH` | local and deployed __meta output differ | compile the deployed source revision and verify the contract ID |
+| `PACKAGE_NOT_FOUND` | the requested Cargo contract package was not discovered | run `labcoat build` or pass a package listed in the error |
+| `ABI_MISMATCH` | local and deployed __meta output differ | build the deployed source revision and verify the contract ID |
 | `CONTRACT_NOT_FOUND` | a contract name or ID could not be resolved | run `labcoat lock show` |
 | `TOOLKIT_ERROR` | the underlying contract toolkit failed | read the error hint |
 | `BINARY_CRASH` | a managed devnet service exited | inspect `labcoat logs` |

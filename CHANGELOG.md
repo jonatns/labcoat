@@ -9,7 +9,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 - make `labcoat init` create a workspace with a fixed Counter starter
 - replace `labcoat contract new` with top-level `labcoat new <name>`
 - remove the `labcoat init --contract` option
-- make `labcoat deploy <package>` compile and deploy the selected contract directly
+- make `labcoat deploy <package>` build and deploy the selected contract directly
+- rename the build-only command and MCP tool from `compile` to `build`
 
 ## [0.1.0](https://github.com/jonatns/labcoat/releases/tag/cli-v0.1.0) - 2026-07-16
 

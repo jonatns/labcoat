@@ -4,7 +4,7 @@ description: Understand the Labcoat project layout, configuration precedence, se
 ---
 
 `labcoat init` creates a Rust-first workspace with a fixed Counter starter.
-Add another minimal contract later with `labcoat new resolver`.
+Add another minimal contract later with `labcoat new token`.
 
 ```text
 contracts/          Rust contract sources

@@ -46,7 +46,7 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("wallet_addresses", "Wallet receive addresses per script type.",
             json!({"count": {"type": "integer", "minimum": 1}}), &[]),
         tool("wallet_utxos", "Spendable wallet UTXOs.", json!({}), &[]),
-        tool("compile", "Compile Cargo contract packages and extract their Wasm-exported ABIs.",
+        tool("build", "Build Cargo contract packages and extract their Wasm-exported ABIs.",
             json!({"package": {"type": "string"}, "outDir": {"type": "string"}}), &[]),
         tool("test", "Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.",
             json!({"package": {"type": "string"}}), &[]),
@@ -193,13 +193,13 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map(|v| serde_json::to_value(v).unwrap())
                 .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))
         }
-        "compile" => {
+        "build" => {
             let package = args.get("package").and_then(|v| v.as_str());
             let out_dir = args
                 .get("outDir")
                 .and_then(|v| v.as_str())
                 .unwrap_or("build");
-            let (_, res) = contract::compile(package, out_dir);
+            let (_, res) = contract::build(package, out_dir);
             res.map_err(fail)
         }
         "test" => {
@@ -374,8 +374,8 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing MCP tool {name}"))
         };
 
-        assert_eq!(named("compile")["inputSchema"]["required"], json!([]));
-        assert!(named("compile")["inputSchema"]["properties"]["package"].is_object());
+        assert_eq!(named("build")["inputSchema"]["required"], json!([]));
+        assert!(named("build")["inputSchema"]["properties"]["package"].is_object());
         assert_eq!(named("test")["inputSchema"]["required"], json!([]));
         assert_eq!(
             named("abi_fetch")["inputSchema"]["required"],

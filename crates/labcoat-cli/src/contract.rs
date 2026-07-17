@@ -174,10 +174,10 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd) -> (&'static str, CmdResult) {
     }
 }
 
-pub fn compile(package: Option<&str>, out_dir: &str) -> (&'static str, CmdResult) {
-    let res = compile_selected(package, out_dir)
+pub fn build(package: Option<&str>, out_dir: &str) -> (&'static str, CmdResult) {
+    let res = build_selected(package, out_dir)
         .map(|selection| serde_json::json!({ "contracts": selection.outcomes }));
-    ("compile", to_envelope(res))
+    ("build", to_envelope(res))
 }
 
 struct CompileSelection {
@@ -185,7 +185,7 @@ struct CompileSelection {
     outcomes: Vec<labcoat_core::compile::CompileOutcome>,
 }
 
-fn compile_selected(
+fn build_selected(
     package: Option<&str>,
     out_dir: &str,
 ) -> Result<CompileSelection, labcoat_core::LabcoatError> {
@@ -276,7 +276,7 @@ pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
                     return Err(labcoat_core::LabcoatError::new(
                         "CONFIG_INVALID",
                         format!("local Wasm not found at {}", wasm_path.display()),
-                        "run `labcoat compile <package>` first",
+                        "run `labcoat build <package>` first",
                     ));
                 }
                 let local = labcoat_core::abi::extract_file(&wasm_path)?;
@@ -290,7 +290,7 @@ pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
                             "ABI mismatch for {block}:{tx}: local {}, deployed {}",
                             comparison.local_sha256, comparison.deployed_sha256
                         ),
-                        "compile the deployed source revision or verify the target contract id",
+                        "build the deployed source revision or verify the target contract id",
                     ));
                 }
                 Ok(serde_json::json!({
@@ -348,14 +348,14 @@ pub fn deploy_dry_run(
             labcoat_core::LabcoatError::new(
                 "CONFIG_INVALID",
                 format!("cannot read {}: {}", artifact.wasm_path.display(), e),
-                "compile the package or check the --wasm path",
+                "build the package or check the --wasm path",
             )
         })?;
         if bytes.starts_with(&[0x1f, 0x8b]) {
             return Err(labcoat_core::LabcoatError::new(
                 "ENVELOPE_INVALID",
                 "wasm payload is gzip-compressed; deploy wants the raw .wasm".to_string(),
-                "pass the .wasm produced by `labcoat compile`",
+                "pass the .wasm produced by `labcoat build`",
             ));
         }
         use sha2::Digest;
@@ -395,7 +395,7 @@ fn resolve_deployment_artifact(
                     "omit --name when deploying a Cargo contract package",
                 ));
             }
-            let mut selection = compile_selected(Some(package), "build")?;
+            let mut selection = build_selected(Some(package), "build")?;
             let outcome = selection.outcomes.pop().ok_or_else(|| {
                 labcoat_core::LabcoatError::new(
                     "PACKAGE_NOT_FOUND",

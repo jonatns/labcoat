@@ -12,7 +12,7 @@ supported interface. Back up the project before migrating.
 2. Commit or copy the existing project and deployment metadata.
 3. Run `labcoat lock migrate` once to convert legacy deployment records.
 4. Review `labcoat.toml` and remove any secret material.
-5. Run `labcoat test` and `labcoat compile` against contract sources.
+5. Run `labcoat test` and `labcoat build` against contract packages.
 6. Start a clean local devnet and redeploy; old local-chain IDs are not portable.
 
 Use `labcoat lock show` to verify the per-network ledger after migration. The

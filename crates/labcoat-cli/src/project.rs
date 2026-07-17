@@ -147,7 +147,7 @@ fn validate_contract_name(name: &str) -> Result<(), EnvelopeError> {
         Err(EnvelopeError {
             code: "CONFIG_INVALID",
             message: format!("invalid contract name `{name}`"),
-            hint: "use kebab-case beginning with a lowercase letter, for example `ens-registry`",
+            hint: "use kebab-case beginning with a lowercase letter, for example `my-token`",
         })
     }
 }

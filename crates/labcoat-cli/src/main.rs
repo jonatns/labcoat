@@ -1,7 +1,7 @@
 //! `labcoat` — the Alkanes toolkit CLI.
 //!
 //! Devnet verbs (up, down, status, mine, fund, logs, reset, snapshot,
-//! restore, binaries) + contract ops (wallet, compile, deploy, call,
+//! restore, binaries) + contract ops (wallet, build, deploy, call,
 //! simulate, trace, lock) on the pinned alkanes-rs develop commit.
 
 mod contract;
@@ -130,8 +130,8 @@ enum Commands {
     /// Wallet management (keystore at --wallet-file)
     #[command(subcommand)]
     Wallet(contract::WalletCmd),
-    /// Compile Cargo contract packages to build/<package>.{wasm,wasm.gz,abi.json}
-    Compile {
+    /// Build Cargo contract packages into build/<package>.{wasm,wasm.gz,abi.json}
+    Build {
         /// Optional Cargo package name (omitting it builds every contract)
         package: Option<String>,
         /// Output directory
@@ -273,8 +273,8 @@ async fn run(cli: Cli) -> i32 {
             let (name, res) = contract::wallet(&ctx, cmd).await;
             finish_contract(json, name, res)
         }
-        Commands::Compile { package, out_dir } => {
-            let (cmd_name, res) = contract::compile(package.as_deref(), &out_dir);
+        Commands::Build { package, out_dir } => {
+            let (cmd_name, res) = contract::build(package.as_deref(), &out_dir);
             finish_contract(json, cmd_name, res)
         }
         Commands::Abi(cmd) => {
@@ -704,5 +704,12 @@ mod envelope_tests {
         ])
         .is_err());
         assert!(Cli::try_parse_from(["labcoat", "deploy", "counter", "--name", "custom"]).is_err());
+    }
+
+    #[test]
+    fn build_accepts_only_optional_package_names() {
+        assert!(Cli::try_parse_from(["labcoat", "build"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "build", "counter"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "compile", "counter"]).is_err());
     }
 }

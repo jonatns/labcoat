@@ -58,12 +58,12 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     (
         "PACKAGE_NOT_FOUND",
         "the requested Cargo contract package was not discovered",
-        "run `labcoat compile` or pass a package listed in the error",
+        "run `labcoat build` or pass a package listed in the error",
     ),
     (
         "ABI_MISMATCH",
         "local and deployed __meta output differ",
-        "compile the deployed source revision and verify the contract ID",
+        "build the deployed source revision and verify the contract ID",
     ),
     (
         "CONTRACT_NOT_FOUND",
@@ -149,7 +149,7 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             "labcoat up".into(),
             "labcoat wallet init".into(),
             "labcoat fund <address> && labcoat mine 1".into(),
-            "labcoat compile counter".into(),
+            "labcoat build counter".into(),
             "labcoat deploy counter".into(),
             "labcoat abi verify counter".into(),
             "labcoat call counter <opcode> [args...]".into(),

@@ -50,7 +50,7 @@ labcoat init "$PROJECT"
 cd "$PROJECT"
 labcoat test
 labcoat new stateful
-labcoat compile counter
+labcoat build counter
 labcoat wallet init
 labcoat wallet addresses
 labcoat fund <address>

@@ -7,7 +7,7 @@ Labcoat gives contract developers one native tool for the complete local
 workflow:
 
 - scaffold Rust contract projects;
-- compile deployable WebAssembly;
+- build deployable WebAssembly;
 - run contracts in a native test harness;
 - start and control a complete Bitcoin regtest stack;
 - manage project wallets;
@@ -63,7 +63,7 @@ Every new project includes a fixed Counter starter. Add another minimal
 contract from anywhere inside the project with:
 
 ```bash
-labcoat new ens-registry
+labcoat new token
 ```
 
 Start the local devnet and initialize the project wallet:
@@ -86,7 +86,7 @@ labcoat wallet utxos
 Compile the Counter without deploying, or deploy it directly by package name:
 
 ```bash
-labcoat compile counter
+labcoat build counter
 labcoat deploy counter --dry-run
 labcoat deploy counter
 labcoat abi fetch counter
@@ -136,7 +136,7 @@ when deployments are part of the project state.
 
 Each contract is an ordinary Cargo package under `contracts/`, so normal
 crates.io, git, path dependencies, modules, and shared workspace crates work.
-The first compile creates `Cargo.lock`; commit it and avoid bare `cargo update`.
+The first build creates `Cargo.lock`; commit it and avoid bare `cargo update`.
 Host tests use isolated in-memory contract storage that persists across calls
 on the same `ContractHarness`.
 
@@ -148,7 +148,7 @@ is needed.
 Add another minimal contract package and matching host test without copying files:
 
 ```bash
-labcoat new resolver
+labcoat new token
 ```
 
 ## CLI map
@@ -156,7 +156,7 @@ labcoat new resolver
 | Area | Commands |
 |---|---|
 | Project | `init`, `new`, `doctor`, `docs` |
-| Test and build | `test`, `compile` |
+| Test and build | `test`, `build` |
 | Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
 | Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |
 | Contracts | `deploy`, `call`, `simulate`, `trace`, `abi`, `lock` |

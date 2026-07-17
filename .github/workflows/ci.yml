@@ -117,11 +117,11 @@ jobs:
           grep -q '"package": "counter"' "$RUNNER_TEMP/labcoat-deploy.json"
           cmp build/counter.abi.json .labcoat/test-artifacts/counter.abi.json
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            compile stateful --json \
-            | tee "$RUNNER_TEMP/labcoat-compile.json"
-          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-compile.json"
+            build stateful --json \
+            | tee "$RUNNER_TEMP/labcoat-build.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-build.json"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            compile contracts/Example.rs --json \
+            build contracts/Example.rs --json \
             | tee "$RUNNER_TEMP/labcoat-loose-contract.json"
           grep -q '"code": "CONFIG_INVALID"' "$RUNNER_TEMP/labcoat-loose-contract.json"
 

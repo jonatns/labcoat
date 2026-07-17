@@ -11,7 +11,7 @@ Add another minimal contract and matching test with
 1. Run `labcoat test` for host-side Rust integration tests.
 2. Run `labcoat up --json` and wait for `result.status.is_ready`.
 3. Initialize the keystore with `labcoat wallet init --json`.
-4. Compile without deploying with `labcoat compile counter --json` when needed.
+4. Build without deploying with `labcoat build counter --json` when needed.
 5. Deploy by package name with `labcoat deploy counter --json`; Labcoat recompiles it first.
 6. Use `simulate`, `call`, and `trace --wait` for the contract loop.
 
