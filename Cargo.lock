@@ -3907,7 +3907,7 @@ dependencies = [
 
 [[package]]
 name = "labcoat-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "hex",
@@ -3923,7 +3923,7 @@ dependencies = [
 
 [[package]]
 name = "labcoat-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alkanes-cli-common",
  "alkanes-support",
@@ -3944,7 +3944,7 @@ dependencies = [
 
 [[package]]
 name = "labcoat-test"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "psm",
