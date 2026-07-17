@@ -2,6 +2,7 @@
   "name": "@labcoat/web",
   "version": "0.1.0",
   "private": true,
+  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.",
   "type": "module",
   "scripts": {
     "dev": "astro dev",
@@ -11,6 +12,7 @@
     "sync:reference": "node scripts/sync-reference.mjs",
     "check:reference": "node scripts/sync-reference.mjs --check",
     "generate:og": "node scripts/generate-og.mjs",
+    "check:og": "node scripts/generate-og.mjs --check",
     "verify:build": "node scripts/verify-build.mjs",
     "test:e2e": "playwright test",
     "test:lighthouse": "lhci autorun"
@@ -18,6 +20,8 @@
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/starlight": "^0.41.3",
+    "@fontsource-variable/ibm-plex-sans": "5.2.8",
+    "@fontsource/ibm-plex-mono": "5.2.7",
     "astro": "^7.0.9"
   },
   "devDependencies": {

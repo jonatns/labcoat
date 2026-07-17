@@ -1,13 +1,17 @@
 # Labcoat
 
-**A Rust-first CLI for building, testing, deploying, and operating
-[Alkanes](https://alkanes.build) smart contracts on Bitcoin.**
+![Labcoat — From Rust source to decoded trace.](apps/web/public/og.svg)
 
-Labcoat gives contract developers one native tool for the complete local
-workflow:
+**From Rust source to decoded trace.**
 
-- scaffold Rust contract projects;
-- compile deployable WebAssembly;
+Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.
+
+> Early-stage software for local Alkanes development. Interfaces may change before 1.0; mainnet deployment controls are not production-ready.
+
+Labcoat gives contract developers one command system for the local workflow:
+
+- scaffold Rust [Alkanes](https://alkanes.build) contract projects;
+- build deployable WebAssembly;
 - run contracts in a native test harness;
 - start and control a complete Bitcoin regtest stack;
 - manage project wallets;
@@ -17,7 +21,13 @@ workflow:
 The supported public interface is the **`labcoat` CLI**.
 
 [Website](https://labcoat.sh) · [Documentation](https://labcoat.sh/docs/) ·
-[Agent index](https://labcoat.sh/llms.txt)
+[Agent index](https://labcoat.sh/llms.txt) · [Security policy](SECURITY.md)
+
+> **Release channel note:** the stable `cli-v0.1.0` release uses
+> `labcoat contract new`, `labcoat compile`, and raw-Wasm deployment. The
+> current main branch and these examples use `labcoat new`, `labcoat build`,
+> and package-name deployment. Run `labcoat docs --llm` for the reference
+> bundled with your installed version.
 
 ## Install
 
@@ -28,7 +38,16 @@ support is not available yet.
 curl -fsSL https://labcoat.sh/install | sh
 ```
 
-The installer verifies the release checksum and writes the binary to
+Inspect the installer before running it if required by your security policy:
+
+```bash
+curl -fsSL https://labcoat.sh/install -o /tmp/install-labcoat.sh
+less /tmp/install-labcoat.sh
+sh /tmp/install-labcoat.sh 0.1.0
+```
+
+The installer requires `sha256sum` or `shasum`, verifies the release checksum
+automatically, and writes the binary to
 `${LABCOAT_INSTALL_DIR:-$HOME/.local/bin}`. Install a specific version with:
 
 ```bash
@@ -49,6 +68,10 @@ Check the complete environment with:
 labcoat doctor
 ```
 
+See the [installation guide](https://labcoat.sh/docs/getting-started/installation/)
+for upgrades, rollback, uninstall, artifact attestation verification, supported
+platforms, and runtime limitations.
+
 ## Quick start
 
 Create a project and run its Rust integration test:
@@ -59,10 +82,11 @@ cd hello-alkane
 labcoat test
 ```
 
-Name the first contract for your project instead of starting from the example:
+Every new project includes a fixed Counter starter. Add another minimal
+contract from anywhere inside the project with:
 
 ```bash
-labcoat init name-service --contract ens-registry
+labcoat new token
 ```
 
 Start the local devnet and initialize the project wallet:
@@ -82,21 +106,21 @@ labcoat mine 1
 labcoat wallet utxos
 ```
 
-Compile and deploy the example contract:
+Build the Counter without deploying, or deploy it directly by package name:
 
 ```bash
-labcoat compile example
-labcoat deploy build/example.wasm --dry-run
-labcoat deploy build/example.wasm
-labcoat abi fetch example
-labcoat abi verify example
+labcoat build counter
+labcoat deploy counter --dry-run
+labcoat deploy counter
+labcoat abi fetch counter
+labcoat abi verify counter
 ```
 
 Interact with the deployed contract:
 
 ```bash
-labcoat simulate example 1 World
-labcoat call example 1 World
+labcoat simulate counter 2
+labcoat call counter 1
 labcoat trace <txid> --wait
 ```
 
@@ -112,7 +136,6 @@ labcoat down
 
 ```text
 contracts/          Cargo contract packages
-crates/             Shared contract libraries
 tests/              Native integration tests using labcoat-test
 Cargo.toml          Host-side test package and workspace manifest
 Cargo.lock          Reproducible dependency lock (created on first build)
@@ -136,20 +159,27 @@ when deployments are part of the project state.
 
 Each contract is an ordinary Cargo package under `contracts/`, so normal
 crates.io, git, path dependencies, modules, and shared workspace crates work.
-The first compile creates `Cargo.lock`; commit it and avoid bare `cargo update`.
+The first build creates `Cargo.lock`; commit it and avoid bare `cargo update`.
+Host tests use isolated in-memory contract storage that persists across calls
+on the same `ContractHarness`.
+
+When multiple contracts need common Rust code, add a Cargo library under
+`crates/<name>/` and add `"crates/<name>"` to the root workspace `members`.
+New projects omit both the directory and its workspace glob until shared code
+is needed.
 
 Add another minimal contract package and matching host test without copying files:
 
 ```bash
-labcoat contract new resolver
+labcoat new token
 ```
 
 ## CLI map
 
 | Area | Commands |
 |---|---|
-| Project | `init`, `contract new`, `doctor`, `docs` |
-| Test and build | `test`, `compile` |
+| Project | `init`, `new`, `doctor`, `docs` |
+| Test and build | `test`, `build` |
 | Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
 | Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |
 | Contracts | `deploy`, `call`, `simulate`, `trace`, `abi`, `lock` |
@@ -165,9 +195,20 @@ Errors include a typed code, human-readable message, and recovery hint.
 
 ```bash
 labcoat status --json
-labcoat deploy build/example.wasm --dry-run --json
+labcoat deploy counter --dry-run --json
 labcoat mcp serve
 ```
+
+## Support and stability
+
+Labcoat supports macOS and Linux on arm64 and x86_64. Windows, hosted
+operation, durable production state, and production mainnet controls are not
+supported. Public web documentation tracks the current `main` branch; use
+`labcoat docs --llm` for installed-version command truth.
+
+Read [SECURITY.md](SECURITY.md) before using local wallets or exposing runtime
+services. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup,
+generated-file rules, validation, and release boundaries.
 
 ## Develop Labcoat
 
@@ -179,6 +220,7 @@ cargo check --workspace --locked
 cargo test --workspace --locked
 cargo clippy --workspace --locked -- -D warnings
 cargo build --release -p labcoat-cli
+export PATH="$PWD/target/release:$PATH"
 ```
 
 Core layout:

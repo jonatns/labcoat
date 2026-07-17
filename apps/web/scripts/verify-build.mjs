@@ -16,6 +16,7 @@ const required = [
   'install',
   'robots.txt',
   'sitemap-index.xml',
+  'og.svg',
   'og.png',
 ];
 

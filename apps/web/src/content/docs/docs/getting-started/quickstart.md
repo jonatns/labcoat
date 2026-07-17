@@ -1,6 +1,6 @@
 ---
 title: Quick start
-description: Scaffold, test, fund, compile, deploy, call, and trace an Alkanes contract.
+description: Scaffold, test, fund, build, deploy, call, and trace an Alkanes contract.
 ---
 
 ## Create and test a contract
@@ -11,14 +11,12 @@ cd hello-alkane
 labcoat test
 ```
 
-For a real project, name the initial contract directly:
+Every project starts with a fixed Counter contract. Add another minimal
+contract package and matching host test from anywhere inside the project:
 
 ```bash
-labcoat init name-service --contract ens-registry
+labcoat new token
 ```
-
-From an existing Labcoat project, `labcoat contract new resolver` adds another
-minimal contract package and matching host test.
 
 The generated project contains Rust contract sources, native integration tests,
 public configuration, deployment state, and agent instructions.
@@ -40,23 +38,23 @@ labcoat mine 1
 labcoat wallet utxos
 ```
 
-## Compile and deploy
+## Build and deploy
 
 ```bash
-labcoat compile contracts/Example.rs
-labcoat deploy build/Example.wasm --dry-run
-labcoat deploy build/Example.wasm
+labcoat build counter
+labcoat deploy counter --dry-run
+labcoat deploy counter
 ```
 
-Always deploy the raw `.wasm`. The deployment flow performs compression inside
-the commit/reveal envelope and records the resulting Alkanes ID in
-`labcoat.lock`.
+Deploy selects and recompiles the exact Cargo package before creating the
+commit/reveal envelope and recording the resulting Alkanes ID in
+`labcoat.lock`. Use `--wasm <path>` only for an external raw Wasm artifact.
 
 ## Interact and inspect
 
 ```bash
-labcoat simulate Example 1 World
-labcoat call Example 1 World
+labcoat simulate counter 2
+labcoat call counter 1
 labcoat trace <txid> --wait
 ```
 

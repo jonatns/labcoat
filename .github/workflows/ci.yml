@@ -37,6 +37,15 @@ jobs:
               - 'package.json'
             web:
               - 'apps/web/**'
+              - 'brand.json'
+              - 'README.md'
+              - 'SECURITY.md'
+              - 'CONTRIBUTING.md'
+              - 'THIRD_PARTY_NOTICES.md'
+              - 'docs/BRAND.md'
+              - 'scripts/validate-brand.mjs'
+              - 'scripts/release/render-release-notes.mjs'
+              - 'scripts/tests/release-notes-test.mjs'
               - 'crates/labcoat-cli/src/docs.rs'
               - 'crates/labcoat-cli/src/main.rs'
               - 'crates/labcoat-cli/src/mcp.rs'
@@ -103,23 +112,27 @@ jobs:
           PROJECT=$(mktemp -d)/project
           ./target/debug/labcoat init "$PROJECT" --json | grep -q '"ok": true'
           cd "$PROJECT"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            new stateful --json | grep -q '"ok": true'
           LABCOAT_TEST_CRATE_PATH="$GITHUB_WORKSPACE/crates/labcoat-test" \
             "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
             | tee "$RUNNER_TEMP/labcoat-test.json"
           grep -q '"passed": true' "$RUNNER_TEMP/labcoat-test.json"
+          test ! -e build/counter.wasm
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            compile example --json \
-            | tee "$RUNNER_TEMP/labcoat-compile.json"
-          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-compile.json"
-          cmp build/example.abi.json .labcoat/test-artifacts/example.abi.json
-          "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            compile contracts/Example.rs --json \
-            | tee "$RUNNER_TEMP/labcoat-loose-contract.json"
-          grep -q '"code": "CONFIG_INVALID"' "$RUNNER_TEMP/labcoat-loose-contract.json"
-          "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            deploy build/example.wasm --dry-run --json \
+            deploy counter --dry-run --json \
             | tee "$RUNNER_TEMP/labcoat-deploy.json"
           grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
+          grep -q '"package": "counter"' "$RUNNER_TEMP/labcoat-deploy.json"
+          cmp build/counter.abi.json .labcoat/test-artifacts/counter.abi.json
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            build stateful --json \
+            | tee "$RUNNER_TEMP/labcoat-build.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-build.json"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            build contracts/Example.rs --json \
+            | tee "$RUNNER_TEMP/labcoat-loose-contract.json"
+          grep -q '"code": "CONFIG_INVALID"' "$RUNNER_TEMP/labcoat-loose-contract.json"
 
   js:
     needs: changes
@@ -147,6 +160,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @labcoat/web check:og
       - run: pnpm --filter @labcoat/web check
       - run: pnpm --filter @labcoat/web build
       - run: pnpm --filter @labcoat/web exec playwright install --with-deps chromium
@@ -170,6 +184,10 @@ jobs:
           node-version: 22
       - name: "Guard: diff has no whitespace errors"
         run: git diff --check
+      - name: Brand and release governance validation
+        run: |
+          node scripts/validate-brand.mjs
+          node scripts/tests/release-notes-test.mjs
       - name: "Guard: no whitespace errors"
         run: |
           if git grep -nI -E '[[:blank:]]+$'; then

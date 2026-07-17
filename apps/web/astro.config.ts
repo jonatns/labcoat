@@ -1,6 +1,7 @@
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
+import brand from '../../brand.json';
 
 export default defineConfig({
   site: 'https://labcoat.sh',
@@ -8,14 +9,18 @@ export default defineConfig({
   trailingSlash: 'ignore',
   integrations: [
     starlight({
-      title: 'Labcoat',
-      description: 'The Rust-native toolkit for building Alkanes smart contracts on Bitcoin.',
+      title: brand.name,
+      description: brand.metaDescription,
       favicon: '/favicon.svg',
       logo: {
-        src: './src/assets/labcoat-mark.svg',
+        dark: './src/assets/labcoat-mark.svg',
+        light: './src/assets/labcoat-mark-light.svg',
         alt: '',
       },
       customCss: ['./src/styles/global.css'],
+      components: {
+        Banner: './src/components/DocsBanner.astro',
+      },
       social: [
         {
           icon: 'github',
@@ -55,13 +60,15 @@ export default defineConfig({
             { label: 'CLI reference', slug: 'docs/reference/cli' },
             { label: 'Protocol', slug: 'docs/reference/protocol' },
             { label: 'Errors & recovery', slug: 'docs/reference/errors' },
+            { label: 'Stability & releases', slug: 'docs/reference/stability' },
             { label: 'Migration', slug: 'docs/migration' },
           ],
         },
       ],
       head: [
         { tag: 'meta', attrs: { name: 'theme-color', content: '#0a0d0b' } },
-        { tag: 'meta', attrs: { property: 'og:site_name', content: 'Labcoat' } },
+        { tag: 'meta', attrs: { property: 'og:site_name', content: brand.name } },
+        { tag: 'meta', attrs: { property: 'og:description', content: brand.metaDescription } },
         { tag: 'meta', attrs: { property: 'og:image', content: 'https://labcoat.sh/og.png' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
       ],

@@ -2,7 +2,7 @@
 name = "labcoat-test"
 version.workspace = true
 publish = true
-description = "Host-side Rust test harness for Labcoat Alkanes WASM contracts"
+description = "Native Rust test harness for Labcoat Alkanes smart contracts"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

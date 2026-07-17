@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import brand from '../../../../brand.json';
 
 const modules = import.meta.glob<string>('../content/docs/docs/**/*.md', {
   query: '?raw',
@@ -19,6 +20,6 @@ const body = Object.entries(modules)
   .join('\n\n---\n\n');
 
 export const GET: APIRoute = () =>
-  new Response(`# Labcoat — complete documentation\n\n${body}\n`, {
+  new Response(`# ${brand.name} — ${brand.tagline}\n\n${brand.description}\n\n${brand.maturityNotice}\n\n${brand.docsChannelNotice}\n\n${body}\n`, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });

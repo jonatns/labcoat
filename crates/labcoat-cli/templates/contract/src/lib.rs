@@ -14,6 +14,7 @@ enum {{CONTRACT_RUST_NAME}}Message {
 
 impl {{CONTRACT_RUST_NAME}} {
     fn initialize(&self) -> Result<CallResponse> {
+        self.observe_initialization()?;
         let context = self.context()?;
         Ok(CallResponse::forward(&context.incoming_alkanes))
     }

@@ -19,43 +19,28 @@
               "false"
             ],
             "required": false
-          },
-          {
-            "description": "Name the initial contract instead of scaffolding the example quickstart",
-            "id": "contract",
-            "possibleValues": [],
-            "required": false
           }
         ],
-        "description": "Scaffold a Rust-first Labcoat project",
+        "description": "Scaffold a Rust-native Labcoat workspace with a Counter starter",
         "name": "init",
         "path": "labcoat init",
         "subcommands": [],
         "usage": "init [OPTIONS] [DIRECTORY]"
       },
       {
-        "arguments": [],
-        "description": "Contract source scaffolding",
-        "name": "contract",
-        "path": "labcoat contract",
-        "subcommands": [
+        "arguments": [
           {
-            "arguments": [
-              {
-                "description": "",
-                "id": "name",
-                "possibleValues": [],
-                "required": true
-              }
-            ],
-            "description": "Add a minimal contract package and host integration test to this project",
-            "name": "new",
-            "path": "labcoat contract new",
-            "subcommands": [],
-            "usage": "new <NAME>"
+            "description": "Contract package name in kebab-case",
+            "id": "name",
+            "possibleValues": [],
+            "required": true
           }
         ],
-        "usage": "contract <COMMAND>"
+        "description": "Add a minimal contract package and host integration test to this project",
+        "name": "new",
+        "path": "labcoat new",
+        "subcommands": [],
+        "usage": "new <NAME>"
       },
       {
         "arguments": [
@@ -66,7 +51,7 @@
             "required": false
           }
         ],
-        "description": "Compile WASIp1 WebAssembly and run native Rust integration tests",
+        "description": "Build WASIp1 WebAssembly and run native Rust integration tests",
         "name": "test",
         "path": "labcoat test",
         "subcommands": [],
@@ -318,11 +303,11 @@
             "required": false
           }
         ],
-        "description": "Compile Cargo contract packages to build/<package>.{wasm,wasm.gz,abi.json}",
-        "name": "compile",
-        "path": "labcoat compile",
+        "description": "Build Cargo contract packages into build/<package>.{wasm,wasm.gz,abi.json}",
+        "name": "build",
+        "path": "labcoat build",
         "subcommands": [],
-        "usage": "compile [OPTIONS] [PACKAGE]"
+        "usage": "build [OPTIONS] [PACKAGE]"
       },
       {
         "arguments": [],
@@ -378,13 +363,19 @@
       {
         "arguments": [
           {
-            "description": "Path to the raw .wasm artifact",
-            "id": "wasm",
+            "description": "Exact Cargo contract package name",
+            "id": "package",
             "possibleValues": [],
-            "required": true
+            "required": false
           },
           {
-            "description": "Contract name recorded in labcoat.lock (defaults to file stem)",
+            "description": "Explicit path to a raw .wasm artifact (skips compilation)",
+            "id": "wasm",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Contract name for --wasm deployments (defaults to file stem)",
             "id": "name",
             "possibleValues": [],
             "required": false
@@ -405,11 +396,11 @@
             "required": false
           }
         ],
-        "description": "Deploy a compiled contract (raw .wasm) via commit/reveal envelope",
+        "description": "Build and deploy a contract package, or deploy an explicit raw Wasm",
         "name": "deploy",
         "path": "labcoat deploy",
         "subcommands": [],
-        "usage": "deploy [OPTIONS] <WASM>"
+        "usage": "deploy [OPTIONS] [PACKAGE]"
       },
       {
         "arguments": [
@@ -579,14 +570,14 @@
       "labcoat up",
       "labcoat wallet init",
       "labcoat fund <address> && labcoat mine 1",
-      "labcoat compile example",
-      "labcoat deploy build/example.wasm",
-      "labcoat abi verify example",
-      "labcoat call example <opcode> [args...]",
+      "labcoat build counter",
+      "labcoat deploy counter",
+      "labcoat abi verify counter",
+      "labcoat call counter <opcode> [args...]",
       "labcoat trace <txid> --wait",
       "labcoat down"
     ],
-    "description": "Rust-native toolkit for building, testing, deploying, and operating Alkanes smart contracts on Bitcoin.",
+    "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.",
     "errorCodes": [
       {
         "code": "CONFIG_INVALID",
@@ -641,12 +632,12 @@
       {
         "code": "PACKAGE_NOT_FOUND",
         "meaning": "the requested Cargo contract package was not discovered",
-        "recovery": "run `labcoat compile` or pass a package listed in the error"
+        "recovery": "run `labcoat build` or pass a package listed in the error"
       },
       {
         "code": "ABI_MISMATCH",
         "meaning": "local and deployed __meta output differ",
-        "recovery": "compile the deployed source revision and verify the contract ID"
+        "recovery": "build the deployed source revision and verify the contract ID"
       },
       {
         "code": "CONTRACT_NOT_FOUND",
@@ -668,7 +659,7 @@
     "mcpProtocolVersion": "2024-11-05",
     "mcpTools": [
       {
-        "description": "Boot the full Alkanes devnet stack (downloads binaries when missing). Returns service status and the endpoint manifest.",
+        "description": "Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest.",
         "inputSchema": {
           "properties": {
             "noDownload": {
@@ -808,7 +799,7 @@
         "name": "wallet_utxos"
       },
       {
-        "description": "Compile Cargo contract packages and extract their Wasm-exported ABIs.",
+        "description": "Build Cargo contract packages and extract their Wasm-exported ABIs.",
         "inputSchema": {
           "properties": {
             "outDir": {
@@ -821,7 +812,7 @@
           "required": [],
           "type": "object"
         },
-        "name": "compile"
+        "name": "build"
       },
       {
         "description": "Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.",
@@ -873,7 +864,7 @@
         "name": "abi_verify"
       },
       {
-        "description": "Deploy a compiled contract (raw .wasm) via commit/reveal. Records it in labcoat.lock.",
+        "description": "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
         "inputSchema": {
           "properties": {
             "args": {
@@ -884,16 +875,19 @@
               "type": "array"
             },
             "name": {
+              "description": "optional name for wasm deployments",
+              "type": "string"
+            },
+            "package": {
+              "description": "exact Cargo contract package name",
               "type": "string"
             },
             "wasm": {
-              "description": "path to the raw .wasm",
+              "description": "explicit path to raw .wasm; skips compilation",
               "type": "string"
             }
           },
-          "required": [
-            "wasm"
-          ],
+          "required": [],
           "type": "object"
         },
         "name": "deploy"
@@ -992,7 +986,7 @@
         "name": "labcoat.lock"
       },
       {
-        "detail": "Compile and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.",
+        "detail": "Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.",
         "name": "Contract ABI"
       }
     ],

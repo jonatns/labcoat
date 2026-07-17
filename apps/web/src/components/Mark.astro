@@ -1,0 +1,36 @@
+---
+interface Props {
+  appearance?: 'default' | 'light' | 'dark' | 'mono' | 'small';
+  class?: string;
+  label?: string;
+}
+
+const {
+  appearance = 'default',
+  class: className = '',
+  label,
+} = Astro.props;
+---
+
+<svg
+  class:list={['labcoat-mark', `labcoat-mark--${appearance}`, className]}
+  viewBox="0 0 64 64"
+  fill="none"
+  role={label ? 'img' : undefined}
+  aria-label={label}
+  aria-hidden={label ? undefined : 'true'}
+>
+  <path class="labcoat-mark__flask" d="M24 8h16M28 8v14L13 48a5.3 5.3 0 0 0 4.6 8h28.8a5.3 5.3 0 0 0 4.6-8L36 22V8" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+  <path class="labcoat-mark__trace" d="m21 43 8-7 6 5 5-5 5 7" stroke="var(--mark-acid, var(--acid))" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+  <circle class="labcoat-mark__sample" cx="34" cy="29" r="2.5" fill="var(--mark-amber, var(--amber))"></circle>
+</svg>
+
+<style>
+  .labcoat-mark { display: block; color: currentColor; }
+  .labcoat-mark--light { color: #f4f7f4; }
+  .labcoat-mark--dark { color: #101411; }
+  .labcoat-mark--mono { --mark-acid: currentColor; --mark-amber: currentColor; }
+  .labcoat-mark--small .labcoat-mark__sample { display: none; }
+  .labcoat-mark--small .labcoat-mark__flask { stroke-width: 4.5; }
+  .labcoat-mark--small .labcoat-mark__trace { stroke-width: 4; }
+</style>

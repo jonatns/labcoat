@@ -1,10 +1,10 @@
 ---
 title: Devnet and wallets
-description: Operate the complete local Bitcoin and Alkanes stack and its project wallet.
+description: Operate the managed local Bitcoin devnet services and project wallet.
 ---
 
 `labcoat up` checks required service binaries, downloads missing pinned builds,
-starts the complete stack, and exposes one JSON-RPC gateway.
+starts the managed local services, and exposes one JSON-RPC gateway.
 
 | Service | Purpose |
 | --- | --- |
@@ -15,7 +15,7 @@ starts the complete stack, and exposes one JSON-RPC gateway.
 | espo | Explorer and trace services |
 | gateway | Unified JSON-RPC endpoint on port 18888 |
 
-## Operate the stack
+## Operate the local services
 
 ```bash
 labcoat up

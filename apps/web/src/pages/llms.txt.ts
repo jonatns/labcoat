@@ -1,8 +1,13 @@
 import type { APIRoute } from 'astro';
+import brand from '../../../../brand.json';
 
-const body = `# Labcoat
+const body = `# ${brand.name}
 
-> Labcoat is the Rust-native CLI for building, testing, deploying, and operating Alkanes smart contracts on Bitcoin.
+> ${brand.description}
+
+${brand.maturityNotice}
+
+${brand.docsChannelNotice}
 
 Canonical site: https://labcoat.sh
 Source: https://github.com/jonatns/labcoat
@@ -17,6 +22,7 @@ Source: https://github.com/jonatns/labcoat
 - [CLI reference](https://labcoat.sh/docs/reference/cli/)
 - [Protocol reference](https://labcoat.sh/docs/reference/protocol/)
 - [Errors and recovery](https://labcoat.sh/docs/reference/errors/)
+- [Stability and releases](https://labcoat.sh/docs/reference/stability/)
 - [Machine-readable CLI reference](https://labcoat.sh/reference/cli.json)
 - [Agent skill](https://labcoat.sh/skill.md)
 - [Full documentation corpus](https://labcoat.sh/llms-full.txt)

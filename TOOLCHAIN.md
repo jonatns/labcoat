@@ -27,9 +27,10 @@ source with itself at a rev, so the reproducibility pin is the **committed
 at the pinned commit) and CI builds with `--locked`. Never run a bare
 `cargo update`.
 
-Generated project templates carry these same direct revisions and create their
-own `Cargo.lock` on first build. Commit that lockfile; it is the reproducibility
-boundary for a Labcoat project.
+Generated project templates pin `alkanes-rs` directly and use the same
+`kungfuflex/metashrew@develop` SourceId as that revision's transitive
+dependencies. They create their own `Cargo.lock` on first build; commit that
+lockfile because it is the reproducibility boundary for a Labcoat project.
 
 **Upgrade procedure:** update the rev here and in every `Cargo.toml` /
 contract template / workflow, `cargo update` only the affected git deps, run the

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
@@ -46,7 +46,7 @@ function releaseTriggerDigest() {
   )
     .toString()
     .split('\0')
-    .filter((path) => path && path !== trigger)
+    .filter((path) => path && path !== trigger && existsSync(resolve(root, path)))
     .sort();
   const hash = createHash('sha256');
   for (const path of files) {
@@ -73,6 +73,10 @@ function validateCargo() {
   }
   const template = read('crates/labcoat-cli/templates/default/Cargo.toml');
   if (!template.includes('labcoat-test = "={{LABCOAT_VERSION}}"')) fail('project template must use the CLI version placeholder');
+  if (!template.includes('metashrew-support = { git = "https://github.com/kungfuflex/metashrew", branch = "develop" }')) {
+    fail('project template must use the same metashrew source as alkanes-rs');
+  }
+  if (template.includes('sandshrewmetaprotocols/metashrew')) fail('project template uses the legacy metashrew remote');
   const trigger = read('crates/labcoat-test/RELEASE_TRIGGER').trim();
   if (!sha256.test(trigger)) fail('labcoat-test release trigger must be a SHA-256 digest');
   if (trigger !== releaseTriggerDigest()) fail('labcoat-test release trigger is stale; run update-release-trigger.mjs');

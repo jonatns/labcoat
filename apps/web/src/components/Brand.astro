@@ -1,4 +1,7 @@
 ---
+import Mark from './Mark.astro';
+import brand from '../../../../brand.json';
+
 interface Props {
   compact?: boolean;
 }
@@ -7,10 +10,6 @@ const { compact = false } = Astro.props;
 ---
 
 <a class="brand" href="/" aria-label="Labcoat home">
-  <svg class="brand-mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <path d="M24 8h16M28 8v14L13 48a5.3 5.3 0 0 0 4.6 8h28.8a5.3 5.3 0 0 0 4.6-8L36 22V8" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
-    <path d="m21 43 8-7 6 5 5-5 5 7" stroke="var(--acid)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
-    <circle cx="34" cy="29" r="2.5" fill="var(--amber)"></circle>
-  </svg>
-  {!compact && <span>LABCOAT</span>}
+  <Mark class="brand-mark" />
+  {!compact && <span>{brand.name.toUpperCase()}</span>}
 </a>

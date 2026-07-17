@@ -217,3 +217,12 @@ pub fn decode_revert_reason(hex_str: &str) -> Option<String> {
     let bytes = hex::decode(&data[8..]).ok()?;
     String::from_utf8(bytes).ok()
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn serde_json_preserves_full_u128_cellpack_values() {
+        let value = serde_json::json!(u128::MAX);
+        assert_eq!(value.to_string(), u128::MAX.to_string());
+    }
+}

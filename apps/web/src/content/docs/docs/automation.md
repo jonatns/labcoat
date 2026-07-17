@@ -13,7 +13,7 @@ and progress stay on stderr.
 
 ```bash
 labcoat status --json
-labcoat deploy build/MyToken.wasm --dry-run --json
+labcoat deploy my-token --dry-run --json
 ```
 
 ```json
@@ -38,8 +38,11 @@ the envelope rather than inferring application success from the process code.
 labcoat mcp serve
 ```
 
-The stdio MCP server exposes devnet, wallet, compilation, deployment, call,
+The stdio MCP server exposes devnet, wallet, build, deployment, call,
 simulation, and trace tools using the same typed operations as the CLI.
+
+Pin the Labcoat version used by an agent. The public website tracks current
+`main`; `labcoat docs --llm` is the installed-version authority.
 
 ## Context endpoints
 

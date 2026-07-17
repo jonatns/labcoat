@@ -30,7 +30,7 @@ pub(crate) fn tools() -> Vec<Value> {
         "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)"
     });
     vec![
-        tool("devnet_up", "Boot the full Alkanes devnet stack (downloads binaries when missing). Returns service status and the endpoint manifest.",
+        tool("devnet_up", "Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest.",
             json!({"noDownload": {"type": "boolean", "description": "skip the binary check/download"}}), &[]),
         tool("devnet_down", "Stop all devnet services.", json!({}), &[]),
         tool("devnet_status", "Devnet service health, block height, and mempool size.", json!({}), &[]),
@@ -46,7 +46,7 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("wallet_addresses", "Wallet receive addresses per script type.",
             json!({"count": {"type": "integer", "minimum": 1}}), &[]),
         tool("wallet_utxos", "Spendable wallet UTXOs.", json!({}), &[]),
-        tool("compile", "Compile Cargo contract packages and extract their Wasm-exported ABIs.",
+        tool("build", "Build Cargo contract packages and extract their Wasm-exported ABIs.",
             json!({"package": {"type": "string"}, "outDir": {"type": "string"}}), &[]),
         tool("test", "Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.",
             json!({"package": {"type": "string"}}), &[]),
@@ -54,8 +54,8 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"contract": {"type": "string"}, "out": {"type": "string"}}), &["contract"]),
         tool("abi_verify", "Compare a deployed ABI with a locally built contract package.",
             json!({"contract": {"type": "string"}, "package": {"type": "string"}}), &["contract"]),
-        tool("deploy", "Deploy a compiled contract (raw .wasm) via commit/reveal. Records it in labcoat.lock.",
-            json!({"wasm": {"type": "string", "description": "path to the raw .wasm"}, "name": {"type": "string"}, "args": arg_array.clone()}), &["wasm"]),
+        tool("deploy", "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
+            json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone()}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
             json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string"}, "args": arg_array.clone()}), &["contract", "opcode"]),
         tool("simulate", "Read-only simulation of a contract call (no transaction).",
@@ -193,13 +193,13 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map(|v| serde_json::to_value(v).unwrap())
                 .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))
         }
-        "compile" => {
+        "build" => {
             let package = args.get("package").and_then(|v| v.as_str());
             let out_dir = args
                 .get("outDir")
                 .and_then(|v| v.as_str())
                 .unwrap_or("build");
-            let (_, res) = contract::compile(package, out_dir);
+            let (_, res) = contract::build(package, out_dir);
             res.map_err(fail)
         }
         "test" => {
@@ -244,12 +244,11 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map_err(fail)
         }
         "deploy" => {
-            let wasm = args
-                .get("wasm")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
+            let package = args.get("package").and_then(|v| v.as_str());
+            let wasm = args.get("wasm").and_then(|v| v.as_str());
             let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
-            let (_, res) = contract::deploy(ctx, wasm, name, &str_args(args.get("args"))).await;
+            let (_, res) =
+                contract::deploy(ctx, package, wasm, name, &str_args(args.get("args"))).await;
             res.map_err(fail)
         }
         "call" | "simulate" => {
@@ -375,8 +374,8 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing MCP tool {name}"))
         };
 
-        assert_eq!(named("compile")["inputSchema"]["required"], json!([]));
-        assert!(named("compile")["inputSchema"]["properties"]["package"].is_object());
+        assert_eq!(named("build")["inputSchema"]["required"], json!([]));
+        assert!(named("build")["inputSchema"]["properties"]["package"].is_object());
         assert_eq!(named("test")["inputSchema"]["required"], json!([]));
         assert_eq!(
             named("abi_fetch")["inputSchema"]["required"],
@@ -387,5 +386,8 @@ mod tests {
             json!(["contract"])
         );
         assert!(named("abi_verify")["inputSchema"]["properties"]["package"].is_object());
+        assert_eq!(named("deploy")["inputSchema"]["required"], json!([]));
+        assert!(named("deploy")["inputSchema"]["properties"]["package"].is_object());
+        assert!(named("deploy")["inputSchema"]["properties"]["wasm"].is_object());
     }
 }

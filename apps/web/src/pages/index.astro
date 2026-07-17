@@ -1,21 +1,22 @@
 ---
 import Brand from '@/components/Brand.astro';
 import CopyCommand from '@/components/CopyCommand.astro';
+import Icon from '@/components/Icon.astro';
 import ProtocolRunner from '@/components/ProtocolRunner.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import '@/styles/global.css';
+import brand from '../../../../brand.json';
 
-const description = 'Build, test, deploy, and operate Alkanes smart contracts on Bitcoin with one Rust-native CLI.';
 const softwareSchema = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Labcoat',
+  name: brand.name,
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'macOS, Linux',
-  description,
+  description: brand.description,
   url: 'https://labcoat.sh',
   downloadUrl: 'https://github.com/jonatns/labcoat/releases',
-  softwareVersion: '0.1.0',
+  softwareVersion: brand.stableRelease.version,
   license: 'https://opensource.org/license/mit',
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   codeRepository: 'https://github.com/jonatns/labcoat',
@@ -28,18 +29,18 @@ const softwareSchema = {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
-    <meta name="description" content={description} />
+    <meta name="description" content={brand.metaDescription} />
     <meta name="theme-color" content="#0a0d0b" />
     <link rel="canonical" href="https://labcoat.sh/" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Labcoat" />
-    <meta property="og:title" content="Labcoat — The full Alkanes loop" />
-    <meta property="og:description" content={description} />
+    <meta property="og:title" content={brand.metaTitle} />
+    <meta property="og:description" content={brand.metaDescription} />
     <meta property="og:url" content="https://labcoat.sh/" />
     <meta property="og:image" content="https://labcoat.sh/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <title>Labcoat — The full Alkanes loop</title>
+    <title>{brand.metaTitle}</title>
     <script is:inline>
       (() => {
         const saved = localStorage.getItem('labcoat-theme');
@@ -58,7 +59,7 @@ const softwareSchema = {
           <a href="#workflow">Workflow</a>
           <a href="#agents">Agents</a>
           <a href="/docs/">Docs</a>
-          <a href="https://github.com/jonatns/labcoat">GitHub <span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/jonatns/labcoat">GitHub <Icon name="external" size={14} /></a>
         </nav>
         <div class="header-actions">
           <ThemeToggle />
@@ -70,34 +71,40 @@ const softwareSchema = {
         <section class="hero" aria-labelledby="hero-title">
           <div class="hero-glow" aria-hidden="true"></div>
           <div class="hero-copy">
-            <p class="eyebrow"><span></span> ALKANES DEVELOPMENT TOOLKIT</p>
-            <h1 id="hero-title">The full Alkanes loop.<br /><em>One Rust-native tool.</em></h1>
-            <p class="hero-lede">Build, test, deploy, call, simulate, and trace smart contracts on Bitcoin—without assembling the infrastructure yourself.</p>
+            <p class="eyebrow"><span></span> RUST-NATIVE ALKANES DEVELOPMENT</p>
+            <h1 id="hero-title">From Rust source<br /><em>to decoded trace.</em></h1>
+            <p class="hero-lede">{brand.description}</p>
             <div class="hero-actions">
-              <a class="button button-primary" href="/docs/getting-started/quickstart/">Start building <span aria-hidden="true">→</span></a>
-              <a class="button button-ghost" href="https://github.com/jonatns/labcoat">View source <span aria-hidden="true">↗</span></a>
+              <a class="button button-primary" href="/docs/getting-started/quickstart/">{brand.ctas.primary} <span aria-hidden="true">→</span></a>
+              <a class="button button-ghost" href="https://github.com/jonatns/labcoat">{brand.ctas.secondary} <Icon name="external" size={15} /></a>
             </div>
             <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
             <p class="hero-support">macOS and Linux · arm64 and x86_64 · MIT licensed</p>
+            <p class="maturity-notice"><Icon name="warning" size={17} label="Early-stage notice" />{brand.maturityNotice}</p>
           </div>
           <ProtocolRunner />
         </section>
 
+        <aside class="compatibility-notice" aria-label="Stable release compatibility">
+          <Icon name="status" size={18} label="Release channel" />
+          <p><strong>Stable versus main:</strong> {brand.stableRelease.compatibilityNotice} <a href="/docs/reference/stability/">Compare release channels</a>.</p>
+        </aside>
+
         <section class="signal-strip" aria-label="Labcoat capabilities">
-          <p>RUST FIRST</p><i></i><p>NATIVE WASM TESTS</p><i></i><p>COMPLETE REGTEST</p><i></i><p>MCP + JSON</p><i></i><p>ONE BINARY</p>
+          <p>RUST-NATIVE CLI</p><i></i><p>NATIVE WASM TESTS</p><i></i><p>MANAGED REGTEST</p><i></i><p>JSON + MCP</p><i></i><p>ONE COMMAND SYSTEM</p>
         </section>
 
         <section class="section workflow-section" id="workflow" aria-labelledby="workflow-title">
           <div class="section-heading">
             <p class="eyebrow"><span></span> 01 / CORE LOOP</p>
             <h2 id="workflow-title">From empty directory<br />to decoded trace.</h2>
-            <p>Labcoat owns every phase of the contract lifecycle, with one vocabulary and one set of recovery rules.</p>
+            <p>Move through the local contract lifecycle with one vocabulary and explicit recovery rules.</p>
           </div>
           <ol class="workflow-grid">
-            <li><span>01</span><div class="workflow-icon">{ }</div><h3>Author</h3><p>Scaffold a Rust contract project with tests, configuration, and agent instructions included.</p><code>labcoat init</code></li>
-            <li><span>02</span><div class="workflow-icon">✓</div><h3>Prove</h3><p>Compile WASIp1 and run native integration tests before touching a chain.</p><code>labcoat test</code></li>
-            <li><span>03</span><div class="workflow-icon">⌁</div><h3>Operate</h3><p>Boot Bitcoin, indexers, explorer, and a unified RPC gateway as one local system.</p><code>labcoat up</code></li>
-            <li><span>04</span><div class="workflow-icon">⇧</div><h3>Ship</h3><p>Deploy commit/reveal envelopes, call opcodes, simulate reads, and decode traces.</p><code>labcoat deploy</code></li>
+            <li><span>01</span><div class="workflow-icon"><Icon name="scaffold" /></div><h3>Scaffold</h3><p>Create a Rust contract project with tests, configuration, and agent instructions included.</p><code>labcoat init</code></li>
+            <li><span>02</span><div class="workflow-icon"><Icon name="test" /></div><h3>Test</h3><p>Compile WASIp1 and run native integration tests before touching a chain.</p><code>labcoat test</code></li>
+            <li><span>03</span><div class="workflow-icon"><Icon name="devnet" /></div><h3>Run the devnet</h3><p>Start Bitcoin, indexers, explorer, and the unified RPC gateway as a managed local system.</p><code>labcoat up</code></li>
+            <li><span>04</span><div class="workflow-icon"><Icon name="deploy" /></div><h3>Deploy &amp; inspect</h3><p>Deploy by package name, call opcodes, simulate reads, and decode traces.</p><code>labcoat deploy</code></li>
           </ol>
         </section>
 
@@ -107,6 +114,9 @@ const softwareSchema = {
             <div class="stack-gateway">
               <span>UNIFIED JSON-RPC GATEWAY</span><strong>localhost:18888</strong>
             </div>
+            <div class="stack-connectors" aria-hidden="true">
+              <span><i></i>RPC</span><span><i></i>INDEX</span><span><i></i>ORD</span><span><i></i>REST</span><span><i></i>UI</span>
+            </div>
             <div class="stack-services">
               <div><i class="green"></i><strong>bitcoind</strong><span>regtest</span></div>
               <div><i class="green"></i><strong>metashrew</strong><span>alkanes index</span></div>
@@ -114,17 +124,17 @@ const softwareSchema = {
               <div><i class="green"></i><strong>esplora</strong><span>chain API</span></div>
               <div><i class="green"></i><strong>espo</strong><span>explorer</span></div>
             </div>
-            <div class="stack-command"><span>$</span><code>labcoat up</code><em>5 services · 1 endpoint · ready</em></div>
+            <div class="stack-command"><span>$</span><code>labcoat up</code><em>5 managed services · 1 gateway · ready</em></div>
           </div>
           <div class="stack-copy">
             <p class="eyebrow"><span></span> 02 / COMPLETE ENVIRONMENT</p>
             <h2 id="stack-title">The chain is part<br />of the tool.</h2>
-            <p>No Docker choreography. No hand-wired ports. Labcoat downloads pinned binaries, starts the full Alkanes stack, waits for readiness, and tells you exactly what failed.</p>
+            <p>No hand-wired ports. Labcoat downloads pinned components, starts the managed local services, waits for readiness, and reports exactly what failed. Docker and Node.js remain runtime prerequisites.</p>
             <ul>
-              <li><span>✓</span> Deterministic service versions</li>
-              <li><span>✓</span> Built-in wallet and faucet</li>
-              <li><span>✓</span> Snapshots and instant resets</li>
-              <li><span>✓</span> Service-level health and logs</li>
+              <li><Icon name="check" size={18} /> Deterministic service versions</li>
+              <li><Icon name="check" size={18} /> Built-in wallet and faucet</li>
+              <li><Icon name="check" size={18} /> Snapshots and instant resets</li>
+              <li><Icon name="check" size={18} /> Service-level health and logs</li>
             </ul>
             <a class="text-link" href="/docs/devnet-wallets/">Explore the local devnet <span aria-hidden="true">→</span></a>
           </div>
@@ -132,9 +142,9 @@ const softwareSchema = {
 
         <section class="section agents-section" id="agents" aria-labelledby="agents-title">
           <div class="section-heading centered">
-            <p class="eyebrow"><span></span> 03 / AGENT NATIVE</p>
-            <h2 id="agents-title">Built for hands.<br /><em>Documented for agents.</em></h2>
-            <p>Every operation is inspectable, typed, non-interactive, and recoverable.</p>
+            <p class="eyebrow"><span></span> 03 / ONE COMMAND SYSTEM</p>
+            <h2 id="agents-title">One interface for<br /><em>developers and agents.</em></h2>
+            <p>CLI, JSON, MCP, and versioned references expose the same installed capability set.</p>
           </div>
           <div class="agent-grid">
             <article class="agent-card agent-card-large">
@@ -153,21 +163,23 @@ const softwareSchema = {
             </article>
             <article class="agent-card">
               <div class="card-kicker"><span>MCP SERVER</span><i class="live-pill">STDIO</i></div>
-              <div class="mcp-orbit" aria-hidden="true"><span>MCP</span><i></i><i></i><i></i></div>
-              <h3>Native tools, not shell guesses.</h3>
-              <p>Expose devnet, wallet, compile, deploy, call, simulate, and trace operations over Model Context Protocol.</p>
+              <div class="operation-map" role="img" aria-label="Labcoat CLI core connected to JSON, MCP, documentation, and agents">
+                <strong>CLI CORE</strong><span>JSON</span><span>MCP</span><span>DOCS</span><span>AGENTS</span>
+              </div>
+              <h3>Structured tools, not shell guesses.</h3>
+              <p>Expose devnet, wallet, build, deploy, call, simulate, and trace operations over Model Context Protocol.</p>
               <code class="card-command">labcoat mcp serve</code>
             </article>
             <article class="agent-card">
               <div class="card-kicker"><span>CONTEXT SURFACES</span><i class="live-pill">LIVE</i></div>
               <div class="surface-list">
-                <a href="/llms.txt"><span>TXT</span><strong>/llms.txt</strong><em>↗</em></a>
-                <a href="/llms-full.txt"><span>TXT</span><strong>/llms-full.txt</strong><em>↗</em></a>
-                <a href="/reference/cli.json"><span>{ }</span><strong>/reference/cli.json</strong><em>↗</em></a>
-                <a href="/skill.md"><span>MD</span><strong>/skill.md</strong><em>↗</em></a>
+                <a href="/llms.txt"><span>TXT</span><strong>/llms.txt</strong><Icon name="external" size={16} /></a>
+                <a href="/llms-full.txt"><span>TXT</span><strong>/llms-full.txt</strong><Icon name="external" size={16} /></a>
+                <a href="/reference/cli.json"><span>JSON</span><strong>/reference/cli.json</strong><Icon name="external" size={16} /></a>
+                <a href="/skill.md"><span>MD</span><strong>/skill.md</strong><Icon name="external" size={16} /></a>
               </div>
-              <h3>One source. Every useful format.</h3>
-              <p>Human docs, raw Markdown, machine-readable reference, and embedded agent instructions stay synchronized.</p>
+              <h3>Versioned context surfaces.</h3>
+              <p>Generated human docs, Markdown, machine-readable reference, and agent instructions are checked against the corresponding CLI version.</p>
             </article>
           </div>
         </section>
@@ -176,7 +188,7 @@ const softwareSchema = {
           <div class="cta-glow" aria-hidden="true"></div>
           <p class="eyebrow"><span></span> READY WHEN YOU ARE</p>
           <h2 id="cta-title">Put the protocol<br />on your bench.</h2>
-          <p>From first contract to final trace, keep the entire Alkanes workflow inside one tool.</p>
+          <p>From first contract to final trace, keep the local Alkanes workflow inside one command system.</p>
           <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
           <div class="cta-links"><a href="/docs/getting-started/quickstart/">Read the quick start →</a><a href="https://github.com/jonatns/labcoat">Star on GitHub ↗</a></div>
         </section>
@@ -184,7 +196,7 @@ const softwareSchema = {
 
       <footer class="site-footer">
         <Brand />
-        <p>Rust-native tooling for Alkanes on Bitcoin.</p>
+        <p>{brand.category}.</p>
         <nav aria-label="Footer navigation"><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/jonatns/labcoat">GitHub</a><a href="https://opensource.org/license/mit">MIT License</a></nav>
         <p class="footer-meta">Built in Puerto Rico <span aria-hidden="true">·</span> Open source</p>
       </footer>
@@ -213,7 +225,7 @@ const softwareSchema = {
       });
 
       const runnerTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-runner-stage]')];
-      function selectRunnerTab(tab: HTMLButtonElement) {
+      function selectRunnerTab(tab: HTMLButtonElement, animate = false) {
         const stage = JSON.parse(tab.dataset.runnerStage ?? '{}');
         runnerTabs.forEach((item) => {
           const selected = item === tab;
@@ -222,6 +234,12 @@ const softwareSchema = {
         });
         const panel = document.querySelector<HTMLElement>('#runner-output');
         panel?.setAttribute('aria-labelledby', tab.id);
+        if (panel && animate) {
+          delete panel.dataset.transition;
+          void panel.offsetWidth;
+          panel.dataset.transition = 'true';
+          window.setTimeout(() => delete panel.dataset.transition, 160);
+        }
         const command = document.querySelector('[data-runner-command]');
         const schema = document.querySelector('[data-runner-schema]');
         const result = document.querySelector('[data-runner-result]');
@@ -232,7 +250,7 @@ const softwareSchema = {
         if (detail) detail.textContent = stage.detail;
       }
       runnerTabs.forEach((tab, index) => {
-        tab.addEventListener('click', () => selectRunnerTab(tab));
+        tab.addEventListener('click', () => selectRunnerTab(tab, true));
         tab.addEventListener('keydown', (event) => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault();
@@ -242,7 +260,7 @@ const softwareSchema = {
           if (event.key === 'Home') next = 0;
           if (event.key === 'End') next = runnerTabs.length - 1;
           runnerTabs[next].focus();
-          selectRunnerTab(runnerTabs[next]);
+          selectRunnerTab(runnerTabs[next], true);
         });
       });
     </script>

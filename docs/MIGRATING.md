@@ -33,7 +33,7 @@ Loose `contracts/Example.rs` sources are no longer supported. Move each
 contract into its own Cargo package:
 
 ```text
-contracts/example/
+contracts/counter/
   Cargo.toml
   src/lib.rs
 ```
@@ -43,7 +43,7 @@ declare ordinary crates.io, git, workspace, and path dependencies. Put code
 shared by several contracts in Cargo libraries under `crates/`. The root
 manifest is both the host-test package and workspace manifest.
 
-`labcoat compile` builds every discovered contract; `labcoat compile example`
+`labcoat build` builds every discovered contract; `labcoat build counter`
 builds one. The first build creates a workspace `Cargo.lock`. Commit it because
 upstream transitive git dependencies use moving branch references, and never
 run an unscoped `cargo update`.
@@ -60,10 +60,10 @@ ordinary shell scripts:
 ```bash
 labcoat up
 labcoat wallet init
-labcoat compile example
-labcoat deploy build/example.wasm
-labcoat simulate example 1 World
-labcoat call example 1 World
+labcoat build counter
+labcoat deploy counter
+labcoat simulate counter 2
+labcoat call counter 1
 ```
 
 The old `labcoat run` command no longer exists.

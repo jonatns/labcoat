@@ -3,10 +3,8 @@ title: Projects and configuration
 description: Understand the Labcoat project layout, configuration precedence, secrets, and deployment lockfile.
 ---
 
-`labcoat init` creates a Rust-first contract project:
-
-Use `labcoat init my-project --contract ens-registry` to name the initial
-contract, or add another package later with `labcoat contract new resolver`.
+`labcoat init` creates a Rust-native workspace with a fixed Counter starter.
+Add another minimal contract later with `labcoat new token`.
 
 ```text
 contracts/          Rust contract sources
