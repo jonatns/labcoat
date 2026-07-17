@@ -185,6 +185,7 @@ cargo check --workspace --locked
 cargo test --workspace --locked
 cargo clippy --workspace --locked -- -D warnings
 cargo build --release -p labcoat-cli
+export PATH="$PWD/target/release:$PATH"
 ```
 
 Core layout:
