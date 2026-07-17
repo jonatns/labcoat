@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#0a0d0b"/>
-  <path d="M24 9h16M28 9v13L14 47a5 5 0 0 0 4.4 7.5h27.2A5 5 0 0 0 50 47L36 22V9" stroke="#f4f8f2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="m21 43 8-7 6 5 5-5 5 7" stroke="#b8ff65" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="34" cy="29" r="2.5" fill="#ffb347"/>
+  <style>
+    .bg{fill:#0a0d0b}.flask{stroke:#f4f8f2}.trace{stroke:#b8ff65}
+    @media (prefers-color-scheme:light){.bg{fill:#f4f7f2}.flask{stroke:#101411}.trace{stroke:#397b2c}}
+  </style>
+  <rect class="bg" width="64" height="64" rx="14"/>
+  <path class="flask" d="M24 9h16M28 9v13L14 47a5 5 0 0 0 4.4 7.5h27.2A5 5 0 0 0 50 47L36 22V9" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path class="trace" d="m21 43 8-7 6 5 5-5 5 7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

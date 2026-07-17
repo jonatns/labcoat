@@ -2,7 +2,7 @@
 name = "labcoat-cli"
 version.workspace = true
 publish = false
-description = "Labcoat command-line interface"
+description = "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

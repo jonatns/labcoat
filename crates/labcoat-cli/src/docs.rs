@@ -141,7 +141,7 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
 
     AgentReference {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        description: "Rust-native toolkit for building, testing, deploying, and operating Alkanes smart contracts on Bitcoin.".into(),
+        description: "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.".into(),
         install: "curl -fsSL https://labcoat.sh/install | sh".into(),
         core_loop: vec![
             "labcoat init my-project".into(),
@@ -196,7 +196,7 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             },
             ProtocolReference {
                 name: "Contract ABI".into(),
-                detail: "Compile and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.".into(),
+                detail: "Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.".into(),
             },
         ],
     }

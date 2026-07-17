@@ -1,7 +1,7 @@
 {
   "name": "labcoat-monorepo",
   "private": true,
-  "description": "Labcoat: smart contract development toolkit for Alkanes on Bitcoin. Isomer: the desktop devnet inside it.",
+  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.",
   "license": "MIT",
   "author": "Jonathan P. Navarrete <jonatns@gmail.com>",
   "packageManager": "pnpm@11.13.0",

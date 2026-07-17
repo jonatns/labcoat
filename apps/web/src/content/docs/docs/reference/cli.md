@@ -6,7 +6,7 @@ editUrl: false
 
 > Generated from Labcoat 0.1.0. Run `pnpm sync:reference` after changing CLI or MCP metadata.
 
-Rust-native toolkit for building, testing, deploying, and operating Alkanes smart contracts on Bitcoin.
+Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.
 
 ## Install
 
@@ -45,7 +45,7 @@ Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or
 
 ### `labcoat init`
 
-Scaffold a Rust-first Labcoat workspace with a Counter starter
+Scaffold a Rust-native Labcoat workspace with a Counter starter
 
 ```text
 init [OPTIONS] [DIRECTORY]
@@ -70,7 +70,7 @@ Arguments and options:
 
 ### `labcoat test`
 
-Compile WASIp1 WebAssembly and run native Rust integration tests
+Build WASIp1 WebAssembly and run native Rust integration tests
 
 ```text
 test [PACKAGE]
@@ -286,7 +286,7 @@ Arguments and options:
 
 ### `labcoat deploy`
 
-Compile and deploy a contract package, or deploy an explicit raw Wasm
+Build and deploy a contract package, or deploy an explicit raw Wasm
 
 ```text
 deploy [OPTIONS] [PACKAGE]
@@ -408,7 +408,7 @@ doctor
 
 | Tool | Description |
 |---|---|
-| `devnet_up` | Boot the full Alkanes devnet stack (downloads binaries when missing). Returns service status and the endpoint manifest. |
+| `devnet_up` | Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest. |
 | `devnet_down` | Stop all devnet services. |
 | `devnet_status` | Devnet service health, block height, and mempool size. |
 | `devnet_mine` | Mine blocks on the devnet. |
@@ -422,7 +422,7 @@ doctor
 | `test` | Build every contract for WASIp1 and run host integration tests; the first build may take several minutes. |
 | `abi_fetch` | Fetch ABI metadata from a deployed contract through Metashrew. |
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
-| `deploy` | Compile and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
+| `deploy` | Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
 | `call` | Execute a state-changing contract call and wait for its trace. |
 | `simulate` | Read-only simulation of a contract call (no transaction). |
 | `trace` | Decoded protostone traces for a transaction. |
@@ -454,7 +454,7 @@ doctor
 - **Protostone outputs**: Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.
 - **Synchronization**: State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.
 - **labcoat.lock**: Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.
-- **Contract ABI**: Compile and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.
+- **Contract ABI**: Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.
 
 ## alkanes-rs pin
 

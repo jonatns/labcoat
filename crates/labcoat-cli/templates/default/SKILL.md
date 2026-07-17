@@ -1,6 +1,6 @@
 ---
 name: labcoat
-description: Build, test, deploy, call, and trace Alkanes smart contracts with the Rust-first Labcoat CLI and its local devnet.
+description: Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.
 ---
 
 # Labcoat workflow

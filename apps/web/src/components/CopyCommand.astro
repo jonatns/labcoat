@@ -1,4 +1,6 @@
 ---
+import Icon from './Icon.astro';
+
 interface Props {
   command: string;
   label?: string;
@@ -11,10 +13,7 @@ const { command, label = 'Copy command' } = Astro.props;
   <span class="prompt" aria-hidden="true">$</span>
   <code>{command}</code>
   <button type="button" data-copy={command} aria-label={label}>
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="8" y="8" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"></rect>
-      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" stroke-width="1.8"></path>
-    </svg>
+    <Icon name="copy" />
     <span data-copy-label>Copy</span>
   </button>
 </div>

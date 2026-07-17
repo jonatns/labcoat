@@ -19,7 +19,7 @@ use isomer_core::Devnet;
 #[command(
     name = "labcoat",
     version,
-    about = "Smart contract development toolkit for Alkanes on Bitcoin"
+    about = "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet."
 )]
 struct Cli {
     /// Emit a machine-readable JSON envelope on stdout
@@ -48,7 +48,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Scaffold a Rust-first Labcoat workspace with a Counter starter
+    /// Scaffold a Rust-native Labcoat workspace with a Counter starter
     Init {
         /// Destination directory (defaults to the current directory)
         directory: Option<String>,
@@ -61,7 +61,7 @@ enum Commands {
         /// Contract package name in kebab-case
         name: String,
     },
-    /// Compile WASIp1 WebAssembly and run native Rust integration tests
+    /// Build WASIp1 WebAssembly and run native Rust integration tests
     Test {
         /// Optional Cargo contract package whose host test should run
         package: Option<String>,
@@ -141,7 +141,7 @@ enum Commands {
     /// Fetch or verify Wasm-exported contract ABI metadata
     #[command(subcommand)]
     Abi(contract::AbiCmd),
-    /// Compile and deploy a contract package, or deploy an explicit raw Wasm
+    /// Build and deploy a contract package, or deploy an explicit raw Wasm
     Deploy {
         /// Exact Cargo contract package name
         #[arg(required_unless_present = "wasm", conflicts_with = "wasm")]

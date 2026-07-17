@@ -2,7 +2,7 @@
 name = "labcoat-core"
 version.workspace = true
 publish = false
-description = "Alkanes smart-contract toolkit core: compile, deploy, call, simulate, trace"
+description = "Core build, deploy, call, simulation, and trace operations for the Rust-native Labcoat CLI"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

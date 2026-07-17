@@ -181,7 +181,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.metadata.outputs.tag }}
           SHA: ${{ needs.metadata.outputs.sha }}
+          VERSION: ${{ needs.metadata.outputs.version }}
         run: |
+          node scripts/release/render-release-notes.mjs \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --output "$RUNNER_TEMP/release-notes.md"
           if gh release view "$TAG" >/dev/null 2>&1; then
             object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
             existing=$(jq -r '.object.sha' <<<"$object")
@@ -190,9 +195,11 @@ jobs:
             fi
             test "$existing" = "$SHA"
           else
-            gh release create "$TAG" --draft --target "$SHA" --title "Labcoat $TAG" --generate-notes
+            gh release create "$TAG" --draft --target "$SHA" --title "Labcoat $TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
           if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
             gh release upload "$TAG" dist/* --clobber
           fi
       - name: Attest CLI artifacts
@@ -233,3 +240,6 @@ jobs:
           LABCOAT_REPO="$GITHUB_REPOSITORY" LABCOAT_INSTALL_DIR="$tmp/bin" \
             sh install-labcoat.sh --version "$VERSION"
           "$tmp/bin/labcoat" --version | grep -F "labcoat $VERSION"
+          "$tmp/bin/labcoat" --help | grep -F "new"
+          "$tmp/bin/labcoat" --help | grep -F "build"
+          "$tmp/bin/labcoat" deploy --help | grep -F "PACKAGE"

@@ -38,7 +38,7 @@ labcoat mine 1
 labcoat wallet utxos
 ```
 
-## Compile and deploy
+## Build and deploy
 
 ```bash
 labcoat build counter

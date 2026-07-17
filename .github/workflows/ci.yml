@@ -37,6 +37,15 @@ jobs:
               - 'package.json'
             web:
               - 'apps/web/**'
+              - 'brand.json'
+              - 'README.md'
+              - 'SECURITY.md'
+              - 'CONTRIBUTING.md'
+              - 'THIRD_PARTY_NOTICES.md'
+              - 'docs/BRAND.md'
+              - 'scripts/validate-brand.mjs'
+              - 'scripts/release/render-release-notes.mjs'
+              - 'scripts/tests/release-notes-test.mjs'
               - 'crates/labcoat-cli/src/docs.rs'
               - 'crates/labcoat-cli/src/main.rs'
               - 'crates/labcoat-cli/src/mcp.rs'
@@ -151,6 +160,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @labcoat/web check:og
       - run: pnpm --filter @labcoat/web check
       - run: pnpm --filter @labcoat/web build
       - run: pnpm --filter @labcoat/web exec playwright install --with-deps chromium
@@ -174,6 +184,10 @@ jobs:
           node-version: 22
       - name: "Guard: diff has no whitespace errors"
         run: git diff --check
+      - name: Brand and release governance validation
+        run: |
+          node scripts/validate-brand.mjs
+          node scripts/tests/release-notes-test.mjs
       - name: "Guard: no whitespace errors"
         run: |
           if git grep -nI -E '[[:blank:]]+$'; then

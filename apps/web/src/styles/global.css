@@ -1,8 +1,8 @@
-@font-face {
-  font-family: 'Labcoat Sans';
-  src: local('Inter Variable'), local('Inter');
-  font-display: swap;
-}
+@import './fonts.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+@import '@fontsource/ibm-plex-mono/latin-700.css';
 
 :root,
 :root[data-theme='dark'] {
@@ -21,8 +21,18 @@
   --acid-dim: color-mix(in oklch, var(--acid), transparent 86%);
   --amber: oklch(79% 0.17 72);
   --red: oklch(68% 0.22 25);
+  --blue: oklch(75% 0.13 235);
+  --success: var(--acid);
+  --warning: var(--amber);
+  --error: var(--red);
+  --information: var(--blue);
   --shadow: 0 32px 80px oklch(2% 0.01 145 / 45%);
-  --grid: color-mix(in oklch, var(--ink), transparent 95%);
+  --grid-minor: color-mix(in oklch, var(--ink), transparent 97%);
+  --grid-major: color-mix(in oklch, var(--ink), transparent 92%);
+  --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', 'Cascadia Code', ui-monospace, monospace;
+  --sl-font: var(--font-sans);
+  --sl-font-mono: var(--font-mono);
 
   --sl-color-accent-low: oklch(82% 0.18 128);
   --sl-color-accent: var(--acid-strong);
@@ -53,8 +63,14 @@
   --acid-dim: color-mix(in oklch, var(--acid), transparent 88%);
   --amber: oklch(49% 0.15 65);
   --red: oklch(50% 0.2 25);
+  --blue: oklch(47% 0.14 235);
+  --success: var(--acid);
+  --warning: var(--amber);
+  --error: var(--red);
+  --information: var(--blue);
   --shadow: 0 32px 80px oklch(20% 0.03 145 / 12%);
-  --grid: color-mix(in oklch, var(--ink), transparent 93%);
+  --grid-minor: color-mix(in oklch, var(--ink), transparent 96%);
+  --grid-major: color-mix(in oklch, var(--ink), transparent 90%);
 
   --sl-color-accent-low: oklch(91% 0.07 128);
   --sl-color-accent: var(--acid-strong);
@@ -82,7 +98,7 @@ body {
   margin: 0;
   background: var(--void);
   color: var(--ink);
-  font-family: 'Labcoat Sans', Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
 }
@@ -94,7 +110,8 @@ pre,
 .signal-strip,
 .protocol-runner,
 .card-kicker {
-  font-family: 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 a {
@@ -132,10 +149,12 @@ a:focus-visible {
   min-width: 320px;
   overflow-x: hidden;
   background:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+    linear-gradient(var(--grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px),
     var(--void);
-  background-size: 56px 56px;
+  background-size: 64px 64px, 64px 64px, 16px 16px, 16px 16px;
 }
 
 .site-shell {
@@ -183,6 +202,9 @@ a:focus-visible {
 
 .site-header nav a,
 .site-footer nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   color: var(--ink-soft);
   font-size: 0.84rem;
   font-weight: 650;
@@ -295,9 +317,9 @@ a:focus-visible {
   gap: 0.75rem;
   margin: 0 0 1.5rem;
   color: var(--acid);
-  font-size: 0.69rem;
+  font-size: 0.66rem;
   font-weight: 750;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.14em;
 }
 
 .eyebrow > span {
@@ -318,9 +340,9 @@ p {
 .final-cta h2 {
   margin: 0;
   font-size: clamp(3.5rem, 6.1vw, 6.8rem);
-  font-weight: 630;
-  letter-spacing: -0.07em;
-  line-height: 0.94;
+  font-weight: 620;
+  letter-spacing: -0.055em;
+  line-height: 0.96;
 }
 
 .hero h1 em,
@@ -437,6 +459,35 @@ p {
   font-size: 0.7rem;
   letter-spacing: 0.04em;
 }
+
+.maturity-notice,
+.compatibility-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.maturity-notice {
+  max-width: 620px;
+  margin: 1rem 0 0;
+  font-size: 0.72rem;
+}
+
+.maturity-notice > svg { flex: 0 0 auto; margin-top: 0.1rem; color: var(--warning); }
+
+.compatibility-notice {
+  min-height: 62px;
+  padding: 1rem clamp(1rem, 6vw, 6.5rem);
+  border-bottom: 1px solid color-mix(in oklch, var(--information), transparent 72%);
+  background: color-mix(in oklch, var(--information), transparent 91%);
+  font-size: 0.76rem;
+}
+
+.compatibility-notice > svg { flex: 0 0 auto; margin-top: 0.18rem; color: var(--information); }
+.compatibility-notice p { margin: 0; }
+.compatibility-notice a { color: var(--ink); font-weight: 650; text-underline-offset: 0.2em; }
 
 .protocol-runner {
   overflow: hidden;
@@ -562,6 +613,15 @@ p {
   background:
     radial-gradient(circle at 100% 0, var(--acid-dim), transparent 45%),
     var(--surface);
+}
+
+.runner-terminal[data-transition='true'] {
+  animation: runner-swap 140ms ease-out;
+}
+
+@keyframes runner-swap {
+  from { opacity: 0.7; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .runner-command {
@@ -706,7 +766,7 @@ p {
 
 .workflow-grid li > span {
   color: var(--ink-muted);
-  font: 0.62rem ui-monospace, monospace;
+  font: 0.62rem var(--font-mono);
 }
 
 .workflow-icon {
@@ -717,8 +777,10 @@ p {
   place-items: center;
   border: 1px solid var(--line);
   color: var(--acid);
-  font: 1.1rem ui-monospace, monospace;
+  font: 1.1rem var(--font-mono);
 }
+
+.workflow-icon svg { width: 25px; height: 25px; }
 
 .workflow-grid h3,
 .agent-card h3 {
@@ -758,7 +820,8 @@ p {
   border: 1px solid var(--line);
   background: var(--surface);
   box-shadow: var(--shadow);
-  font: 0.66rem ui-monospace, monospace;
+  font: 0.66rem var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .stack-topline,
@@ -799,6 +862,19 @@ p {
   font-weight: 500;
 }
 
+.stack-connectors {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 0 1.5rem;
+  color: var(--ink-muted);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.stack-connectors span { display: flex; align-items: center; flex-direction: column; gap: 0.25rem; }
+.stack-connectors i { width: 1px; height: 18px; background: var(--line); }
+
 .stack-services {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -834,8 +910,8 @@ p {
 .stack-copy .eyebrow { margin-bottom: 2rem; }
 .stack-copy h2 { margin-bottom: 2rem; }
 .stack-copy ul { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 2rem 0; padding: 0; list-style: none; }
-.stack-copy li { color: var(--ink-soft); font-size: 0.78rem; }
-.stack-copy li span { margin-right: 0.5rem; color: var(--acid); }
+.stack-copy li { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-soft); font-size: 0.78rem; }
+.stack-copy li svg { flex: 0 0 auto; color: var(--success); }
 .text-link { display: inline-flex; align-items: center; gap: 1.2rem; min-height: 44px; color: var(--acid); font-size: 0.82rem; font-weight: 750; text-decoration: none; }
 
 .agents-section {
@@ -895,7 +971,7 @@ p {
   border: 1px solid var(--line);
   background: var(--void);
   box-shadow: inset 0 0 50px var(--acid-dim);
-  font: 0.75rem/1.8 ui-monospace, monospace;
+  font: 0.75rem/1.8 var(--font-mono);
 }
 
 .json-window p { margin: 0; color: var(--ink-soft); }
@@ -908,25 +984,27 @@ p {
 .agent-card-large h3 { font-size: 1.65rem; }
 .agent-card-large > p { max-width: 530px; }
 
-.mcp-orbit {
+.operation-map {
   position: relative;
   display: grid;
-  width: 150px;
-  height: 150px;
+  grid-template: repeat(3, 46px) / repeat(3, 1fr);
+  width: min(100%, 260px);
+  height: 138px;
   margin: 2.3rem auto;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 50%;
+  background:
+    linear-gradient(var(--line-soft), var(--line-soft)) center / 70% 1px no-repeat,
+    linear-gradient(90deg, var(--line-soft), var(--line-soft)) center / 1px 70% no-repeat;
+  font-family: var(--font-mono);
 }
 
-.mcp-orbit::before,
-.mcp-orbit::after { position: absolute; inset: 18px; border: 1px solid var(--line-soft); border-radius: 50%; content: ''; }
-.mcp-orbit::after { inset: 42px; background: var(--acid-dim); }
-.mcp-orbit span { z-index: 1; color: var(--acid); font: 0.8rem ui-monospace, monospace; }
-.mcp-orbit i { position: absolute; width: 8px; height: 8px; border: 1px solid var(--acid); border-radius: 50%; background: var(--surface); }
-.mcp-orbit i:nth-of-type(1) { top: 12px; left: 70px; }
-.mcp-orbit i:nth-of-type(2) { right: 23px; bottom: 27px; }
-.mcp-orbit i:nth-of-type(3) { bottom: 27px; left: 23px; }
+.operation-map strong,
+.operation-map span { z-index: 1; padding: 0.45rem 0.55rem; border: 1px solid var(--line); background: var(--surface); font-size: 0.58rem; font-weight: 500; }
+.operation-map strong { grid-area: 2 / 2; border-color: var(--acid); background: var(--acid-dim); color: var(--acid); }
+.operation-map span:nth-of-type(1) { grid-area: 1 / 2; }
+.operation-map span:nth-of-type(2) { grid-area: 2 / 3; }
+.operation-map span:nth-of-type(3) { grid-area: 3 / 2; }
+.operation-map span:nth-of-type(4) { grid-area: 2 / 1; }
 .card-command { display: block; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line-soft); color: var(--acid); font-size: 0.68rem; }
 
 .surface-list {
@@ -946,9 +1024,9 @@ p {
 }
 
 .surface-list a:hover { color: var(--acid); }
-.surface-list span { color: var(--amber); font: 0.56rem ui-monospace, monospace; }
-.surface-list strong { overflow: hidden; font: 0.63rem ui-monospace, monospace; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.surface-list em { font-style: normal; }
+.surface-list span { color: var(--warning); font: 0.56rem var(--font-mono); }
+.surface-list strong { overflow: hidden; font: 0.63rem var(--font-mono); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.surface-list svg { color: var(--ink-muted); }
 
 .final-cta {
   position: relative;
@@ -1012,7 +1090,7 @@ a[aria-current='page'] {
 .sl-markdown-content h1,
 .sl-markdown-content h2,
 .sl-markdown-content h3 {
-  letter-spacing: -0.035em;
+  letter-spacing: -0.025em;
 }
 
 .sl-markdown-content h1 {
@@ -1058,6 +1136,7 @@ a[aria-current='page'] {
   .runner-steps button { display: flex; min-width: 62px; min-height: 54px; justify-content: center; padding: 0.4rem; border-right: 1px solid var(--line-soft); }
   .runner-steps button span { display: none; }
   .runner-terminal { min-height: 310px; border: 1px solid var(--line); }
+  .compatibility-notice { padding-inline: 1rem; }
   .signal-strip { flex-wrap: wrap; justify-content: center; gap: 1rem 2rem; overflow: hidden; }
   .section { padding: 5rem 1rem; }
   .section-heading { display: block; }
@@ -1066,6 +1145,7 @@ a[aria-current='page'] {
   .workflow-grid { grid-template-columns: 1fr; }
   .workflow-grid li { min-height: 320px; }
   .stack-services { grid-template-columns: 1fr 1fr; }
+  .stack-connectors { display: none; }
   .stack-services > div:nth-child(2n) { border-right: 1px solid var(--line); }
   .stack-services > div:last-child { grid-column: 1 / -1; }
   .stack-gateway { align-items: flex-start; flex-direction: column; gap: 0.5rem; }

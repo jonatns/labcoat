@@ -30,7 +30,7 @@ pub(crate) fn tools() -> Vec<Value> {
         "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)"
     });
     vec![
-        tool("devnet_up", "Boot the full Alkanes devnet stack (downloads binaries when missing). Returns service status and the endpoint manifest.",
+        tool("devnet_up", "Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest.",
             json!({"noDownload": {"type": "boolean", "description": "skip the binary check/download"}}), &[]),
         tool("devnet_down", "Stop all devnet services.", json!({}), &[]),
         tool("devnet_status", "Devnet service health, block height, and mempool size.", json!({}), &[]),
@@ -54,7 +54,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"contract": {"type": "string"}, "out": {"type": "string"}}), &["contract"]),
         tool("abi_verify", "Compare a deployed ABI with a locally built contract package.",
             json!({"contract": {"type": "string"}, "package": {"type": "string"}}), &["contract"]),
-        tool("deploy", "Compile and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
+        tool("deploy", "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
             json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone()}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
             json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string"}, "args": arg_array.clone()}), &["contract", "opcode"]),
