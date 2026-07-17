@@ -164,6 +164,14 @@ impl ContractHarness {
         self.storage.get(key.as_ref()).map(Vec::as_slice)
     }
 
+    /// Decode a 16-byte little-endian unsigned integer from contract storage.
+    ///
+    /// Returns `None` when the key is missing or its value is not exactly 16 bytes.
+    pub fn storage_u128(&self, key: impl AsRef<[u8]>) -> Option<u128> {
+        let bytes: [u8; 16] = self.storage_value(key)?.try_into().ok()?;
+        Some(u128::from_le_bytes(bytes))
+    }
+
     /// Seed or replace a raw contract storage value before executing a call.
     pub fn set_storage(&mut self, key: impl AsRef<[u8]>, value: impl AsRef<[u8]>) -> &mut Self {
         self.storage
@@ -737,6 +745,11 @@ mod tests {
         .unwrap();
 
         let mut harness = ContractHarness::from_files(&wasm_path, &abi_path).unwrap();
+        harness.set_storage(b"counter", 1u128.to_le_bytes());
+        harness.set_storage(b"not-a-u128", b"short");
+        assert_eq!(harness.storage_u128(b"counter"), Some(1));
+        assert_eq!(harness.storage_u128(b"missing"), None);
+        assert_eq!(harness.storage_u128(b"not-a-u128"), None);
         assert_eq!(harness.call_method("tick", &[]).unwrap().data_text(), "");
         assert_eq!(harness.storage_value(b"key"), Some(&b"one"[..]));
         assert_eq!(harness.call_method("tick", &[]).unwrap().data_text(), "one");
