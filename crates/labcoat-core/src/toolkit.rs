@@ -20,6 +20,29 @@ pub async fn deploy(
     cellpack_args: &[u128],
     fee_rate: Option<f32>,
 ) -> Result<ExecuteOutcome> {
+    let deployment_root = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    deploy_in(
+        config,
+        passphrase,
+        &deployment_root,
+        wasm_path,
+        contract_name,
+        cellpack_args,
+        fee_rate,
+    )
+    .await
+}
+
+/// Deploy and record the resulting contract in a specific project directory.
+pub async fn deploy_in(
+    config: &ToolkitConfig,
+    passphrase: Option<String>,
+    deployment_root: &Path,
+    wasm_path: &Path,
+    contract_name: Option<String>,
+    cellpack_args: &[u128],
+    fee_rate: Option<f32>,
+) -> Result<ExecuteOutcome> {
     if wasm_path.extension().and_then(|e| e.to_str()) == Some("gz") {
         return Err(LabcoatError::new(
             "ENVELOPE_INVALID",
@@ -88,9 +111,8 @@ pub async fn deploy(
     if let (Some(id), Some(name)) = (&alkanes_id, &contract_name) {
         use sha2::Digest;
         let network = config.normalized_network();
-        let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
         lockfile::record(
-            &cwd,
+            deployment_root,
             &network,
             name,
             lockfile::Deployment {

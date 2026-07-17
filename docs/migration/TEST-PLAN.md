@@ -49,23 +49,25 @@ PROJECT=$(mktemp -d)/project
 labcoat init "$PROJECT"
 cd "$PROJECT"
 labcoat test
-labcoat compile example
+labcoat new stateful
+labcoat compile counter
 labcoat wallet init
 labcoat wallet addresses
 labcoat fund <address>
 labcoat mine 1
-labcoat deploy build/example.wasm --dry-run
-labcoat deploy build/example.wasm
-labcoat simulate example 1 World
-labcoat call example 1 World
+labcoat deploy counter --dry-run
+labcoat deploy counter
+labcoat simulate counter 2
+labcoat call counter 1
 labcoat trace <txid> --wait
 ```
 
-- [ ] The test harness returns `Hello World!`.
+- [ ] The test harness initializes the Counter, increments twice, and reads `2`.
 - [ ] Raw `.wasm`, `.wasm.gz`, and ABI artifacts are produced.
 - [ ] Deploy and test artifacts expose identical ABI JSON through `__meta`.
-- [ ] `labcoat abi fetch example` and `labcoat abi verify example` succeed.
+- [ ] `labcoat abi fetch counter` and `labcoat abi verify counter` succeed.
 - [ ] Dry-run broadcasts nothing.
+- [ ] Deploy recompiles the exact selected package instead of reusing stale Wasm.
 - [ ] Deployment is recorded in `labcoat.lock`.
 - [ ] Simulation and state-changing calls return expected data.
 - [ ] A bogus opcode returns a typed error instead of panicking.

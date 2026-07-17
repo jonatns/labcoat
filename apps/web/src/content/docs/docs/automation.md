@@ -13,7 +13,7 @@ and progress stay on stderr.
 
 ```bash
 labcoat status --json
-labcoat deploy build/MyToken.wasm --dry-run --json
+labcoat deploy my-token --dry-run --json
 ```
 
 ```json

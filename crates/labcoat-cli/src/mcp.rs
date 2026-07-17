@@ -54,8 +54,8 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"contract": {"type": "string"}, "out": {"type": "string"}}), &["contract"]),
         tool("abi_verify", "Compare a deployed ABI with a locally built contract package.",
             json!({"contract": {"type": "string"}, "package": {"type": "string"}}), &["contract"]),
-        tool("deploy", "Deploy a compiled contract (raw .wasm) via commit/reveal. Records it in labcoat.lock.",
-            json!({"wasm": {"type": "string", "description": "path to the raw .wasm"}, "name": {"type": "string"}, "args": arg_array.clone()}), &["wasm"]),
+        tool("deploy", "Compile and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
+            json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone()}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
             json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string"}, "args": arg_array.clone()}), &["contract", "opcode"]),
         tool("simulate", "Read-only simulation of a contract call (no transaction).",
@@ -244,12 +244,11 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map_err(fail)
         }
         "deploy" => {
-            let wasm = args
-                .get("wasm")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
+            let package = args.get("package").and_then(|v| v.as_str());
+            let wasm = args.get("wasm").and_then(|v| v.as_str());
             let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
-            let (_, res) = contract::deploy(ctx, wasm, name, &str_args(args.get("args"))).await;
+            let (_, res) =
+                contract::deploy(ctx, package, wasm, name, &str_args(args.get("args"))).await;
             res.map_err(fail)
         }
         "call" | "simulate" => {
@@ -387,5 +386,8 @@ mod tests {
             json!(["contract"])
         );
         assert!(named("abi_verify")["inputSchema"]["properties"]["package"].is_object());
+        assert_eq!(named("deploy")["inputSchema"]["required"], json!([]));
+        assert!(named("deploy")["inputSchema"]["properties"]["package"].is_object());
+        assert!(named("deploy")["inputSchema"]["properties"]["wasm"].is_object());
     }
 }

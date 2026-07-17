@@ -104,24 +104,26 @@ jobs:
           ./target/debug/labcoat init "$PROJECT" --json | grep -q '"ok": true'
           cd "$PROJECT"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            contract new stateful --json | grep -q '"ok": true'
+            new stateful --json | grep -q '"ok": true'
           LABCOAT_TEST_CRATE_PATH="$GITHUB_WORKSPACE/crates/labcoat-test" \
             "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
             | tee "$RUNNER_TEMP/labcoat-test.json"
           grep -q '"passed": true' "$RUNNER_TEMP/labcoat-test.json"
+          test ! -e build/counter.wasm
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            compile example --json \
+            deploy counter --dry-run --json \
+            | tee "$RUNNER_TEMP/labcoat-deploy.json"
+          grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
+          grep -q '"package": "counter"' "$RUNNER_TEMP/labcoat-deploy.json"
+          cmp build/counter.abi.json .labcoat/test-artifacts/counter.abi.json
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            compile stateful --json \
             | tee "$RUNNER_TEMP/labcoat-compile.json"
           grep -q '"ok": true' "$RUNNER_TEMP/labcoat-compile.json"
-          cmp build/example.abi.json .labcoat/test-artifacts/example.abi.json
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
             compile contracts/Example.rs --json \
             | tee "$RUNNER_TEMP/labcoat-loose-contract.json"
           grep -q '"code": "CONFIG_INVALID"' "$RUNNER_TEMP/labcoat-loose-contract.json"
-          "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            deploy build/example.wasm --dry-run --json \
-            | tee "$RUNNER_TEMP/labcoat-deploy.json"
-          grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
 
   js:
     needs: changes

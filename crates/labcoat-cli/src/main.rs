@@ -48,20 +48,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Scaffold a Rust-first Labcoat project
+    /// Scaffold a Rust-first Labcoat workspace with a Counter starter
     Init {
         /// Destination directory (defaults to the current directory)
         directory: Option<String>,
         /// Overlay the template onto a non-empty directory
         #[arg(long)]
         force: bool,
-        /// Name the initial contract instead of scaffolding the example quickstart
-        #[arg(long)]
-        contract: Option<String>,
     },
-    /// Contract source scaffolding
-    #[command(subcommand)]
-    Contract(ContractCmd),
+    /// Add a minimal contract package and host integration test to this project
+    New {
+        /// Contract package name in kebab-case
+        name: String,
+    },
     /// Compile WASIp1 WebAssembly and run native Rust integration tests
     Test {
         /// Optional Cargo contract package whose host test should run
@@ -142,12 +141,16 @@ enum Commands {
     /// Fetch or verify Wasm-exported contract ABI metadata
     #[command(subcommand)]
     Abi(contract::AbiCmd),
-    /// Deploy a compiled contract (raw .wasm) via commit/reveal envelope
+    /// Compile and deploy a contract package, or deploy an explicit raw Wasm
     Deploy {
-        /// Path to the raw .wasm artifact
-        wasm: String,
-        /// Contract name recorded in labcoat.lock (defaults to file stem)
-        #[arg(long)]
+        /// Exact Cargo contract package name
+        #[arg(required_unless_present = "wasm", conflicts_with = "wasm")]
+        package: Option<String>,
+        /// Explicit path to a raw .wasm artifact (skips compilation)
+        #[arg(long, required_unless_present = "package", conflicts_with = "package")]
+        wasm: Option<String>,
+        /// Contract name for --wasm deployments (defaults to file stem)
+        #[arg(long, requires = "wasm", conflicts_with = "package")]
         name: Option<String>,
         /// Constructor cellpack args (u128 / 0x-hex / short strings)
         #[arg(long, num_args = 0.., value_delimiter = ',')]
@@ -209,12 +212,6 @@ enum McpCmd {
     Serve,
 }
 
-#[derive(Subcommand)]
-enum ContractCmd {
-    /// Add a minimal contract package and host integration test to this project
-    New { name: String },
-}
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -232,20 +229,11 @@ async fn main() {
 
 async fn run(cli: Cli) -> i32 {
     let json = cli.json;
-    if let Commands::Init {
-        directory,
-        force,
-        contract,
-    } = &cli.command
-    {
-        return finish_contract(
-            json,
-            "init",
-            project::init(directory.as_deref(), *force, contract.as_deref()),
-        );
+    if let Commands::Init { directory, force } = &cli.command {
+        return finish_scaffold(json, "init", project::init(directory.as_deref(), *force));
     }
-    if let Commands::Contract(ContractCmd::New { name }) = &cli.command {
-        return finish_contract(json, "contract-new", project::new_contract(name));
+    if let Commands::New { name } = &cli.command {
+        return finish_scaffold(json, "new", project::new_contract(name));
     }
     let resolved = match settings::resolve(settings::Overrides {
         network: cli.network.as_deref(),
@@ -275,7 +263,7 @@ async fn run(cli: Cli) -> i32 {
     );
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
-        Commands::Contract(_) => {
+        Commands::New { .. } => {
             unreachable!("contract scaffolding handled before configuration loading")
         }
         Commands::Test { package } => {
@@ -294,15 +282,16 @@ async fn run(cli: Cli) -> i32 {
             finish_contract(json, cmd_name, res)
         }
         Commands::Deploy {
+            package,
             wasm,
             name,
             args,
             dry_run,
         } => {
             let (cmd_name, res) = if dry_run {
-                contract::deploy_dry_run(&ctx, &wasm, name, &args)
+                contract::deploy_dry_run(&ctx, package.as_deref(), wasm.as_deref(), name, &args)
             } else {
-                contract::deploy(&ctx, &wasm, name, &args).await
+                contract::deploy(&ctx, package.as_deref(), wasm.as_deref(), name, &args).await
             };
             finish_contract(json, cmd_name, res)
         }
@@ -569,6 +558,38 @@ fn finish_contract(json: bool, command: &str, res: contract::CmdResult) -> i32 {
     }
 }
 
+/// Concise terminal output for project scaffolding, while preserving the
+/// standard typed JSON envelope for automation.
+fn finish_scaffold(json: bool, command: &str, res: contract::CmdResult) -> i32 {
+    if json {
+        return finish_contract(true, command, res);
+    }
+    match res {
+        Ok(value) => {
+            match command {
+                "init" => println!(
+                    "✓ Initialized {}",
+                    value["directory"].as_str().unwrap_or(".")
+                ),
+                "new" => println!(
+                    "✓ Created {}",
+                    value["contract"].as_str().unwrap_or("contract")
+                ),
+                _ => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_default()
+                ),
+            }
+            0
+        }
+        Err(error) => {
+            eprintln!("error[{}]: {}", error.code, error.message);
+            eprintln!("hint: {}", error.hint);
+            1
+        }
+    }
+}
+
 fn contract_envelope(command: &str, res: &contract::CmdResult) -> serde_json::Value {
     match res {
         Ok(value) => serde_json::json!({
@@ -650,5 +671,38 @@ mod envelope_tests {
         assert_eq!(failure["schema"], "labcoat/v1/error");
         assert_eq!(failure["error"]["code"], "TEST_FAILED");
         assert_eq!(failure["error"]["hint"], "fix the test");
+    }
+
+    #[test]
+    fn project_scaffolding_cli_has_the_new_top_level_shape() {
+        assert!(Cli::try_parse_from(["labcoat", "new", "my-token"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "new"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "contract", "new", "my-token"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "init", "--contract", "my-token"]).is_err());
+    }
+
+    #[test]
+    fn deploy_cli_requires_exactly_one_source() {
+        assert!(Cli::try_parse_from(["labcoat", "deploy", "counter"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "deploy", "--wasm", "/tmp/counter.wasm"]).is_ok());
+        assert!(Cli::try_parse_from([
+            "labcoat",
+            "deploy",
+            "--wasm",
+            "/tmp/counter.wasm",
+            "--name",
+            "custom"
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "deploy"]).is_err());
+        assert!(Cli::try_parse_from([
+            "labcoat",
+            "deploy",
+            "counter",
+            "--wasm",
+            "/tmp/counter.wasm"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from(["labcoat", "deploy", "counter", "--name", "custom"]).is_err());
     }
 }

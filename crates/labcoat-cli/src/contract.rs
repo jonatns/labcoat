@@ -175,25 +175,39 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd) -> (&'static str, CmdResult) {
 }
 
 pub fn compile(package: Option<&str>, out_dir: &str) -> (&'static str, CmdResult) {
-    let res = (|| {
-        let cwd = std::env::current_dir().map_err(|e| {
-            labcoat_core::LabcoatError::new(
-                "CONFIG_INVALID",
-                e.to_string(),
-                "run Labcoat from a Cargo workspace",
-            )
-        })?;
-        let workspace = labcoat_core::workspace::discover(&cwd)?;
-        let packages = labcoat_core::workspace::select(&workspace, package)?;
-        let outcomes = labcoat_core::compile::compile_packages(
-            &workspace,
-            &packages,
-            &PathBuf::from(out_dir),
-            "wasm32-unknown-unknown",
-        )?;
-        Ok(serde_json::json!({ "contracts": outcomes }))
-    })();
+    let res = compile_selected(package, out_dir)
+        .map(|selection| serde_json::json!({ "contracts": selection.outcomes }));
     ("compile", to_envelope(res))
+}
+
+struct CompileSelection {
+    workspace_root: PathBuf,
+    outcomes: Vec<labcoat_core::compile::CompileOutcome>,
+}
+
+fn compile_selected(
+    package: Option<&str>,
+    out_dir: &str,
+) -> Result<CompileSelection, labcoat_core::LabcoatError> {
+    let cwd = std::env::current_dir().map_err(|e| {
+        labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            e.to_string(),
+            "run Labcoat from a Cargo workspace",
+        )
+    })?;
+    let workspace = labcoat_core::workspace::discover(&cwd)?;
+    let packages = labcoat_core::workspace::select(&workspace, package)?;
+    let outcomes = labcoat_core::compile::compile_packages(
+        &workspace,
+        &packages,
+        &PathBuf::from(out_dir),
+        "wasm32-unknown-unknown",
+    )?;
+    Ok(CompileSelection {
+        workspace_root: workspace.root,
+        outcomes,
+    })
 }
 
 pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
@@ -296,24 +310,20 @@ pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
 
 pub async fn deploy(
     ctx: &Ctx,
-    wasm: &str,
+    package: Option<&str>,
+    wasm: Option<&str>,
     name: Option<String>,
     args: &[String],
 ) -> (&'static str, CmdResult) {
-    let wasm_path = PathBuf::from(wasm);
-    let contract_name = name.or_else(|| {
-        wasm_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-    });
     let res = async {
         let parsed = parse_args(args)?;
-        toolkit::deploy(
+        let artifact = resolve_deployment_artifact(package, wasm, name)?;
+        toolkit::deploy_in(
             &ctx.config,
             ctx.passphrase(),
-            &wasm_path,
-            contract_name,
+            &artifact.deployment_root,
+            &artifact.wasm_path,
+            Some(artifact.contract_name),
             &parsed,
             ctx.config.fee_rate,
         )
@@ -326,17 +336,19 @@ pub async fn deploy(
 /// --dry-run deploy: validate the wasm payload and args, show the plan.
 pub fn deploy_dry_run(
     ctx: &Ctx,
-    wasm: &str,
+    package: Option<&str>,
+    wasm: Option<&str>,
     name: Option<String>,
     args: &[String],
 ) -> (&'static str, CmdResult) {
     let res = (|| {
-        let wasm_path = PathBuf::from(wasm);
-        let bytes = std::fs::read(&wasm_path).map_err(|e| {
+        let parsed = parse_args(args)?;
+        let artifact = resolve_deployment_artifact(package, wasm, name)?;
+        let bytes = std::fs::read(&artifact.wasm_path).map_err(|e| {
             labcoat_core::LabcoatError::new(
                 "CONFIG_INVALID",
-                format!("cannot read {}: {}", wasm_path.display(), e),
-                "run `labcoat compile` first",
+                format!("cannot read {}: {}", artifact.wasm_path.display(), e),
+                "compile the package or check the --wasm path",
             )
         })?;
         if bytes.starts_with(&[0x1f, 0x8b]) {
@@ -346,20 +358,114 @@ pub fn deploy_dry_run(
                 "pass the .wasm produced by `labcoat compile`",
             ));
         }
-        let parsed = parse_args(args)?;
         use sha2::Digest;
         Ok(serde_json::json!({
             "dryRun": true,
             "network": ctx.config.normalized_network(),
-            "wasm": wasm_path.display().to_string(),
+            "package": artifact.package,
+            "wasm": artifact.wasm_path.display().to_string(),
             "wasmBytes": bytes.len(),
             "wasmSha256": hex::encode(sha2::Sha256::digest(&bytes)),
-            "name": name,
+            "name": artifact.contract_name,
             "cellpackArgs": parsed.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
             "wouldBroadcast": "commit + reveal transactions with the wasm envelope",
         }))
     })();
     ("deploy", to_envelope(res))
+}
+
+struct DeploymentArtifact {
+    package: Option<String>,
+    wasm_path: PathBuf,
+    contract_name: String,
+    deployment_root: PathBuf,
+}
+
+fn resolve_deployment_artifact(
+    package: Option<&str>,
+    wasm: Option<&str>,
+    name: Option<String>,
+) -> Result<DeploymentArtifact, labcoat_core::LabcoatError> {
+    match (package, wasm) {
+        (Some(package), None) => {
+            if name.is_some() {
+                return Err(labcoat_core::LabcoatError::new(
+                    "CONFIG_INVALID",
+                    "--name is only valid with --wasm",
+                    "omit --name when deploying a Cargo contract package",
+                ));
+            }
+            let mut selection = compile_selected(Some(package), "build")?;
+            let outcome = selection.outcomes.pop().ok_or_else(|| {
+                labcoat_core::LabcoatError::new(
+                    "PACKAGE_NOT_FOUND",
+                    format!("contract package `{package}` was not compiled"),
+                    "pass an exact Cargo package name",
+                )
+            })?;
+            Ok(package_deployment_artifact(
+                selection.workspace_root,
+                outcome,
+            ))
+        }
+        (None, Some(wasm)) => raw_deployment_artifact(wasm, name),
+        (Some(_), Some(_)) => Err(labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            "deploy accepts either a package or --wasm, not both",
+            "use `labcoat deploy <package>` or `labcoat deploy --wasm <path>`",
+        )),
+        (None, None) => Err(labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            "deploy requires a contract package or --wasm path",
+            "use `labcoat deploy <package>` or `labcoat deploy --wasm <path>`",
+        )),
+    }
+}
+
+fn package_deployment_artifact(
+    workspace_root: PathBuf,
+    outcome: labcoat_core::compile::CompileOutcome,
+) -> DeploymentArtifact {
+    DeploymentArtifact {
+        package: Some(outcome.name.clone()),
+        wasm_path: PathBuf::from(outcome.wasm_path),
+        contract_name: outcome.name,
+        deployment_root: workspace_root,
+    }
+}
+
+fn raw_deployment_artifact(
+    wasm: &str,
+    name: Option<String>,
+) -> Result<DeploymentArtifact, labcoat_core::LabcoatError> {
+    let wasm_path = PathBuf::from(wasm);
+    let contract_name = name
+        .or_else(|| {
+            wasm_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| {
+            labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("cannot derive a contract name from {}", wasm_path.display()),
+                "pass an explicit name with --name",
+            )
+        })?;
+    let deployment_root = std::env::current_dir().map_err(|e| {
+        labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            e.to_string(),
+            "run Labcoat from a writable directory",
+        )
+    })?;
+    Ok(DeploymentArtifact {
+        package: None,
+        wasm_path,
+        contract_name,
+        deployment_root,
+    })
 }
 
 /// --dry-run call: resolve the contract and args, show the plan.
@@ -447,5 +553,45 @@ pub fn lock(ctx: &Ctx, cmd: LockCmd) -> (&'static str, CmdResult) {
                 Ok(serde_json::to_value(lockfile).expect("serializable")),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod deployment_tests {
+    use super::*;
+
+    #[test]
+    fn raw_wasm_uses_file_stem_unless_name_is_explicit() {
+        let derived = raw_deployment_artifact("/tmp/counter.wasm", None).unwrap();
+        assert_eq!(derived.package, None);
+        assert_eq!(derived.contract_name, "counter");
+        assert_eq!(derived.wasm_path, PathBuf::from("/tmp/counter.wasm"));
+
+        let named = raw_deployment_artifact("/tmp/counter.wasm", Some("custom".into())).unwrap();
+        assert_eq!(named.contract_name, "custom");
+    }
+
+    #[test]
+    fn package_artifact_keeps_canonical_name_and_workspace_root() {
+        let root = PathBuf::from("/workspace");
+        let artifact = package_deployment_artifact(
+            root.clone(),
+            labcoat_core::compile::CompileOutcome {
+                name: "my-token".into(),
+                wasm_path: "/workspace/build/my-token.wasm".into(),
+                wasm_gz_path: "/workspace/build/my-token.wasm.gz".into(),
+                abi_path: "/workspace/build/my-token.abi.json".into(),
+                wasm_sha256: "hash".into(),
+            },
+        );
+        assert_eq!(artifact.package.as_deref(), Some("my-token"));
+        assert_eq!(artifact.contract_name, "my-token");
+        assert_eq!(artifact.deployment_root, root);
+    }
+
+    #[test]
+    fn deployment_source_validation_rejects_missing_or_conflicting_inputs() {
+        assert!(resolve_deployment_artifact(None, None, None).is_err());
+        assert!(resolve_deployment_artifact(Some("counter"), Some("counter.wasm"), None).is_err());
     }
 }

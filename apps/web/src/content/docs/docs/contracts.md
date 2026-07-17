@@ -7,7 +7,7 @@ description: Test, compile, deploy, simulate, call, and trace Alkanes contracts.
 
 ```bash
 labcoat test
-labcoat test contracts/MyToken.rs
+labcoat test my-token
 ```
 
 Native Rust integration tests run contracts through `labcoat-test`, keeping the
@@ -18,30 +18,34 @@ in-memory storage that persists across calls on that harness. Use
 ## Compile
 
 ```bash
-labcoat compile contracts/MyToken.rs
+labcoat compile my-token
 ```
 
 Compilation writes:
 
-- `build/MyToken.wasm`: raw deployable module.
-- `build/MyToken.wasm.gz`: compressed distribution artifact.
-- `build/MyToken.abi.json`: opcode, input, and output metadata.
+- `build/my-token.wasm`: raw deployable module.
+- `build/my-token.wasm.gz`: compressed distribution artifact.
+- `build/my-token.abi.json`: opcode, input, and output metadata.
 
 ## Deploy
 
 ```bash
-labcoat deploy build/MyToken.wasm --dry-run
-labcoat deploy build/MyToken.wasm --name MyToken
+labcoat deploy my-token --dry-run
+labcoat deploy my-token
+
+# Advanced: deploy an external raw artifact without compiling a package
+labcoat deploy --wasm /path/to/my-token.wasm --name my-token
 ```
 
-Deployment uses a Bitcoin commit/reveal envelope, waits for the create trace,
-and records the resulting `block:tx` ID in `labcoat.lock`.
+Package deployment always recompiles the selected contract, uses a Bitcoin
+commit/reveal envelope, waits for the create trace, and records the resulting
+`block:tx` ID in `labcoat.lock`.
 
 ## Simulate and call
 
 ```bash
-labcoat simulate MyToken 99
-labcoat call MyToken 77 500
+labcoat simulate my-token 99
+labcoat call my-token 77 500
 ```
 
 Arguments may be decimal `u128`, `0x` hexadecimal, or strings up to 16 bytes

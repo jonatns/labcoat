@@ -264,6 +264,10 @@ mod tests {
         let p = package("a-id", "a", "/p/contracts/a", "\"cdylib\"", "a");
         let ws = classify_json(&metadata(&p, "\"a-id\"")).unwrap();
         assert_eq!(
+            select(&ws, Some("A")).unwrap_err().code,
+            "PACKAGE_NOT_FOUND"
+        );
+        assert_eq!(
             select(&ws, Some("nope")).unwrap_err().code,
             "PACKAGE_NOT_FOUND"
         );

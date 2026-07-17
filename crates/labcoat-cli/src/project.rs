@@ -11,16 +11,16 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../templates/default/src/lib.rs"),
     ),
     (
-        "contracts/example/Cargo.toml",
-        include_str!("../templates/default/contracts/example/Cargo.toml"),
+        "contracts/counter/Cargo.toml",
+        include_str!("../templates/default/contracts/counter/Cargo.toml"),
     ),
     (
-        "contracts/example/src/lib.rs",
-        include_str!("../templates/default/contracts/example/src/lib.rs"),
+        "contracts/counter/src/lib.rs",
+        include_str!("../templates/default/contracts/counter/src/lib.rs"),
     ),
     (
-        "tests/example.rs",
-        include_str!("../templates/default/tests/example.rs"),
+        "tests/counter.rs",
+        include_str!("../templates/default/tests/counter.rs"),
     ),
     (
         "labcoat.toml",
@@ -35,15 +35,10 @@ const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml")
 const CONTRACT_SOURCE: &str = include_str!("../templates/contract/src/lib.rs");
 const CONTRACT_TEST: &str = include_str!("../templates/contract/test.rs");
 
-pub fn init(directory: Option<&str>, force: bool, contract: Option<&str>) -> CmdResult {
+pub fn init(directory: Option<&str>, force: bool) -> CmdResult {
     let target = directory
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-
-    if let Some(name) = contract {
-        validate_contract_name(name)?;
-        ensure_contract_destinations_available(&target, name)?;
-    }
 
     if target.exists() && !force && !is_empty(&target)? {
         return Err(EnvelopeError {
@@ -58,13 +53,6 @@ pub fn init(directory: Option<&str>, force: bool, contract: Option<&str>) -> Cmd
 
     std::fs::create_dir_all(&target).map_err(|e| io_error(&target, e))?;
     for (relative, contents) in FILES {
-        if contract.is_some()
-            && (*relative == "contracts/example/Cargo.toml"
-                || *relative == "contracts/example/src/lib.rs"
-                || *relative == "tests/example.rs")
-        {
-            continue;
-        }
         let destination = target.join(relative);
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
@@ -73,36 +61,35 @@ pub fn init(directory: Option<&str>, force: bool, contract: Option<&str>) -> Cmd
         std::fs::write(&destination, rendered).map_err(|e| io_error(&destination, e))?;
     }
 
-    let generated = if let Some(name) = contract {
-        scaffold_contract(&target, name)?
-    } else {
-        Vec::new()
-    };
-
-    let initial_contract = contract.unwrap_or("example");
-
     Ok(serde_json::json!({
         "directory": target,
         "template": "default",
-        "contract": initial_contract,
-        "files": FILES.iter().map(|(path, _)| *path).filter(|path| {
-            contract.is_none() || !path.starts_with("contracts/example/") && *path != "tests/example.rs"
-        }).chain(generated.iter().map(String::as_str)).collect::<Vec<_>>(),
+        "contract": "counter",
+        "files": FILES.iter().map(|(path, _)| *path).collect::<Vec<_>>(),
         "next": ["labcoat test", "labcoat up", "labcoat wallet init"]
     }))
 }
 
 pub fn new_contract(name: &str) -> CmdResult {
-    let root = Path::new(".");
-    if !root.join("labcoat.toml").is_file() || !root.join("Cargo.toml").is_file() {
-        return Err(EnvelopeError {
-            code: "CONFIG_INVALID",
-            message: "current directory is not a Labcoat project".into(),
-            hint: "run this command from a project created by `labcoat init`",
-        });
-    }
-    let files = scaffold_contract(root, name)?;
+    let cwd = std::env::current_dir().map_err(|e| io_error(Path::new("."), e))?;
+    new_contract_from(&cwd, name)
+}
+
+fn new_contract_from(start: &Path, name: &str) -> CmdResult {
+    let root = find_project_root(start).ok_or_else(|| EnvelopeError {
+        code: "CONFIG_INVALID",
+        message: format!("{} is not inside a Labcoat project", start.display()),
+        hint: "run `labcoat init` to create a project, then retry from inside it",
+    })?;
+    let files = scaffold_contract(&root, name)?;
     Ok(serde_json::json!({ "contract": name, "files": files }))
+}
+
+fn find_project_root(start: &Path) -> Option<PathBuf> {
+    start.ancestors().find_map(|candidate| {
+        (candidate.join("labcoat.toml").is_file() && candidate.join("Cargo.toml").is_file())
+            .then(|| candidate.to_path_buf())
+    })
 }
 
 fn scaffold_contract(root: &Path, name: &str) -> Result<Vec<String>, EnvelopeError> {
@@ -201,44 +188,38 @@ mod tests {
     fn scaffolds_and_refuses_non_empty_directories() {
         let root = std::env::temp_dir().join(format!("labcoat-init-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
-        let result = init(root.to_str(), false, None).unwrap();
+        let result = init(root.to_str(), false).unwrap();
         assert_eq!(result["template"], "default");
+        assert_eq!(result["contract"], "counter");
         assert!(root.join("labcoat.toml").exists());
-        assert!(root.join("contracts/example/Cargo.toml").exists());
-        assert!(root.join("contracts/example/src/lib.rs").exists());
+        assert!(root.join("contracts/counter/Cargo.toml").exists());
+        assert!(root.join("contracts/counter/src/lib.rs").exists());
         assert!(!root.join("crates").exists());
         let workspace_manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert!(workspace_manifest.contains("members = [\"contracts/*\"]"));
         assert!(!workspace_manifest.contains("crates/*"));
-        assert!(root.join("tests/example.rs").exists());
-        assert!(std::fs::read_to_string(root.join("tests/example.rs"))
+        assert!(root.join("tests/counter.rs").exists());
+        assert!(std::fs::read_to_string(root.join("tests/counter.rs"))
             .unwrap()
-            .contains("for_contract(\"example\")"));
+            .contains("for_contract(\"counter\")"));
         assert!(std::fs::read_to_string(root.join("Cargo.toml"))
             .unwrap()
             .contains(&format!(
                 "labcoat-test = \"={}\"",
                 env!("CARGO_PKG_VERSION")
             )));
-        assert!(init(root.to_str(), false, None).is_err());
-        assert!(init(root.to_str(), true, None).is_ok());
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn scaffolds_a_named_initial_contract() {
-        let root = std::env::temp_dir().join(format!("labcoat-named-init-{}", std::process::id()));
-        std::fs::remove_dir_all(&root).ok();
-        let result = init(root.to_str(), false, Some("ens-registry")).unwrap();
-        assert_eq!(result["contract"], "ens-registry");
-        assert!(root.join("contracts/ens-registry/Cargo.toml").exists());
-        assert!(root.join("tests/ens-registry.rs").exists());
-        assert!(!root.join("contracts/example").exists());
-        let source =
-            std::fs::read_to_string(root.join("contracts/ens-registry/src/lib.rs")).unwrap();
-        assert!(source.contains("pub struct EnsRegistry"));
-        assert!(source.contains("enum EnsRegistryMessage"));
-        assert!(!source.contains("EnsRegistryContract"));
+        assert!(init(root.to_str(), false).is_err());
+        std::fs::write(
+            root.join("contracts/counter/src/lib.rs"),
+            "overwritten by --force",
+        )
+        .unwrap();
+        assert!(init(root.to_str(), true).is_ok());
+        assert!(
+            std::fs::read_to_string(root.join("contracts/counter/src/lib.rs"))
+                .unwrap()
+                .contains("pub struct Counter")
+        );
         std::fs::remove_dir_all(root).ok();
     }
 
@@ -247,21 +228,35 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("labcoat-contract-new-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
-        init(root.to_str(), false, None).unwrap();
-        let files = scaffold_contract(&root, "name-registry").unwrap();
+        init(root.to_str(), false).unwrap();
+        let nested = root.join("contracts/counter/src");
+        let result = new_contract_from(&nested, "name-registry").unwrap();
+        let files = result["files"].as_array().unwrap();
         assert_eq!(files.len(), 3);
-        assert!(root.join("contracts/example/Cargo.toml").exists());
+        assert!(root.join("contracts/counter/Cargo.toml").exists());
         assert!(root.join("contracts/name-registry/Cargo.toml").exists());
-        assert!(scaffold_contract(&root, "name-registry").is_err());
+        assert!(new_contract_from(&nested, "name-registry").is_err());
 
         std::fs::write(root.join("tests/collision.rs"), "existing").unwrap();
-        assert!(scaffold_contract(&root, "collision").is_err());
+        assert!(new_contract_from(&nested, "collision").is_err());
         assert!(!root.join("contracts/collision").exists());
         assert_eq!(
             std::fs::read_to_string(root.join("tests/collision.rs")).unwrap(),
             "existing"
         );
-        assert!(scaffold_contract(&root, "Bad_Name").is_err());
+        assert!(new_contract_from(&nested, "Bad_Name").is_err());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn new_contract_rejects_locations_outside_a_labcoat_project() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-not-a-project-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        let error = new_contract_from(&root, "example").unwrap_err();
+        assert_eq!(error.code, "CONFIG_INVALID");
+        assert!(error.hint.contains("labcoat init"));
         std::fs::remove_dir_all(root).ok();
     }
 
@@ -275,7 +270,7 @@ mod tests {
         assert!(!manifest.contains("sandshrewmetaprotocols/metashrew"));
         assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));
         assert!(manifest.contains("time = { version = \"=0.3.44\""));
-        let contract = include_str!("../templates/default/contracts/example/Cargo.toml");
+        let contract = include_str!("../templates/default/contracts/counter/Cargo.toml");
         assert!(contract.contains("serde_with.workspace = true"));
         assert!(contract.contains("time.workspace = true"));
         let workspace_manifest = include_str!("../../../Cargo.toml");

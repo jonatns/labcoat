@@ -59,10 +59,11 @@ cd hello-alkane
 labcoat test
 ```
 
-Name the first contract for your project instead of starting from the example:
+Every new project includes a fixed Counter starter. Add another minimal
+contract from anywhere inside the project with:
 
 ```bash
-labcoat init name-service --contract ens-registry
+labcoat new ens-registry
 ```
 
 Start the local devnet and initialize the project wallet:
@@ -82,21 +83,21 @@ labcoat mine 1
 labcoat wallet utxos
 ```
 
-Compile and deploy the example contract:
+Compile the Counter without deploying, or deploy it directly by package name:
 
 ```bash
-labcoat compile example
-labcoat deploy build/example.wasm --dry-run
-labcoat deploy build/example.wasm
-labcoat abi fetch example
-labcoat abi verify example
+labcoat compile counter
+labcoat deploy counter --dry-run
+labcoat deploy counter
+labcoat abi fetch counter
+labcoat abi verify counter
 ```
 
 Interact with the deployed contract:
 
 ```bash
-labcoat simulate example 1 World
-labcoat call example 1 World
+labcoat simulate counter 2
+labcoat call counter 1
 labcoat trace <txid> --wait
 ```
 
@@ -147,14 +148,14 @@ is needed.
 Add another minimal contract package and matching host test without copying files:
 
 ```bash
-labcoat contract new resolver
+labcoat new resolver
 ```
 
 ## CLI map
 
 | Area | Commands |
 |---|---|
-| Project | `init`, `contract new`, `doctor`, `docs` |
+| Project | `init`, `new`, `doctor`, `docs` |
 | Test and build | `test`, `compile` |
 | Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
 | Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |
@@ -171,7 +172,7 @@ Errors include a typed code, human-readable message, and recovery hint.
 
 ```bash
 labcoat status --json
-labcoat deploy build/example.wasm --dry-run --json
+labcoat deploy counter --dry-run --json
 labcoat mcp serve
 ```
 

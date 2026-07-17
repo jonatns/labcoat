@@ -22,10 +22,10 @@ cd my-project && labcoat test
 labcoat up
 labcoat wallet init
 labcoat fund <address> && labcoat mine 1
-labcoat compile example
-labcoat deploy build/example.wasm
-labcoat abi verify example
-labcoat call example <opcode> [args...]
+labcoat compile counter
+labcoat deploy counter
+labcoat abi verify counter
+labcoat call counter <opcode> [args...]
 labcoat trace <txid> --wait
 labcoat down
 ```
@@ -45,7 +45,7 @@ Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or
 
 ### `labcoat init`
 
-Scaffold a Rust-first Labcoat project
+Scaffold a Rust-first Labcoat workspace with a Counter starter
 
 ```text
 init [OPTIONS] [DIRECTORY]
@@ -55,17 +55,8 @@ Arguments and options:
 
 - `directory` (optional): Destination directory (defaults to the current directory)
 - `force` (optional): Overlay the template onto a non-empty directory Values: `true`, `false`.
-- `contract` (optional): Name the initial contract instead of scaffolding the example quickstart
 
-### `labcoat contract`
-
-Contract source scaffolding
-
-```text
-contract <COMMAND>
-```
-
-#### `labcoat contract new`
+### `labcoat new`
 
 Add a minimal contract package and host integration test to this project
 
@@ -75,7 +66,7 @@ new <NAME>
 
 Arguments and options:
 
-- `name` (required)
+- `name` (required): Contract package name in kebab-case
 
 ### `labcoat test`
 
@@ -295,16 +286,17 @@ Arguments and options:
 
 ### `labcoat deploy`
 
-Deploy a compiled contract (raw .wasm) via commit/reveal envelope
+Compile and deploy a contract package, or deploy an explicit raw Wasm
 
 ```text
-deploy [OPTIONS] <WASM>
+deploy [OPTIONS] [PACKAGE]
 ```
 
 Arguments and options:
 
-- `wasm` (required): Path to the raw .wasm artifact
-- `name` (optional): Contract name recorded in labcoat.lock (defaults to file stem)
+- `package` (optional): Exact Cargo contract package name
+- `wasm` (optional): Explicit path to a raw .wasm artifact (skips compilation)
+- `name` (optional): Contract name for --wasm deployments (defaults to file stem)
 - `args` (optional): Constructor cellpack args (u128 / 0x-hex / short strings)
 - `dry_run` (optional): Validate inputs and show what would happen without broadcasting Values: `true`, `false`.
 
@@ -430,7 +422,7 @@ doctor
 | `test` | Build every contract for WASIp1 and run host integration tests; the first build may take several minutes. |
 | `abi_fetch` | Fetch ABI metadata from a deployed contract through Metashrew. |
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
-| `deploy` | Deploy a compiled contract (raw .wasm) via commit/reveal. Records it in labcoat.lock. |
+| `deploy` | Compile and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
 | `call` | Execute a state-changing contract call and wait for its trace. |
 | `simulate` | Read-only simulation of a contract call (no transaction). |
 | `trace` | Decoded protostone traces for a transaction. |
