@@ -79,12 +79,31 @@ const svgPath = path.join(root, 'public/og.svg');
 const pngPath = path.join(root, 'public/og.png');
 await mkdir(path.join(root, 'public'), { recursive: true });
 
+async function decodedPng(buffer) {
+  return sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+}
+
+async function pngsMatch(existing, expected) {
+  const [existingImage, expectedImage] = await Promise.all([
+    decodedPng(existing),
+    decodedPng(expected),
+  ]);
+
+  return existingImage.info.width === expectedImage.info.width
+    && existingImage.info.height === expectedImage.info.height
+    && existingImage.info.channels === expectedImage.info.channels
+    && existingImage.data.equals(expectedImage.data);
+}
+
 if (check) {
   for (const [target, expected] of [[svgPath, Buffer.from(svg)], [pngPath, png]]) {
     try {
       await access(target);
       const existing = await readFile(target);
-      if (!existing.equals(expected)) throw new Error(`${path.relative(repoRoot, target)} is stale; run pnpm --dir apps/web generate:og`);
+      const matches = target === pngPath
+        ? await pngsMatch(existing, expected)
+        : existing.equals(expected);
+      if (!matches) throw new Error(`${path.relative(repoRoot, target)} is stale; run pnpm --dir apps/web generate:og`);
     } catch (error) {
       if (error instanceof Error && error.message.includes('is stale')) throw error;
       throw new Error(`${path.relative(repoRoot, target)} is missing; run pnpm --dir apps/web generate:og`);
