@@ -1,4 +1,5 @@
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -74,25 +75,21 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" v
 </svg>
 `;
 
-const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9, palette: true }).toBuffer();
+const sourceDigest = createHash('sha256').update(svg).digest('hex');
+const sourceMetadata = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:labcoat="https://labcoat.sh/ns/og" labcoat:source-sha256="${sourceDigest}"/></rdf:RDF></x:xmpmeta>`;
+const png = await sharp(Buffer.from(svg))
+  .withXmp(sourceMetadata)
+  .png({ compressionLevel: 9, palette: true })
+  .toBuffer();
 const svgPath = path.join(root, 'public/og.svg');
 const pngPath = path.join(root, 'public/og.png');
 await mkdir(path.join(root, 'public'), { recursive: true });
 
-async function decodedPng(buffer) {
-  return sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-}
-
-async function pngsMatch(existing, expected) {
-  const [existingImage, expectedImage] = await Promise.all([
-    decodedPng(existing),
-    decodedPng(expected),
-  ]);
-
-  return existingImage.info.width === expectedImage.info.width
-    && existingImage.info.height === expectedImage.info.height
-    && existingImage.info.channels === expectedImage.info.channels
-    && existingImage.data.equals(expectedImage.data);
+async function pngMatchesSource(buffer) {
+  const metadata = await sharp(buffer).metadata();
+  return metadata.width === 1200
+    && metadata.height === 630
+    && metadata.xmp?.toString() === sourceMetadata;
 }
 
 if (check) {
@@ -101,7 +98,7 @@ if (check) {
       await access(target);
       const existing = await readFile(target);
       const matches = target === pngPath
-        ? await pngsMatch(existing, expected)
+        ? await pngMatchesSource(existing)
         : existing.equals(expected);
       if (!matches) throw new Error(`${path.relative(repoRoot, target)} is stale; run pnpm --dir apps/web generate:og`);
     } catch (error) {
