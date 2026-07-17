@@ -207,6 +207,9 @@ mod tests {
         assert!(root.join("contracts/example/Cargo.toml").exists());
         assert!(root.join("contracts/example/src/lib.rs").exists());
         assert!(!root.join("crates").exists());
+        let workspace_manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(workspace_manifest.contains("members = [\"contracts/*\"]"));
+        assert!(!workspace_manifest.contains("crates/*"));
         assert!(root.join("tests/example.rs").exists());
         assert!(std::fs::read_to_string(root.join("tests/example.rs"))
             .unwrap()

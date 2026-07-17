@@ -6,7 +6,7 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = ["contracts/*", "crates/*"]
+members = ["contracts/*"]
 
 [workspace.dependencies]
 # Keep these revisions synchronized with the Labcoat release and TOOLCHAIN.md.

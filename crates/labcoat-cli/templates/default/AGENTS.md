@@ -4,7 +4,8 @@ The Rust `labcoat` CLI owns compilation, testing, wallet operations,
 deployment, calls, simulation, tracing, and the local devnet.
 
 - Contracts: Cargo packages under `contracts/*/`
-- Shared contract libraries: Cargo packages under `crates/*/`
+- Shared contract libraries: Cargo packages under `crates/*/`; add each package
+  to the root workspace `members` when creating it
 - Native integration tests: `tests/*.rs` using `labcoat-test`
 - Add contract packages with `labcoat contract new <name>`
 - Public configuration: `labcoat.toml`

@@ -140,8 +140,9 @@ Host tests use isolated in-memory contract storage that persists across calls
 on the same `ContractHarness`.
 
 When multiple contracts need common Rust code, add a Cargo library under
-`crates/<name>/`. The workspace glob discovers it automatically; new projects
-do not create an unused shared crate.
+`crates/<name>/` and add `"crates/<name>"` to the root workspace `members`.
+New projects omit both the directory and its workspace glob until shared code
+is needed.
 
 Add another minimal contract package and matching host test without copying files:
 
