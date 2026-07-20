@@ -317,7 +317,7 @@ Arguments and options:
 
 ### `labcoat simulate`
 
-Read-only simulation of a contract call
+Simulate a deployed contract against live indexed chain state
 
 ```text
 simulate <CONTRACT> <SELECTOR> [ARGS]...
@@ -424,7 +424,7 @@ doctor
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
 | `deploy` | Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
 | `call` | Execute a state-changing contract call and wait for its trace. |
-| `simulate` | Read-only simulation of a contract call (no transaction). |
+| `simulate` | Simulate a deployed contract against live indexed chain state (no transaction). |
 | `trace` | Decoded protostone traces for a transaction. |
 
 ## Error codes
@@ -454,7 +454,7 @@ doctor
 - **Protostone outputs**: Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.
 - **Synchronization**: State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.
 - **labcoat.lock**: Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.
-- **Contract ABI**: Named calls resolve exact method names from deployed __meta metadata and encode one shell argument per ABI parameter; numeric opcodes remain the raw cellpack escape hatch.
+- **Contract ABI**: Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.
 
 ## alkanes-rs pin
 

@@ -450,7 +450,7 @@
             "required": false
           }
         ],
-        "description": "Read-only simulation of a contract call",
+        "description": "Simulate a deployed contract against live indexed chain state",
         "name": "simulate",
         "path": "labcoat simulate",
         "subcommands": [],
@@ -913,7 +913,7 @@
         "name": "call"
       },
       {
-        "description": "Read-only simulation of a contract call (no transaction).",
+        "description": "Simulate a deployed contract against live indexed chain state (no transaction).",
         "inputSchema": {
           "properties": {
             "args": {
@@ -980,7 +980,7 @@
         "name": "labcoat.lock"
       },
       {
-        "detail": "Named calls resolve exact method names from deployed __meta metadata and encode one shell argument per ABI parameter; numeric opcodes remain the raw cellpack escape hatch.",
+        "detail": "Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.",
         "name": "Contract ABI"
       }
     ],

@@ -61,8 +61,11 @@ labcoat call counter increment
 labcoat trace <txid> --wait
 ```
 
-Method names come from the deployed contract ABI. Numeric opcodes remain
-available when you need to provide raw cellpack arguments.
+Method names resolve against the deployed contract. A matching generated ABI
+avoids an indexer metadata request; if the local build differs, Labcoat warns
+and uses deployed metadata. Numeric opcodes remain available when you need to
+provide raw cellpack arguments. Simulation always uses deployed code and live
+indexed state; use `labcoat test counter` for an undeployed local build.
 
 Finish by stopping the shared local devnet:
 

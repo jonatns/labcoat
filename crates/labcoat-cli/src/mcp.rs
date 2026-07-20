@@ -58,7 +58,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone()}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
             json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone()}), &["contract", "opcode"]),
-        tool("simulate", "Read-only simulation of a contract call (no transaction).",
+        tool("simulate", "Simulate a deployed contract against live indexed chain state (no transaction).",
             json!({"contract": {"type": "string"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array}), &["contract", "opcode"]),
         tool("trace", "Decoded protostone traces for a transaction.",
             json!({"txid": {"type": "string"}, "wait": {"type": "boolean"}}), &["txid"]),

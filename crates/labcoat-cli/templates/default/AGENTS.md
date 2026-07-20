@@ -16,4 +16,6 @@ Commit the `Cargo.lock` created by the first build. Run `labcoat test`, then
 `labcoat up`, `labcoat wallet init`, and `labcoat deploy counter`.
 Use `labcoat simulate counter get_count` and `labcoat call counter increment`
 for the starter contract. Use `--json` for machine-readable envelopes and
-`labcoat docs --llm` for the full command reference.
+`labcoat docs --llm` for the full command reference. Simulation targets the
+deployed contract and live indexed state; use `labcoat test <package>` for an
+undeployed local build.

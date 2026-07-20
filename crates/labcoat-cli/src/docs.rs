@@ -197,7 +197,7 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             },
             ProtocolReference {
                 name: "Contract ABI".into(),
-                detail: "Named calls resolve exact method names from deployed __meta metadata and encode one shell argument per ABI parameter; numeric opcodes remain the raw cellpack escape hatch.".into(),
+                detail: "Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.".into(),
             },
         ],
     }

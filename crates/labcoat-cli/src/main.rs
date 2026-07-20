@@ -169,7 +169,7 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Read-only simulation of a contract call
+    /// Simulate a deployed contract against live indexed chain state
     Simulate {
         /// Contract: labcoat.lock name or block:tx alkanes id
         contract: String,

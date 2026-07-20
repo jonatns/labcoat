@@ -73,10 +73,14 @@ labcoat call my-token mint 500 --json        # ABI-typed u128 parameter
 Contract references: the labcoat.lock name (`my-token`) or a raw
 `block:tx` id. Use an exact ABI method name with one shell argument per
 parameter; `u128`, arbitrary UTF-8 `String`, and decimal `block:tx`
-`AlkaneId` values are encoded from the deployed ABI. A numeric opcode keeps
-the raw cellpack format for advanced calls. `result.status` is `success` or
-`revert` (with `result.revertReason` decoded). Compose multi-step operations
-with ordinary shell scripts; Labcoat has no contract script runner.
+`AlkaneId` values are encoded for the deployed contract. A matching generated
+build ABI avoids the metadata request; a different local build produces a
+warning and the deployed ABI is used. A numeric opcode keeps the raw cellpack
+format for advanced calls. Simulation always uses deployed code and live
+indexed state; use `labcoat test <package>` for an undeployed local build.
+`result.status` is `success` or `revert` (with `result.revertReason` decoded).
+Compose multi-step operations with ordinary shell scripts; Labcoat has no
+contract script runner.
 
 ## 6. Trace
 
@@ -110,7 +114,7 @@ fallback.
 - `abi_verify` — Compare a deployed ABI with a locally built contract package.
 - `deploy` — Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.
 - `call` — Execute a state-changing contract call and wait for its trace.
-- `simulate` — Read-only simulation of a contract call (no transaction).
+- `simulate` — Simulate a deployed contract against live indexed chain state (no transaction).
 - `trace` — Decoded protostone traces for a transaction.
 <!-- END GENERATED MCP TOOLS -->
 

@@ -51,13 +51,19 @@ labcoat call registry set_name "Alice Smith"
 labcoat call registry set_owner 2:3
 ```
 
-Named selectors are resolved exactly from the deployed ABI. Pass one shell
-argument per ABI parameter: decimal or `0x` hexadecimal for `u128`, one UTF-8
-argument for `String`, and decimal `block:tx` for `AlkaneId`. Strings are
-encoded across as many little-endian cells as needed. Use a numeric opcode to
-pass raw cellpack arguments for `Vec<T>`, custom types, or other advanced
-calls. Simulation never broadcasts. Calls create a transaction and wait for
-indexing and decoded execution status.
+Named selectors are resolved for the deployed contract. When the generated
+local ABI belongs to the exact Wasm recorded in `labcoat.lock`, Labcoat uses it
+without an indexer metadata request. If the local build differs, Labcoat warns
+and transparently uses deployed metadata. Pass one shell argument per ABI
+parameter: decimal or `0x` hexadecimal for `u128`, one UTF-8 argument for
+`String`, and decimal `block:tx` for `AlkaneId`. Strings are encoded across as
+many little-endian cells as needed. Use a numeric opcode to pass raw cellpack
+arguments for `Vec<T>`, custom types, or other advanced calls.
+
+Simulation never broadcasts, but it always executes the deployed contract
+against live indexed chain state. Use `labcoat test <package>` to execute an
+undeployed local build in the isolated host test runtime. Calls create a
+transaction and wait for indexing and decoded execution status.
 
 Use ordinary shell scripts to compose multiple commands. Labcoat does not
 currently include a contract script runner.

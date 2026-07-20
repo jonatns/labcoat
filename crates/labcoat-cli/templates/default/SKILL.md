@@ -18,8 +18,9 @@ Add another minimal contract and matching test with
 
 Named methods accept one shell argument per ABI parameter. Labcoat encodes
 `u128`, `String`, and `AlkaneId`; use a numeric opcode for raw cellpack args
-when a method uses an unsupported complex type. Use ordinary shell scripts for
-multi-step workflows.
+when a method uses an unsupported complex type. Simulation always targets the
+deployed contract and live indexed state; use `labcoat test <package>` for an
+undeployed local build. Use ordinary shell scripts for multi-step workflows.
 
 Secrets belong in environment variables or mnemonic stdin, never argv or
 `labcoat.toml`. Commit the `Cargo.lock` created by the first build. Run

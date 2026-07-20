@@ -129,8 +129,15 @@ labcoat trace <txid> --wait
 
 Call and simulation selectors may be exact ABI method names or numeric opcodes.
 Named methods accept one shell argument per ABI parameter and encode `u128`,
-`String`, and `AlkaneId` values from the deployed ABI. Numeric opcodes retain
-the raw cellpack argument format for advanced or unsupported parameter types.
+`String`, and `AlkaneId` values for the deployed contract. When the generated
+local ABI belongs to the exact Wasm recorded in `labcoat.lock`, Labcoat uses it
+without an indexer metadata request. If the local build differs, Labcoat warns
+and transparently uses the deployed ABI. Numeric opcodes retain the raw
+cellpack argument format for advanced or unsupported parameter types.
+
+Simulation always executes the deployed contract against live indexed chain
+state. Use `labcoat test <package>` to execute an undeployed local build in the
+isolated host test runtime.
 
 Stop the devnet when finished:
 
