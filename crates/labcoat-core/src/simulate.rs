@@ -29,7 +29,7 @@ pub struct SimulateOutcome {
 pub struct DecodedData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub string: Option<String>,
-    /// Big-endian integer value of the data (decimal string), when it fits.
+    /// Little-endian integer value of the data (decimal string), when it fits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uint: Option<String>,
 }
@@ -125,8 +125,8 @@ fn decode_result(result: &serde_json::Value) -> Result<SimulateOutcome> {
     })
 }
 
-/// Printable-ASCII string first, then big-endian integer — the same
-/// priority the TS decodeAlkanesResult used.
+/// Printable-ASCII string first, then the little-endian integer convention
+/// used by Alkanes contract responses.
 fn decode_data(data: &[u8]) -> DecodedData {
     let string = std::str::from_utf8(data).ok().and_then(|s| {
         let printable = !s.is_empty()
@@ -140,11 +140,9 @@ fn decode_data(data: &[u8]) -> DecodedData {
     });
 
     let uint = if !data.is_empty() && data.len() <= 16 {
-        let mut value: u128 = 0;
-        for byte in data {
-            value = (value << 8) | *byte as u128;
-        }
-        Some(value.to_string())
+        let mut padded = [0_u8; 16];
+        padded[..data.len()].copy_from_slice(data);
+        Some(u128::from_le_bytes(padded).to_string())
     } else {
         None
     };
@@ -165,7 +163,14 @@ mod tests {
     #[test]
     fn decodes_integer() {
         let d = decode_data(&[0x01, 0x00]);
-        assert_eq!(d.uint.as_deref(), Some("256"));
+        assert_eq!(d.uint.as_deref(), Some("1"));
+        assert!(d.string.is_none());
+    }
+
+    #[test]
+    fn decodes_counter_response_as_little_endian_u128() {
+        let d = decode_data(&hex::decode("03000000000000000000000000000000").unwrap());
+        assert_eq!(d.uint.as_deref(), Some("3"));
         assert!(d.string.is_none());
     }
 

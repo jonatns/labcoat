@@ -152,7 +152,8 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             "labcoat build counter".into(),
             "labcoat deploy counter".into(),
             "labcoat abi verify counter".into(),
-            "labcoat call counter <opcode> [args...]".into(),
+            "labcoat simulate counter get_count".into(),
+            "labcoat call counter increment".into(),
             "labcoat trace <txid> --wait".into(),
             "labcoat down".into(),
         ],
@@ -196,7 +197,7 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             },
             ProtocolReference {
                 name: "Contract ABI".into(),
-                detail: "Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.".into(),
+                detail: "Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.".into(),
             },
         ],
     }

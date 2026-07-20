@@ -57,9 +57,9 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("deploy", "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
             json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone()}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
-            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string"}, "args": arg_array.clone()}), &["contract", "opcode"]),
-        tool("simulate", "Read-only simulation of a contract call (no transaction).",
-            json!({"contract": {"type": "string"}, "opcode": {"type": "string"}, "args": arg_array}), &["contract", "opcode"]),
+            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone()}), &["contract", "opcode"]),
+        tool("simulate", "Simulate a deployed contract against live indexed chain state (no transaction).",
+            json!({"contract": {"type": "string"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array}), &["contract", "opcode"]),
         tool("trace", "Decoded protostone traces for a transaction.",
             json!({"txid": {"type": "string"}, "wait": {"type": "boolean"}}), &["txid"]),
     ]
@@ -76,6 +76,21 @@ fn str_args(v: Option<&Value>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn call_selector(args: &Value) -> Result<String, (String, String)> {
+    match args.get("opcode") {
+        Some(Value::String(selector)) if !selector.is_empty() => Ok(selector.clone()),
+        Some(Value::Number(selector)) => Ok(selector.to_string()),
+        Some(_) => Err((
+            "[CONFIG_INVALID] opcode must be an ABI method name or decimal opcode".into(),
+            "pass a non-empty string such as `increment` or `1`".into(),
+        )),
+        None => Err((
+            "[CONFIG_INVALID] opcode is required".into(),
+            "pass an ABI method name or decimal opcode in `opcode`".into(),
+        )),
+    }
 }
 
 async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String, String)> {
@@ -256,18 +271,12 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                 .get("contract")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            let opcode: u128 = args
-                .get("opcode")
-                .map(|v| match v {
-                    Value::String(s) => s.parse().unwrap_or(0),
-                    other => other.as_u64().unwrap_or(0) as u128,
-                })
-                .unwrap_or(0);
+            let selector = call_selector(args)?;
             let call_args = str_args(args.get("args"));
             let (_, res) = if name == "call" {
-                contract::call(ctx, contract_ref, opcode, &call_args).await
+                contract::call(ctx, contract_ref, &selector, &call_args).await
             } else {
-                contract::simulate(ctx, contract_ref, opcode, &call_args).await
+                contract::simulate(ctx, contract_ref, &selector, &call_args).await
             };
             res.map_err(fail)
         }
@@ -389,5 +398,26 @@ mod tests {
         assert_eq!(named("deploy")["inputSchema"]["required"], json!([]));
         assert!(named("deploy")["inputSchema"]["properties"]["package"].is_object());
         assert!(named("deploy")["inputSchema"]["properties"]["wasm"].is_object());
+        assert_eq!(
+            named("call")["inputSchema"]["properties"]["opcode"]["description"],
+            "exact ABI method name or decimal opcode"
+        );
+        assert_eq!(
+            named("simulate")["inputSchema"]["properties"]["opcode"]["description"],
+            "exact ABI method name or decimal opcode"
+        );
+    }
+
+    #[test]
+    fn mcp_call_selector_never_defaults_invalid_values_to_zero() {
+        assert_eq!(
+            call_selector(&json!({"opcode": "increment"})).unwrap(),
+            "increment"
+        );
+        assert_eq!(call_selector(&json!({"opcode": "1"})).unwrap(), "1");
+        assert_eq!(call_selector(&json!({"opcode": 2})).unwrap(), "2");
+        assert!(call_selector(&json!({"opcode": ""})).is_err());
+        assert!(call_selector(&json!({"opcode": true})).is_err());
+        assert!(call_selector(&json!({})).is_err());
     }
 }

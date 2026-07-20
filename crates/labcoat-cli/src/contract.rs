@@ -91,6 +91,198 @@ fn parse_args(args: &[String]) -> Result<Vec<u128>, labcoat_core::LabcoatError> 
     args.iter().map(|a| labcoat_core::parse_arg(a)).collect()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct ResolvedInvocation {
+    opcode: u128,
+    method: Option<String>,
+    cellpack_args: Vec<u128>,
+    target: String,
+    abi_source: Option<AbiSource>,
+    local_build_status: LocalBuildStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum AbiSource {
+    LocalBuild,
+    DeployedMeta,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum LocalBuildStatus {
+    Matches,
+    Differs,
+    Unavailable,
+}
+
+impl ResolvedInvocation {
+    fn metadata(&self) -> serde_json::Value {
+        serde_json::json!({
+            "target": self.target,
+            "targetRevision": "deployed",
+            "abiSource": self.abi_source,
+            "localBuildStatus": self.local_build_status,
+            "method": self.method,
+            "opcode": self.opcode.to_string(),
+        })
+    }
+
+    fn enrich(&self, value: serde_json::Value) -> serde_json::Value {
+        let mut value = match value {
+            serde_json::Value::Object(object) => object,
+            other => {
+                let mut object = serde_json::Map::new();
+                object.insert("value".into(), other);
+                object
+            }
+        };
+        let serde_json::Value::Object(metadata) = self.metadata() else {
+            unreachable!("invocation metadata is always an object")
+        };
+        value.extend(metadata);
+        serde_json::Value::Object(value)
+    }
+}
+
+fn numeric_selector(selector: &str) -> Result<Option<u128>, labcoat_core::LabcoatError> {
+    if selector.is_empty() {
+        return Err(labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            "contract call selector must not be empty",
+            "pass an ABI method name or a numeric opcode",
+        ));
+    }
+    if let Ok(opcode) = selector.parse::<u128>() {
+        return Ok(Some(opcode));
+    }
+    if selector.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("numeric opcode `{selector}` does not fit in u128"),
+            "pass a decimal opcode that fits in u128",
+        ));
+    }
+    Ok(None)
+}
+
+async fn resolve_invocation(
+    ctx: &Ctx,
+    contract: &str,
+    selector: &str,
+    args: &[String],
+    operation: &str,
+) -> Result<(u128, u128, ResolvedInvocation), labcoat_core::LabcoatError> {
+    let numeric = numeric_selector(selector)?;
+    let (block, tx) = resolve(&ctx.config, contract)?;
+    let target = format!("{block}:{tx}");
+    let deployment = named_deployment(&ctx.config, contract);
+    let mut local_build_status = deployment
+        .as_ref()
+        .map(|deployment| local_build_status(contract, deployment))
+        .unwrap_or(LocalBuildStatus::Unavailable);
+    if local_build_status == LocalBuildStatus::Differs {
+        if numeric.is_some() {
+            eprintln!(
+                "warning: local build for {contract} differs from deployed {target}; {operation} is targeting the deployed code. The numeric selector bypasses ABI lookup. Run `labcoat deploy {contract}` to update it."
+            );
+        } else {
+            eprintln!(
+                "warning: local build for {contract} differs from deployed {target}; {operation} is using the deployed code and ABI. Run `labcoat deploy {contract}` to update it."
+            );
+        }
+    }
+    let invocation = if let Some(opcode) = numeric {
+        ResolvedInvocation {
+            opcode,
+            method: None,
+            cellpack_args: parse_args(args)?,
+            target,
+            abi_source: None,
+            local_build_status,
+        }
+    } else {
+        let local_abi = if local_build_status == LocalBuildStatus::Matches {
+            read_local_abi(contract)
+        } else {
+            None
+        };
+        let (abi, abi_source) = if let Some(abi) = local_abi {
+            (abi, AbiSource::LocalBuild)
+        } else {
+            if local_build_status == LocalBuildStatus::Matches {
+                local_build_status = LocalBuildStatus::Unavailable;
+            }
+            (
+                labcoat_core::abi::fetch_deployed(&ctx.config, block, tx).await?,
+                AbiSource::DeployedMeta,
+            )
+        };
+        let method = labcoat_core::abi::resolve_method(&abi, selector, args)?;
+        ResolvedInvocation {
+            opcode: method.opcode,
+            method: Some(method.name),
+            cellpack_args: method.cellpack_args,
+            target,
+            abi_source: Some(abi_source),
+            local_build_status,
+        }
+    };
+    Ok((block, tx, invocation))
+}
+
+fn named_deployment(
+    config: &ToolkitConfig,
+    contract: &str,
+) -> Option<labcoat_core::lockfile::Deployment> {
+    if contract.contains(':') {
+        return None;
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    labcoat_core::lockfile::get(&cwd, &config.normalized_network(), contract)
+}
+
+fn local_build_status(
+    contract: &str,
+    deployment: &labcoat_core::lockfile::Deployment,
+) -> LocalBuildStatus {
+    let Some(expected_hash) = deployment.wasm_sha256.as_deref() else {
+        return LocalBuildStatus::Unavailable;
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    local_build_status_in(&cwd, contract, expected_hash)
+}
+
+fn local_build_status_in(
+    root: &std::path::Path,
+    contract: &str,
+    expected_hash: &str,
+) -> LocalBuildStatus {
+    let wasm_path = root.join("build").join(format!("{contract}.wasm"));
+    let Ok(wasm) = std::fs::read(wasm_path) else {
+        return LocalBuildStatus::Unavailable;
+    };
+    use sha2::Digest;
+    let actual_hash = hex::encode(sha2::Sha256::digest(&wasm));
+    if actual_hash.eq_ignore_ascii_case(expected_hash) {
+        LocalBuildStatus::Matches
+    } else {
+        LocalBuildStatus::Differs
+    }
+}
+
+fn read_local_abi(contract: &str) -> Option<Vec<u8>> {
+    let cwd = std::env::current_dir().ok()?;
+    read_local_abi_in(&cwd, contract)
+}
+
+fn read_local_abi_in(root: &std::path::Path, contract: &str) -> Option<Vec<u8>> {
+    let abi_path = root.join("build").join(format!("{contract}.abi.json"));
+    let abi = std::fs::read(abi_path).ok()?;
+    labcoat_core::abi::validate(&abi).ok()?;
+    Some(abi)
+}
+
 /// Resolve "name-or-id" to (block, tx): block:tx ids parse directly,
 /// anything else is looked up in labcoat.lock.
 pub(crate) fn resolve(
@@ -468,48 +660,60 @@ fn raw_deployment_artifact(
     })
 }
 
-/// --dry-run call: resolve the contract and args, show the plan.
-pub fn call_dry_run(
+/// --dry-run call: resolve the contract, selector, and args, then show the plan.
+pub async fn call_dry_run(
     ctx: &Ctx,
     contract: &str,
-    opcode: u128,
+    selector: &str,
     args: &[String],
 ) -> (&'static str, CmdResult) {
-    let res = (|| {
-        let (block, tx) = resolve(&ctx.config, contract)?;
-        let parsed = parse_args(args)?;
+    let res = async {
+        let (block, tx, invocation) =
+            resolve_invocation(ctx, contract, selector, args, "call").await?;
         Ok(serde_json::json!({
             "dryRun": true,
             "network": ctx.config.normalized_network(),
-            "target": format!("{}:{}", block, tx),
-            "opcode": opcode.to_string(),
-            "cellpackArgs": parsed.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-            "protostoneSpec": labcoat_core::execute::cellpack_spec(block, tx, opcode, &parsed),
+            "target": invocation.target,
+            "targetRevision": "deployed",
+            "selector": selector,
+            "method": invocation.method,
+            "opcode": invocation.opcode.to_string(),
+            "abiSource": invocation.abi_source,
+            "localBuildStatus": invocation.local_build_status,
+            "cellpackArgs": invocation.cellpack_args.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+            "protostoneSpec": labcoat_core::execute::cellpack_spec(
+                block,
+                tx,
+                invocation.opcode,
+                &invocation.cellpack_args,
+            ),
             "wouldBroadcast": "one execute transaction carrying the protostone",
         }))
-    })();
+    }
+    .await;
     ("call", to_envelope(res))
 }
 
 pub async fn call(
     ctx: &Ctx,
     contract: &str,
-    opcode: u128,
+    selector: &str,
     args: &[String],
 ) -> (&'static str, CmdResult) {
     let res = async {
-        let (block, tx) = resolve(&ctx.config, contract)?;
-        let parsed = parse_args(args)?;
-        toolkit::call(
+        let (block, tx, invocation) =
+            resolve_invocation(ctx, contract, selector, args, "call").await?;
+        let outcome = toolkit::call(
             &ctx.config,
             ctx.passphrase(),
             block,
             tx,
-            opcode,
-            &parsed,
+            invocation.opcode,
+            &invocation.cellpack_args,
             ctx.config.fee_rate,
         )
-        .await
+        .await?;
+        Ok(invocation.enrich(serde_json::to_value(outcome).expect("serializable call outcome")))
     }
     .await;
     ("call", to_envelope(res))
@@ -518,15 +722,25 @@ pub async fn call(
 pub async fn simulate(
     ctx: &Ctx,
     contract: &str,
-    opcode: u128,
+    selector: &str,
     args: &[String],
 ) -> (&'static str, CmdResult) {
-    let res = async {
-        let (block, tx) = resolve(&ctx.config, contract)?;
-        let parsed = parse_args(args)?;
-        toolkit::simulate(&ctx.config, block, tx, opcode, &parsed).await
-    }
-    .await;
+    let res =
+        async {
+            let (block, tx, invocation) =
+                resolve_invocation(ctx, contract, selector, args, "simulate").await?;
+            let outcome = toolkit::simulate(
+                &ctx.config,
+                block,
+                tx,
+                invocation.opcode,
+                &invocation.cellpack_args,
+            )
+            .await?;
+            Ok(invocation
+                .enrich(serde_json::to_value(outcome).expect("serializable simulate outcome")))
+        }
+        .await;
     ("simulate", to_envelope(res))
 }
 
@@ -559,6 +773,17 @@ pub fn lock(ctx: &Ctx, cmd: LockCmd) -> (&'static str, CmdResult) {
 #[cfg(test)]
 mod deployment_tests {
     use super::*;
+
+    fn abi_test_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "labcoat-abi-resolution-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
 
     #[test]
     fn raw_wasm_uses_file_stem_unless_name_is_explicit() {
@@ -593,5 +818,107 @@ mod deployment_tests {
     fn deployment_source_validation_rejects_missing_or_conflicting_inputs() {
         assert!(resolve_deployment_artifact(None, None, None).is_err());
         assert!(resolve_deployment_artifact(Some("counter"), Some("counter.wasm"), None).is_err());
+    }
+
+    #[test]
+    fn distinguishes_numeric_opcodes_from_abi_method_names() {
+        assert_eq!(numeric_selector("0").unwrap(), Some(0));
+        assert_eq!(
+            numeric_selector(&u128::MAX.to_string()).unwrap(),
+            Some(u128::MAX)
+        );
+        assert_eq!(numeric_selector("increment").unwrap(), None);
+        assert_eq!(numeric_selector("increment()").unwrap(), None);
+
+        let overflow = format!("{}0", u128::MAX);
+        let error = numeric_selector(&overflow).unwrap_err();
+        assert_eq!(error.code, "CONFIG_INVALID");
+        assert!(error.message.contains("does not fit in u128"));
+        assert!(numeric_selector("").is_err());
+    }
+
+    #[test]
+    fn matching_deployment_hash_uses_valid_generated_abi() {
+        let root = abi_test_root("matching");
+        let build = root.join("build");
+        std::fs::create_dir_all(&build).unwrap();
+        let wasm = b"matching wasm";
+        let abi = br#"{"contract":"Registry","methods":[{"name":"store","opcode":1,"params":[{"name":"name","type":"String"}],"returns":"void"}]}"#;
+        std::fs::write(build.join("name-registry.wasm"), wasm).unwrap();
+        std::fs::write(build.join("name-registry.abi.json"), abi).unwrap();
+        use sha2::Digest;
+        let hash = hex::encode(sha2::Sha256::digest(wasm));
+
+        assert_eq!(
+            local_build_status_in(&root, "name-registry", &hash),
+            LocalBuildStatus::Matches
+        );
+        assert_eq!(
+            read_local_abi_in(&root, "name-registry").as_deref(),
+            Some(abi.as_slice())
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn changed_or_missing_local_wasm_does_not_match_the_deployment() {
+        let root = abi_test_root("drift");
+        let build = root.join("build");
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::write(build.join("name-registry.wasm"), b"new wasm").unwrap();
+
+        use sha2::Digest;
+        let deployed_hash = hex::encode(sha2::Sha256::digest(b"old wasm"));
+        assert_eq!(
+            local_build_status_in(&root, "name-registry", &deployed_hash),
+            LocalBuildStatus::Differs
+        );
+        assert_eq!(
+            local_build_status_in(&root, "missing", &deployed_hash),
+            LocalBuildStatus::Unavailable
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_or_missing_local_abi_is_unavailable() {
+        let root = abi_test_root("invalid-abi");
+        let build = root.join("build");
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::write(build.join("name-registry.abi.json"), b"not json").unwrap();
+
+        assert_eq!(read_local_abi_in(&root, "name-registry"), None);
+        assert_eq!(read_local_abi_in(&root, "missing"), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invocation_results_expose_deployed_target_and_abi_source() {
+        let invocation = ResolvedInvocation {
+            opcode: 7,
+            method: Some("store".into()),
+            cellpack_args: vec![1],
+            target: "4:2".into(),
+            abi_source: Some(AbiSource::LocalBuild),
+            local_build_status: LocalBuildStatus::Matches,
+        };
+        let result = invocation.enrich(serde_json::json!({ "status": "success" }));
+        assert_eq!(result["target"], "4:2");
+        assert_eq!(result["targetRevision"], "deployed");
+        assert_eq!(result["abiSource"], "local-build");
+        assert_eq!(result["localBuildStatus"], "matches");
+        assert_eq!(result["method"], "store");
+        assert_eq!(result["opcode"], "7");
+
+        let numeric = ResolvedInvocation {
+            opcode: 8,
+            method: None,
+            cellpack_args: vec![],
+            target: "4:2".into(),
+            abi_source: None,
+            local_build_status: LocalBuildStatus::Unavailable,
+        };
+        assert!(numeric.metadata()["abiSource"].is_null());
+        assert!(numeric.metadata()["method"].is_null());
     }
 }

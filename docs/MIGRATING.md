@@ -62,8 +62,8 @@ labcoat up
 labcoat wallet init
 labcoat build counter
 labcoat deploy counter
-labcoat simulate counter 2
-labcoat call counter 1
+labcoat simulate counter get_count
+labcoat call counter increment
 ```
 
 The old `labcoat run` command no longer exists.

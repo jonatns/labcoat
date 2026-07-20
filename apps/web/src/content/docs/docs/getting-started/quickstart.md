@@ -11,6 +11,9 @@ cd hello-alkane
 labcoat test
 ```
 
+Run `labcoat init` without a name to enter it interactively. Initialization
+always creates a new folder and refuses an existing destination.
+
 Every project starts with a fixed Counter contract. Add another minimal
 contract package and matching host test from anywhere inside the project:
 
@@ -53,10 +56,16 @@ commit/reveal envelope and recording the resulting Alkanes ID in
 ## Interact and inspect
 
 ```bash
-labcoat simulate counter 2
-labcoat call counter 1
+labcoat simulate counter get_count
+labcoat call counter increment
 labcoat trace <txid> --wait
 ```
+
+Method names resolve against the deployed contract. A matching generated ABI
+avoids an indexer metadata request; if the local build differs, Labcoat warns
+and uses deployed metadata. Numeric opcodes remain available when you need to
+provide raw cellpack arguments. Simulation always uses deployed code and live
+indexed state; use `labcoat test counter` for an undeployed local build.
 
 Finish by stopping the shared local devnet:
 
