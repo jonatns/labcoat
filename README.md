@@ -82,6 +82,9 @@ cd hello-alkane
 labcoat test
 ```
 
+Run `labcoat init` without a name to enter it interactively. Initialization
+always creates a new folder and refuses an existing destination.
+
 Every new project includes a fixed Counter starter. Add another minimal
 contract from anywhere inside the project with:
 
@@ -119,10 +122,15 @@ labcoat abi verify counter
 Interact with the deployed contract:
 
 ```bash
-labcoat simulate counter 2
-labcoat call counter 1
+labcoat simulate counter get_count
+labcoat call counter increment
 labcoat trace <txid> --wait
 ```
+
+Call and simulation selectors may be exact ABI method names or numeric opcodes.
+Named methods accept one shell argument per ABI parameter and encode `u128`,
+`String`, and `AlkaneId` values from the deployed ABI. Numeric opcodes retain
+the raw cellpack argument format for advanced or unsupported parameter types.
 
 Stop the devnet when finished:
 
@@ -132,7 +140,7 @@ labcoat down
 
 ## Projects and configuration
 
-`labcoat init` creates:
+`labcoat init <project-name>` creates a new folder containing:
 
 ```text
 contracts/          Cargo contract packages

@@ -25,7 +25,8 @@ labcoat fund <address> && labcoat mine 1
 labcoat build counter
 labcoat deploy counter
 labcoat abi verify counter
-labcoat call counter <opcode> [args...]
+labcoat simulate counter get_count
+labcoat call counter increment
 labcoat trace <txid> --wait
 labcoat down
 ```
@@ -48,13 +49,12 @@ Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or
 Scaffold a Rust-native Labcoat workspace with a Counter starter
 
 ```text
-init [OPTIONS] [DIRECTORY]
+init [NAME]
 ```
 
 Arguments and options:
 
-- `directory` (optional): Destination directory (defaults to the current directory)
-- `force` (optional): Overlay the template onto a non-empty directory Values: `true`, `false`.
+- `name` (optional): Project name (prompted for when omitted in an interactive terminal)
 
 ### `labcoat new`
 
@@ -305,14 +305,14 @@ Arguments and options:
 Execute a state-changing call on a deployed contract
 
 ```text
-call [OPTIONS] <CONTRACT> <OPCODE> [ARGS]...
+call [OPTIONS] <CONTRACT> <SELECTOR> [ARGS]...
 ```
 
 Arguments and options:
 
 - `contract` (required): Contract: labcoat.lock name or block:tx alkanes id
-- `opcode` (required): Opcode number
-- `args` (optional): Cellpack args (u128 / 0x-hex / short strings)
+- `selector` (required): Exact ABI method name or decimal opcode
+- `args` (optional): One typed value per ABI parameter, or raw cellpack args for numeric opcodes
 - `dry_run` (optional): Validate inputs and show what would happen without broadcasting Values: `true`, `false`.
 
 ### `labcoat simulate`
@@ -320,14 +320,14 @@ Arguments and options:
 Read-only simulation of a contract call
 
 ```text
-simulate <CONTRACT> <OPCODE> [ARGS]...
+simulate <CONTRACT> <SELECTOR> [ARGS]...
 ```
 
 Arguments and options:
 
 - `contract` (required): Contract: labcoat.lock name or block:tx alkanes id
-- `opcode` (required): Opcode number
-- `args` (optional): Cellpack args (u128 / 0x-hex / short strings)
+- `selector` (required): Exact ABI method name or decimal opcode
+- `args` (optional): One typed value per ABI parameter, or raw cellpack args for numeric opcodes
 
 ### `labcoat trace`
 
@@ -454,7 +454,7 @@ doctor
 - **Protostone outputs**: Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.
 - **Synchronization**: State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.
 - **labcoat.lock**: Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.
-- **Contract ABI**: Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.
+- **Contract ABI**: Named calls resolve exact method names from deployed __meta metadata and encode one shell argument per ABI parameter; numeric opcodes remain the raw cellpack escape hatch.
 
 ## alkanes-rs pin
 

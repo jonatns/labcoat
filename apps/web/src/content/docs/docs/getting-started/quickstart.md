@@ -11,6 +11,9 @@ cd hello-alkane
 labcoat test
 ```
 
+Run `labcoat init` without a name to enter it interactively. Initialization
+always creates a new folder and refuses an existing destination.
+
 Every project starts with a fixed Counter contract. Add another minimal
 contract package and matching host test from anywhere inside the project:
 
@@ -53,10 +56,13 @@ commit/reveal envelope and recording the resulting Alkanes ID in
 ## Interact and inspect
 
 ```bash
-labcoat simulate counter 2
-labcoat call counter 1
+labcoat simulate counter get_count
+labcoat call counter increment
 labcoat trace <txid> --wait
 ```
+
+Method names come from the deployed contract ABI. Numeric opcodes remain
+available when you need to provide raw cellpack arguments.
 
 Finish by stopping the shared local devnet:
 

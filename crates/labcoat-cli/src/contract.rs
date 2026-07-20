@@ -91,6 +91,60 @@ fn parse_args(args: &[String]) -> Result<Vec<u128>, labcoat_core::LabcoatError> 
     args.iter().map(|a| labcoat_core::parse_arg(a)).collect()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct ResolvedInvocation {
+    opcode: u128,
+    method: Option<String>,
+    cellpack_args: Vec<u128>,
+}
+
+fn numeric_selector(selector: &str) -> Result<Option<u128>, labcoat_core::LabcoatError> {
+    if selector.is_empty() {
+        return Err(labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            "contract call selector must not be empty",
+            "pass an ABI method name or a numeric opcode",
+        ));
+    }
+    if let Ok(opcode) = selector.parse::<u128>() {
+        return Ok(Some(opcode));
+    }
+    if selector.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("numeric opcode `{selector}` does not fit in u128"),
+            "pass a decimal opcode that fits in u128",
+        ));
+    }
+    Ok(None)
+}
+
+async fn resolve_invocation(
+    ctx: &Ctx,
+    contract: &str,
+    selector: &str,
+    args: &[String],
+) -> Result<(u128, u128, ResolvedInvocation), labcoat_core::LabcoatError> {
+    let numeric = numeric_selector(selector)?;
+    let (block, tx) = resolve(&ctx.config, contract)?;
+    let invocation = if let Some(opcode) = numeric {
+        ResolvedInvocation {
+            opcode,
+            method: None,
+            cellpack_args: parse_args(args)?,
+        }
+    } else {
+        let abi = labcoat_core::abi::fetch_deployed(&ctx.config, block, tx).await?;
+        let method = labcoat_core::abi::resolve_method(&abi, selector, args)?;
+        ResolvedInvocation {
+            opcode: method.opcode,
+            method: Some(method.name),
+            cellpack_args: method.cellpack_args,
+        }
+    };
+    Ok((block, tx, invocation))
+}
+
 /// Resolve "name-or-id" to (block, tx): block:tx ids parse directly,
 /// anything else is looked up in labcoat.lock.
 pub(crate) fn resolve(
@@ -468,45 +522,51 @@ fn raw_deployment_artifact(
     })
 }
 
-/// --dry-run call: resolve the contract and args, show the plan.
-pub fn call_dry_run(
+/// --dry-run call: resolve the contract, selector, and args, then show the plan.
+pub async fn call_dry_run(
     ctx: &Ctx,
     contract: &str,
-    opcode: u128,
+    selector: &str,
     args: &[String],
 ) -> (&'static str, CmdResult) {
-    let res = (|| {
-        let (block, tx) = resolve(&ctx.config, contract)?;
-        let parsed = parse_args(args)?;
+    let res = async {
+        let (block, tx, invocation) = resolve_invocation(ctx, contract, selector, args).await?;
         Ok(serde_json::json!({
             "dryRun": true,
             "network": ctx.config.normalized_network(),
             "target": format!("{}:{}", block, tx),
-            "opcode": opcode.to_string(),
-            "cellpackArgs": parsed.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-            "protostoneSpec": labcoat_core::execute::cellpack_spec(block, tx, opcode, &parsed),
+            "selector": selector,
+            "method": invocation.method,
+            "opcode": invocation.opcode.to_string(),
+            "cellpackArgs": invocation.cellpack_args.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+            "protostoneSpec": labcoat_core::execute::cellpack_spec(
+                block,
+                tx,
+                invocation.opcode,
+                &invocation.cellpack_args,
+            ),
             "wouldBroadcast": "one execute transaction carrying the protostone",
         }))
-    })();
+    }
+    .await;
     ("call", to_envelope(res))
 }
 
 pub async fn call(
     ctx: &Ctx,
     contract: &str,
-    opcode: u128,
+    selector: &str,
     args: &[String],
 ) -> (&'static str, CmdResult) {
     let res = async {
-        let (block, tx) = resolve(&ctx.config, contract)?;
-        let parsed = parse_args(args)?;
+        let (block, tx, invocation) = resolve_invocation(ctx, contract, selector, args).await?;
         toolkit::call(
             &ctx.config,
             ctx.passphrase(),
             block,
             tx,
-            opcode,
-            &parsed,
+            invocation.opcode,
+            &invocation.cellpack_args,
             ctx.config.fee_rate,
         )
         .await
@@ -518,13 +578,19 @@ pub async fn call(
 pub async fn simulate(
     ctx: &Ctx,
     contract: &str,
-    opcode: u128,
+    selector: &str,
     args: &[String],
 ) -> (&'static str, CmdResult) {
     let res = async {
-        let (block, tx) = resolve(&ctx.config, contract)?;
-        let parsed = parse_args(args)?;
-        toolkit::simulate(&ctx.config, block, tx, opcode, &parsed).await
+        let (block, tx, invocation) = resolve_invocation(ctx, contract, selector, args).await?;
+        toolkit::simulate(
+            &ctx.config,
+            block,
+            tx,
+            invocation.opcode,
+            &invocation.cellpack_args,
+        )
+        .await
     }
     .await;
     ("simulate", to_envelope(res))
@@ -593,5 +659,22 @@ mod deployment_tests {
     fn deployment_source_validation_rejects_missing_or_conflicting_inputs() {
         assert!(resolve_deployment_artifact(None, None, None).is_err());
         assert!(resolve_deployment_artifact(Some("counter"), Some("counter.wasm"), None).is_err());
+    }
+
+    #[test]
+    fn distinguishes_numeric_opcodes_from_abi_method_names() {
+        assert_eq!(numeric_selector("0").unwrap(), Some(0));
+        assert_eq!(
+            numeric_selector(&u128::MAX.to_string()).unwrap(),
+            Some(u128::MAX)
+        );
+        assert_eq!(numeric_selector("increment").unwrap(), None);
+        assert_eq!(numeric_selector("increment()").unwrap(), None);
+
+        let overflow = format!("{}0", u128::MAX);
+        let error = numeric_selector(&overflow).unwrap_err();
+        assert_eq!(error.code, "CONFIG_INVALID");
+        assert!(error.message.contains("does not fit in u128"));
+        assert!(numeric_selector("").is_err());
     }
 }

@@ -1,4 +1,5 @@
 use crate::contract::{CmdResult, EnvelopeError};
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 const FILES: &[(&str, &str)] = &[
@@ -35,19 +36,23 @@ const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml")
 const CONTRACT_SOURCE: &str = include_str!("../templates/contract/src/lib.rs");
 const CONTRACT_TEST: &str = include_str!("../templates/contract/test.rs");
 
-pub fn init(directory: Option<&str>, force: bool) -> CmdResult {
-    let target = directory
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+pub fn init(project_name: &str) -> CmdResult {
+    let parent = std::env::current_dir().map_err(|error| io_error(Path::new("."), error))?;
+    init_in(&parent, project_name)
+}
 
-    if target.exists() && !force && !is_empty(&target)? {
+fn init_in(parent: &Path, project_name: &str) -> CmdResult {
+    validate_name(project_name, "project")?;
+    let target = parent.join(project_name);
+
+    if target.exists() {
         return Err(EnvelopeError {
             code: "CONFIG_INVALID",
             message: format!(
-                "refusing to scaffold into non-empty directory {}",
+                "refusing to scaffold into existing path {}",
                 target.display()
             ),
-            hint: "choose an empty directory or pass --force to overlay the template",
+            hint: "choose a new project name",
         });
     }
 
@@ -57,17 +62,55 @@ pub fn init(directory: Option<&str>, force: bool) -> CmdResult {
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
         }
-        let rendered = contents.replace("{{LABCOAT_VERSION}}", env!("CARGO_PKG_VERSION"));
+        let rendered = contents
+            .replace("{{LABCOAT_VERSION}}", env!("CARGO_PKG_VERSION"))
+            .replace("{{PROJECT_NAME}}", project_name);
         std::fs::write(&destination, rendered).map_err(|e| io_error(&destination, e))?;
     }
 
     Ok(serde_json::json!({
+        "project": project_name,
         "directory": target,
         "template": "default",
         "contract": "counter",
         "files": FILES.iter().map(|(path, _)| *path).collect::<Vec<_>>(),
         "next": ["labcoat test", "labcoat up", "labcoat wallet init"]
     }))
+}
+
+pub fn missing_project_name() -> EnvelopeError {
+    EnvelopeError {
+        code: "CONFIG_INVALID",
+        message: "project name is required in non-interactive mode".into(),
+        hint: "pass a project name, for example `labcoat init my-alkane`",
+    }
+}
+
+pub fn prompt_project_name(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<String, EnvelopeError> {
+    loop {
+        write!(output, "Project name: ").map_err(|error| io_error(Path::new("stderr"), error))?;
+        output
+            .flush()
+            .map_err(|error| io_error(Path::new("stderr"), error))?;
+        let mut line = String::new();
+        let read = input
+            .read_line(&mut line)
+            .map_err(|error| io_error(Path::new("stdin"), error))?;
+        if read == 0 {
+            return Err(missing_project_name());
+        }
+        let name = line.trim();
+        match validate_name(name, "project") {
+            Ok(()) => return Ok(name.to_owned()),
+            Err(error) => {
+                writeln!(output, "{}", error.message)
+                    .map_err(|error| io_error(Path::new("stderr"), error))?;
+            }
+        }
+    }
 }
 
 pub fn new_contract(name: &str) -> CmdResult {
@@ -133,6 +176,10 @@ fn ensure_contract_destinations_available(root: &Path, name: &str) -> Result<(),
 }
 
 fn validate_contract_name(name: &str) -> Result<(), EnvelopeError> {
+    validate_name(name, "contract")
+}
+
+fn validate_name(name: &str, kind: &str) -> Result<(), EnvelopeError> {
     let valid = !name.is_empty()
         && name.split('-').all(|part| {
             !part.is_empty()
@@ -146,8 +193,8 @@ fn validate_contract_name(name: &str) -> Result<(), EnvelopeError> {
     } else {
         Err(EnvelopeError {
             code: "CONFIG_INVALID",
-            message: format!("invalid contract name `{name}`"),
-            hint: "use kebab-case beginning with a lowercase letter, for example `my-token`",
+            message: format!("invalid {kind} name `{name}`"),
+            hint: "use kebab-case beginning with a lowercase letter, for example `my-alkane`",
         })
     }
 }
@@ -164,14 +211,6 @@ fn rust_type_name(name: &str) -> String {
     result
 }
 
-fn is_empty(path: &Path) -> Result<bool, EnvelopeError> {
-    if !path.is_dir() {
-        return Ok(false);
-    }
-    let mut entries = std::fs::read_dir(path).map_err(|e| io_error(path, e))?;
-    Ok(entries.next().is_none())
-}
-
 fn io_error(path: &Path, error: std::io::Error) -> EnvelopeError {
     EnvelopeError {
         code: "TOOLKIT_ERROR",
@@ -183,12 +222,20 @@ fn io_error(path: &Path, error: std::io::Error) -> EnvelopeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    fn test_parent(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("labcoat-{label}-{}", std::process::id()))
+    }
 
     #[test]
-    fn scaffolds_and_refuses_non_empty_directories() {
-        let root = std::env::temp_dir().join(format!("labcoat-init-{}", std::process::id()));
-        std::fs::remove_dir_all(&root).ok();
-        let result = init(root.to_str(), false).unwrap();
+    fn scaffolds_named_workspace_with_counter() {
+        let parent = test_parent("init");
+        std::fs::remove_dir_all(&parent).ok();
+        std::fs::create_dir_all(&parent).unwrap();
+        let result = init_in(&parent, "my-alkane").unwrap();
+        let root = parent.join("my-alkane");
+        assert_eq!(result["project"], "my-alkane");
         assert_eq!(result["template"], "default");
         assert_eq!(result["contract"], "counter");
         assert!(root.join("labcoat.toml").exists());
@@ -196,6 +243,7 @@ mod tests {
         assert!(root.join("contracts/counter/src/lib.rs").exists());
         assert!(!root.join("crates").exists());
         let workspace_manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(workspace_manifest.contains("name = \"my-alkane\""));
         assert!(workspace_manifest.contains("members = [\"contracts/*\"]"));
         assert!(!workspace_manifest.contains("crates/*"));
         assert!(root.join("tests/counter.rs").exists());
@@ -208,27 +256,62 @@ mod tests {
                 "labcoat-test = \"={}\"",
                 env!("CARGO_PKG_VERSION")
             )));
-        assert!(init(root.to_str(), false).is_err());
-        std::fs::write(
-            root.join("contracts/counter/src/lib.rs"),
-            "overwritten by --force",
-        )
-        .unwrap();
-        assert!(init(root.to_str(), true).is_ok());
-        assert!(
-            std::fs::read_to_string(root.join("contracts/counter/src/lib.rs"))
-                .unwrap()
-                .contains("pub struct Counter")
+        std::fs::remove_dir_all(parent).ok();
+    }
+
+    #[test]
+    fn refuses_existing_destinations_and_invalid_project_names() {
+        let parent = test_parent("existing");
+        std::fs::remove_dir_all(&parent).ok();
+        let root = parent.join("my-alkane");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("keep.txt"), "untouched").unwrap();
+        assert!(init_in(&parent, "my-alkane").is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("keep.txt")).unwrap(),
+            "untouched"
         );
-        std::fs::remove_dir_all(root).ok();
+        for invalid in [
+            ".",
+            "../alkane",
+            "nested/alkane",
+            "/alkane",
+            "Bad_Name",
+            "-alkane",
+        ] {
+            assert!(init_in(&parent, invalid).is_err(), "accepted {invalid}");
+        }
+        std::fs::remove_dir_all(parent).ok();
+    }
+
+    #[test]
+    fn prompt_retries_invalid_names_and_handles_eof() {
+        let mut input = Cursor::new(b"Bad_Name\nmy-alkane\n".to_vec());
+        let mut output = Vec::new();
+        assert_eq!(
+            prompt_project_name(&mut input, &mut output).unwrap(),
+            "my-alkane"
+        );
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("Project name: ").count(), 2);
+        assert!(output.contains("invalid project name `Bad_Name`"));
+
+        let mut eof = Cursor::new(Vec::<u8>::new());
+        assert_eq!(
+            prompt_project_name(&mut eof, &mut Vec::new())
+                .unwrap_err()
+                .code,
+            "CONFIG_INVALID"
+        );
     }
 
     #[test]
     fn adds_contracts_without_overwriting_or_partial_collision_writes() {
-        let root =
-            std::env::temp_dir().join(format!("labcoat-contract-new-{}", std::process::id()));
-        std::fs::remove_dir_all(&root).ok();
-        init(root.to_str(), false).unwrap();
+        let parent = test_parent("contract-new");
+        std::fs::remove_dir_all(&parent).ok();
+        std::fs::create_dir_all(&parent).unwrap();
+        init_in(&parent, "project").unwrap();
+        let root = parent.join("project");
         let nested = root.join("contracts/counter/src");
         let result = new_contract_from(&nested, "name-registry").unwrap();
         let files = result["files"].as_array().unwrap();
@@ -245,7 +328,7 @@ mod tests {
             "existing"
         );
         assert!(new_contract_from(&nested, "Bad_Name").is_err());
-        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(parent).ok();
     }
 
     #[test]

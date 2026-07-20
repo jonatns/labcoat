@@ -3,8 +3,10 @@ title: Projects and configuration
 description: Understand the Labcoat project layout, configuration precedence, secrets, and deployment lockfile.
 ---
 
-`labcoat init` creates a Rust-native workspace with a fixed Counter starter.
-Add another minimal contract later with `labcoat new token`.
+`labcoat init <project-name>` creates a new Rust-native workspace folder with a
+fixed Counter starter. Run `labcoat init` without a name to enter it
+interactively. Existing destinations are never overlaid. Add another minimal
+contract later with `labcoat new token`.
 
 ```text
 contracts/          Rust contract sources

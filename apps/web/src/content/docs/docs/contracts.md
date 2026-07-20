@@ -44,13 +44,23 @@ commit/reveal envelope, waits for the create trace, and records the resulting
 ## Simulate and call
 
 ```bash
-labcoat simulate my-token 99
-labcoat call my-token 77 500
+labcoat simulate counter get_count
+labcoat call counter increment
+labcoat call my-token mint 500
+labcoat call registry set_name "Alice Smith"
+labcoat call registry set_owner 2:3
 ```
 
-Arguments may be decimal `u128`, `0x` hexadecimal, or strings up to 16 bytes
-packed little-endian. Simulation never broadcasts. Calls create a transaction
-and wait for indexing and decoded execution status.
+Named selectors are resolved exactly from the deployed ABI. Pass one shell
+argument per ABI parameter: decimal or `0x` hexadecimal for `u128`, one UTF-8
+argument for `String`, and decimal `block:tx` for `AlkaneId`. Strings are
+encoded across as many little-endian cells as needed. Use a numeric opcode to
+pass raw cellpack arguments for `Vec<T>`, custom types, or other advanced
+calls. Simulation never broadcasts. Calls create a transaction and wait for
+indexing and decoded execution status.
+
+Use ordinary shell scripts to compose multiple commands. Labcoat does not
+currently include a contract script runner.
 
 ## Trace
 

@@ -6,18 +6,9 @@
       {
         "arguments": [
           {
-            "description": "Destination directory (defaults to the current directory)",
-            "id": "directory",
+            "description": "Project name (prompted for when omitted in an interactive terminal)",
+            "id": "name",
             "possibleValues": [],
-            "required": false
-          },
-          {
-            "description": "Overlay the template onto a non-empty directory",
-            "id": "force",
-            "possibleValues": [
-              "true",
-              "false"
-            ],
             "required": false
           }
         ],
@@ -25,7 +16,7 @@
         "name": "init",
         "path": "labcoat init",
         "subcommands": [],
-        "usage": "init [OPTIONS] [DIRECTORY]"
+        "usage": "init [NAME]"
       },
       {
         "arguments": [
@@ -411,13 +402,13 @@
             "required": true
           },
           {
-            "description": "Opcode number",
-            "id": "opcode",
+            "description": "Exact ABI method name or decimal opcode",
+            "id": "selector",
             "possibleValues": [],
             "required": true
           },
           {
-            "description": "Cellpack args (u128 / 0x-hex / short strings)",
+            "description": "One typed value per ABI parameter, or raw cellpack args for numeric opcodes",
             "id": "args",
             "possibleValues": [],
             "required": false
@@ -436,7 +427,7 @@
         "name": "call",
         "path": "labcoat call",
         "subcommands": [],
-        "usage": "call [OPTIONS] <CONTRACT> <OPCODE> [ARGS]..."
+        "usage": "call [OPTIONS] <CONTRACT> <SELECTOR> [ARGS]..."
       },
       {
         "arguments": [
@@ -447,13 +438,13 @@
             "required": true
           },
           {
-            "description": "Opcode number",
-            "id": "opcode",
+            "description": "Exact ABI method name or decimal opcode",
+            "id": "selector",
             "possibleValues": [],
             "required": true
           },
           {
-            "description": "Cellpack args (u128 / 0x-hex / short strings)",
+            "description": "One typed value per ABI parameter, or raw cellpack args for numeric opcodes",
             "id": "args",
             "possibleValues": [],
             "required": false
@@ -463,7 +454,7 @@
         "name": "simulate",
         "path": "labcoat simulate",
         "subcommands": [],
-        "usage": "simulate <CONTRACT> <OPCODE> [ARGS]..."
+        "usage": "simulate <CONTRACT> <SELECTOR> [ARGS]..."
       },
       {
         "arguments": [
@@ -573,7 +564,8 @@
       "labcoat build counter",
       "labcoat deploy counter",
       "labcoat abi verify counter",
-      "labcoat call counter <opcode> [args...]",
+      "labcoat simulate counter get_count",
+      "labcoat call counter increment",
       "labcoat trace <txid> --wait",
       "labcoat down"
     ],
@@ -908,6 +900,7 @@
               "type": "string"
             },
             "opcode": {
+              "description": "exact ABI method name or decimal opcode",
               "type": "string"
             }
           },
@@ -934,6 +927,7 @@
               "type": "string"
             },
             "opcode": {
+              "description": "exact ABI method name or decimal opcode",
               "type": "string"
             }
           },
@@ -986,7 +980,7 @@
         "name": "labcoat.lock"
       },
       {
-        "detail": "Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.",
+        "detail": "Named calls resolve exact method names from deployed __meta metadata and encode one shell argument per ABI parameter; numeric opcodes remain the raw cellpack escape hatch.",
         "name": "Contract ABI"
       }
     ],

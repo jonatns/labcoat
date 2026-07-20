@@ -5,7 +5,8 @@ description: Labcoat is the Rust-native CLI for building, testing, and operating
 
 # Labcoat: the Alkanes contract workflow
 
-New projects start with `labcoat init <directory>`. Native integration
+New projects start with `labcoat init <project-name>` (or `labcoat init` for an
+interactive prompt). Native integration
 tests live under `tests/`; use `labcoat new <name>` to add a minimal
 contract package and matching test without copying the example.
 Run integration tests with `labcoat test`.
@@ -64,15 +65,18 @@ when intentionally deploying an explicit artifact instead of a Cargo package.
 ## 5. Call & simulate
 
 ```bash
-# look up the opcode in build/my-token.abi.json first
-labcoat simulate my-token 99 --json          # read-only; decoded result
-labcoat call my-token 77 500 --json          # state-changing; auto-mines
+labcoat simulate counter get_count --json    # read-only; decoded result
+labcoat call counter increment --json        # state-changing; auto-mines
+labcoat call my-token mint 500 --json        # ABI-typed u128 parameter
 ```
 
 Contract references: the labcoat.lock name (`my-token`) or a raw
-`block:tx` id. Args: decimal u128, `0x`-hex, or short strings (≤16 bytes,
-packed little-endian). `result.status` is `success` or `revert` (with
-`result.revertReason` decoded).
+`block:tx` id. Use an exact ABI method name with one shell argument per
+parameter; `u128`, arbitrary UTF-8 `String`, and decimal `block:tx`
+`AlkaneId` values are encoded from the deployed ABI. A numeric opcode keeps
+the raw cellpack format for advanced calls. `result.status` is `success` or
+`revert` (with `result.revertReason` decoded). Compose multi-step operations
+with ordinary shell scripts; Labcoat has no contract script runner.
 
 ## 6. Trace
 

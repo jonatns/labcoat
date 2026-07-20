@@ -50,11 +50,8 @@ struct Cli {
 enum Commands {
     /// Scaffold a Rust-native Labcoat workspace with a Counter starter
     Init {
-        /// Destination directory (defaults to the current directory)
-        directory: Option<String>,
-        /// Overlay the template onto a non-empty directory
-        #[arg(long)]
-        force: bool,
+        /// Project name (prompted for when omitted in an interactive terminal)
+        name: Option<String>,
     },
     /// Add a minimal contract package and host integration test to this project
     New {
@@ -163,9 +160,9 @@ enum Commands {
     Call {
         /// Contract: labcoat.lock name or block:tx alkanes id
         contract: String,
-        /// Opcode number
-        opcode: u128,
-        /// Cellpack args (u128 / 0x-hex / short strings)
+        /// Exact ABI method name or decimal opcode
+        selector: String,
+        /// One typed value per ABI parameter, or raw cellpack args for numeric opcodes
         #[arg(num_args = 0..)]
         args: Vec<String>,
         /// Validate inputs and show what would happen without broadcasting
@@ -176,9 +173,9 @@ enum Commands {
     Simulate {
         /// Contract: labcoat.lock name or block:tx alkanes id
         contract: String,
-        /// Opcode number
-        opcode: u128,
-        /// Cellpack args (u128 / 0x-hex / short strings)
+        /// Exact ABI method name or decimal opcode
+        selector: String,
+        /// One typed value per ABI parameter, or raw cellpack args for numeric opcodes
         #[arg(num_args = 0..)]
         args: Vec<String>,
     },
@@ -229,8 +226,22 @@ async fn main() {
 
 async fn run(cli: Cli) -> i32 {
     let json = cli.json;
-    if let Commands::Init { directory, force } = &cli.command {
-        return finish_scaffold(json, "init", project::init(directory.as_deref(), *force));
+    if let Commands::Init { name } = &cli.command {
+        let name = match name {
+            Some(name) => Ok(name.clone()),
+            None if json || !std::io::IsTerminal::is_terminal(&std::io::stdin()) => {
+                Err(project::missing_project_name())
+            }
+            None => {
+                let mut stdin = std::io::stdin().lock();
+                let mut stderr = std::io::stderr().lock();
+                project::prompt_project_name(&mut stdin, &mut stderr)
+            }
+        };
+        return match name {
+            Ok(name) => finish_scaffold(json, "init", project::init(&name)),
+            Err(error) => finish_scaffold(json, "init", Err(error)),
+        };
     }
     if let Commands::New { name } = &cli.command {
         return finish_scaffold(json, "new", project::new_contract(name));
@@ -297,23 +308,23 @@ async fn run(cli: Cli) -> i32 {
         }
         Commands::Call {
             contract,
-            opcode,
+            selector,
             args,
             dry_run,
         } => {
             let (cmd_name, res) = if dry_run {
-                contract::call_dry_run(&ctx, &contract, opcode, &args)
+                contract::call_dry_run(&ctx, &contract, &selector, &args).await
             } else {
-                contract::call(&ctx, &contract, opcode, &args).await
+                contract::call(&ctx, &contract, &selector, &args).await
             };
             finish_contract(json, cmd_name, res)
         }
         Commands::Simulate {
             contract,
-            opcode,
+            selector,
             args,
         } => {
-            let (cmd_name, res) = contract::simulate(&ctx, &contract, opcode, &args).await;
+            let (cmd_name, res) = contract::simulate(&ctx, &contract, &selector, &args).await;
             finish_contract(json, cmd_name, res)
         }
         Commands::Trace { txid, wait } => {
@@ -678,6 +689,8 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "new", "my-token"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "new"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "contract", "new", "my-token"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "init", "my-alkane"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "init", "--force"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "init", "--contract", "my-token"]).is_err());
     }
 
@@ -711,5 +724,13 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "build"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "build", "counter"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "compile", "counter"]).is_err());
+    }
+
+    #[test]
+    fn call_and_simulate_accept_method_names_and_numeric_opcodes() {
+        assert!(Cli::try_parse_from(["labcoat", "simulate", "counter", "increment"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "simulate", "counter", "1"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "call", "token", "mint", "1000"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "call", "counter"]).is_err());
     }
 }
