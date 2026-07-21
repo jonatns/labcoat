@@ -547,6 +547,14 @@
         "path": "labcoat doctor",
         "subcommands": [],
         "usage": "doctor"
+      },
+      {
+        "arguments": [],
+        "description": "Open the read-only terminal inspector (overview, logs, and traces)",
+        "name": "tui",
+        "path": "labcoat tui",
+        "subcommands": [],
+        "usage": "tui"
       }
     ],
     "configurationPrecedence": [

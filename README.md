@@ -193,7 +193,7 @@ labcoat new token
 
 | Area | Commands |
 |---|---|
-| Project | `init`, `new`, `doctor`, `docs` |
+| Project | `init`, `new`, `doctor`, `docs`, `tui` |
 | Test and build | `test`, `build` |
 | Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
 | Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |
@@ -202,6 +202,28 @@ labcoat new token
 
 Run `labcoat --help`, `labcoat <command> --help`, or `labcoat docs --llm`
 for the full command reference.
+
+## Terminal output
+
+Labcoat defaults to concise human-readable output. Contract calls and
+simulations show the resolved method, decoded result, transaction identifiers,
+fees, and gas without dumping raw JSON. Add `--verbose` for ABI metadata,
+artifact hashes and paths, raw return bytes, and full decoded traces.
+
+```bash
+labcoat simulate counter get_count
+labcoat call counter increment --verbose
+labcoat status --color never
+```
+
+Color defaults to terminal auto-detection and honors `NO_COLOR`; use
+`--color always` or `--color never` to override it. Redirected output remains
+plain human text. Automation should request the stable JSON envelope explicitly.
+
+Run `labcoat tui` in an interactive terminal for the read-only inspector. Its
+Overview, Logs, and Trace tabs share the same devnet and RPC data as the normal
+commands. Use `1`–`3` or `Tab` to switch tabs, `/` to search, `o` to open a
+transaction trace, `?` for contextual help, and `q` to quit.
 
 ## Automation
 

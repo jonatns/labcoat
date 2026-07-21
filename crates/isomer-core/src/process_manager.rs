@@ -1034,6 +1034,10 @@ impl ProcessManager {
     pub async fn probe_health(service: ServiceId, config: &IsomerConfig) -> bool {
         let ports = &config.ports;
         let client = reqwest::Client::builder()
+            // Every managed health endpoint is loopback-only. Avoid system
+            // proxy discovery (which can fail in headless macOS sessions) and
+            // never send local devnet probes through a configured proxy.
+            .no_proxy()
             .timeout(std::time::Duration::from_secs(2))
             .build()
             .unwrap_or_default();

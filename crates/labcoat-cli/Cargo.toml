@@ -22,3 +22,12 @@ hex = "0.4"
 serde_json.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml.workspace = true
+anstream = "0.6"
+anstyle = "1"
+indicatif = "0.18"
+ratatui = "=0.29.0"
+crossterm = "=0.28.1"
+unicode-width = "0.2"
+# Ratatui 0.29 allows any instability 0.3.x; releases >=0.3.11 require
+# Rust 1.88, while Labcoat's supported toolchain is intentionally 1.86.
+instability = "=0.3.7"

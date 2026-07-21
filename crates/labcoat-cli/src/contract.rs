@@ -54,6 +54,7 @@ pub enum AbiCmd {
 
 pub struct Ctx {
     pub config: ToolkitConfig,
+    color: crate::output::ColorMode,
 }
 
 impl Ctx {
@@ -65,7 +66,17 @@ impl Ctx {
                 wallet_file: PathBuf::from(wallet_file),
                 fee_rate: fee_rate.or(Some(2.0)),
             },
+            color: crate::output::ColorMode::Auto,
         }
+    }
+
+    pub fn with_color(mut self, color: crate::output::ColorMode) -> Self {
+        self.color = color;
+        self
+    }
+
+    fn warn(&self, message: &str) {
+        crate::output::print_warning(message, self.color);
     }
 
     /// Wallet passphrase: env var, with a loud dev default on regtest and a
@@ -75,9 +86,7 @@ impl Ctx {
             Ok(p) if !p.is_empty() => Some(p),
             _ => {
                 if self.config.normalized_network() == "regtest" {
-                    eprintln!(
-                        "warning: LABCOAT_WALLET_PASSPHRASE not set — using the fixed dev passphrase (regtest only)"
-                    );
+                    self.warn("LABCOAT_WALLET_PASSPHRASE not set — using the fixed dev passphrase (regtest only)");
                     Some("labcoat-dev".to_string())
                 } else {
                     None
@@ -183,13 +192,13 @@ async fn resolve_invocation(
         .unwrap_or(LocalBuildStatus::Unavailable);
     if local_build_status == LocalBuildStatus::Differs {
         if numeric.is_some() {
-            eprintln!(
-                "warning: local build for {contract} differs from deployed {target}; {operation} is targeting the deployed code. The numeric selector bypasses ABI lookup. Run `labcoat deploy {contract}` to update it."
-            );
+            ctx.warn(&format!(
+                "local build for {contract} differs from deployed {target}; {operation} is targeting the deployed code. The numeric selector bypasses ABI lookup. Run `labcoat deploy {contract}` to update it."
+            ));
         } else {
-            eprintln!(
-                "warning: local build for {contract} differs from deployed {target}; {operation} is using the deployed code and ABI. Run `labcoat deploy {contract}` to update it."
-            );
+            ctx.warn(&format!(
+                "local build for {contract} differs from deployed {target}; {operation} is using the deployed code and ABI. Run `labcoat deploy {contract}` to update it."
+            ));
         }
     }
     let invocation = if let Some(opcode) = numeric {

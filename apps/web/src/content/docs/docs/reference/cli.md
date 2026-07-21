@@ -31,9 +31,11 @@ labcoat trace <txid> --wait
 labcoat down
 ```
 
-## JSON envelopes (agent mode)
+## Output modes
 
-Every command accepts `--json` and prints exactly one envelope on stdout. Logs go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.
+Human-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored. `labcoat tui` opens the read-only Overview, Logs, and Trace inspector in an interactive terminal.
+
+Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.
 
 ```json
 {"ok":true,"command":"status","schema":"labcoat/v1/status","result":{}}
@@ -400,6 +402,14 @@ Diagnose the environment (toolchain, ports, binaries, project state)
 
 ```text
 doctor
+```
+
+### `labcoat tui`
+
+Open the read-only terminal inspector (overview, logs, and traces)
+
+```text
+tui
 ```
 
 ## MCP mode
