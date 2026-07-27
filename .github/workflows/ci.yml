@@ -109,8 +109,11 @@ jobs:
             | ./target/debug/labcoat mcp serve | grep -q '"abi_verify"'
       - name: Rust-first project smoke
         run: |
-          PROJECT=$(mktemp -d)/project
-          ./target/debug/labcoat init "$PROJECT" --json | grep -q '"ok": true'
+          PROJECT_PARENT=$(mktemp -d)
+          PROJECT="$PROJECT_PARENT/project"
+          cd "$PROJECT_PARENT"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            init project --json | grep -q '"ok": true'
           cd "$PROJECT"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
             new stateful --json | grep -q '"ok": true'
