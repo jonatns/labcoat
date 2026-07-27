@@ -1,3 +1,10 @@
+//! Minimal persistent counter.
+//!
+//! Public ABI:
+//! - `0`: initialize the counter to zero
+//! - `1`: increment and return the new count
+//! - `20`: return the current count without changing state
+
 use alkanes_runtime::{
     declare_alkane, message::MessageDispatch, runtime::AlkaneResponder, storage::StoragePointer,
 };
@@ -7,6 +14,8 @@ use metashrew_support::{
     compat::to_arraybuffer_layout,
     index_pointer::KeyValuePointer,
 };
+
+const COUNT_KEY: &str = "/count";
 
 #[derive(Default)]
 pub struct Counter(());
@@ -20,14 +29,14 @@ enum CounterMessage {
     #[returns(u128)]
     Increment,
 
-    #[opcode(2)]
+    #[opcode(20)]
     #[returns(u128)]
     GetCount,
 }
 
 impl Counter {
     fn count_pointer(&self) -> StoragePointer {
-        StoragePointer::from_keyword("/count")
+        StoragePointer::from_keyword(COUNT_KEY)
     }
 
     fn response_with_count(&self, count: u128) -> Result<CallResponse> {
