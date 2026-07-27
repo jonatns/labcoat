@@ -171,8 +171,10 @@ pub fn contract_envelope(command: &str, result: &CmdResult) -> Value {
 
 pub fn print_value(command: &str, value: &Value, options: Options) {
     let width = if std::io::stdout().is_terminal() {
-        crossterm::terminal::size()
-            .map(|(width, _)| usize::from(width))
+        std::env::var("COLUMNS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|width| *width > 0)
             .unwrap_or(100)
     } else {
         100

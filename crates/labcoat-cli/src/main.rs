@@ -13,7 +13,6 @@ mod project;
 mod settings;
 mod test_command;
 mod trace_view;
-mod tui;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use isomer_core::Devnet;
@@ -212,8 +211,6 @@ enum Commands {
     },
     /// Diagnose the environment (toolchain, ports, binaries, project state)
     Doctor,
-    /// Open the read-only terminal inspector (overview, logs, and traces)
-    Tui,
 }
 
 #[derive(Subcommand)]
@@ -570,33 +567,6 @@ async fn run(cli: Cli) -> i32 {
                 output_options,
             )
         }
-        Commands::Tui => {
-            if json {
-                return output::finish_contract(
-                    true,
-                    "tui",
-                    Err(contract::EnvelopeError {
-                        code: "CONFIG_INVALID",
-                        message: "the terminal inspector cannot run in JSON mode".into(),
-                        hint: "run `labcoat tui` in an interactive terminal",
-                    }),
-                    output_options,
-                );
-            }
-            match tui::run(ctx).await {
-                Ok(()) => 0,
-                Err(error) => output::finish_contract(
-                    false,
-                    "tui",
-                    Err(contract::EnvelopeError {
-                        code: "TUI_ERROR",
-                        message: error,
-                        hint: "use `labcoat status`, `labcoat logs`, or `labcoat trace <txid>` instead",
-                    }),
-                    output_options,
-                ),
-            }
-        }
     }
 }
 
@@ -645,10 +615,10 @@ mod envelope_tests {
     }
 
     #[test]
-    fn human_output_flags_and_tui_have_the_expected_cli_contract() {
+    fn human_output_flags_have_the_expected_cli_contract() {
         assert!(Cli::try_parse_from(["labcoat", "--verbose", "status"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "status", "--color", "never"]).is_ok());
-        assert!(Cli::try_parse_from(["labcoat", "tui"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "tui"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "--json", "--verbose", "status"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "--color", "rainbow", "status"]).is_err());
     }

@@ -33,7 +33,7 @@ labcoat down
 
 ## Output modes
 
-Human-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored. `labcoat tui` opens the read-only Overview, Logs, and Trace inspector in an interactive terminal.
+Human-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.
 
 Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.
 
@@ -402,14 +402,6 @@ Diagnose the environment (toolchain, ports, binaries, project state)
 
 ```text
 doctor
-```
-
-### `labcoat tui`
-
-Open the read-only terminal inspector (overview, logs, and traces)
-
-```text
-tui
 ```
 
 ## MCP mode

@@ -17,7 +17,6 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 ### Added
 
 - add global `--verbose` and `--color auto|always|never` output controls
-- add the read-only `labcoat tui` inspector with Overview, Logs, and Trace tabs
 
 ## [0.1.0](https://github.com/jonatns/labcoat/releases/tag/cli-v0.1.0) - 2026-07-16
 
