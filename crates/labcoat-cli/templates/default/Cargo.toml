@@ -1,5 +1,5 @@
 [package]
-name = "labcoat-project"
+name = "{{PROJECT_NAME}}"
 version = "0.1.0"
 edition = "2021"
 publish = false

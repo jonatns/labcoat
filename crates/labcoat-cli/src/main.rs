@@ -8,9 +8,11 @@ mod contract;
 mod docs;
 mod doctor;
 mod mcp;
+mod output;
 mod project;
 mod settings;
 mod test_command;
+mod trace_view;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use isomer_core::Devnet;
@@ -25,6 +27,14 @@ struct Cli {
     /// Emit a machine-readable JSON envelope on stdout
     #[arg(long, global = true)]
     json: bool,
+
+    /// Show raw data, artifact details, and complete traces in human output
+    #[arg(short, long, global = true, conflicts_with = "json")]
+    verbose: bool,
+
+    /// Terminal color policy
+    #[arg(long, global = true, value_enum, default_value_t)]
+    color: output::ColorMode,
 
     /// Network: regtest | signet | testnet | mainnet
     #[arg(long, global = true)]
@@ -50,11 +60,8 @@ struct Cli {
 enum Commands {
     /// Scaffold a Rust-native Labcoat workspace with a Counter starter
     Init {
-        /// Destination directory (defaults to the current directory)
-        directory: Option<String>,
-        /// Overlay the template onto a non-empty directory
-        #[arg(long)]
-        force: bool,
+        /// Project name (prompted for when omitted in an interactive terminal)
+        name: Option<String>,
     },
     /// Add a minimal contract package and host integration test to this project
     New {
@@ -163,22 +170,22 @@ enum Commands {
     Call {
         /// Contract: labcoat.lock name or block:tx alkanes id
         contract: String,
-        /// Opcode number
-        opcode: u128,
-        /// Cellpack args (u128 / 0x-hex / short strings)
+        /// Exact ABI method name or decimal opcode
+        selector: String,
+        /// One typed value per ABI parameter, or raw cellpack args for numeric opcodes
         #[arg(num_args = 0..)]
         args: Vec<String>,
         /// Validate inputs and show what would happen without broadcasting
         #[arg(long)]
         dry_run: bool,
     },
-    /// Read-only simulation of a contract call
+    /// Simulate a deployed contract against live indexed chain state
     Simulate {
         /// Contract: labcoat.lock name or block:tx alkanes id
         contract: String,
-        /// Opcode number
-        opcode: u128,
-        /// Cellpack args (u128 / 0x-hex / short strings)
+        /// Exact ABI method name or decimal opcode
+        selector: String,
+        /// One typed value per ABI parameter, or raw cellpack args for numeric opcodes
         #[arg(num_args = 0..)]
         args: Vec<String>,
     },
@@ -229,11 +236,29 @@ async fn main() {
 
 async fn run(cli: Cli) -> i32 {
     let json = cli.json;
-    if let Commands::Init { directory, force } = &cli.command {
-        return finish_scaffold(json, "init", project::init(directory.as_deref(), *force));
+    let output_options = output::Options {
+        verbose: cli.verbose,
+        color: cli.color,
+    };
+    if let Commands::Init { name } = &cli.command {
+        let name = match name {
+            Some(name) => Ok(name.clone()),
+            None if json || !std::io::IsTerminal::is_terminal(&std::io::stdin()) => {
+                Err(project::missing_project_name())
+            }
+            None => {
+                let mut stdin = std::io::stdin().lock();
+                let mut stderr = std::io::stderr().lock();
+                project::prompt_project_name(&mut stdin, &mut stderr)
+            }
+        };
+        return match name {
+            Ok(name) => output::finish_contract(json, "init", project::init(&name), output_options),
+            Err(error) => output::finish_contract(json, "init", Err(error), output_options),
+        };
     }
     if let Commands::New { name } = &cli.command {
-        return finish_scaffold(json, "new", project::new_contract(name));
+        return output::finish_contract(json, "new", project::new_contract(name), output_options);
     }
     let resolved = match settings::resolve(settings::Overrides {
         network: cli.network.as_deref(),
@@ -243,7 +268,7 @@ async fn run(cli: Cli) -> i32 {
     }) {
         Ok(settings) => settings,
         Err(message) => {
-            return finish_contract(
+            return output::finish_contract(
                 json,
                 "config",
                 Err(contract::EnvelopeError {
@@ -251,6 +276,7 @@ async fn run(cli: Cli) -> i32 {
                     message,
                     hint: "fix labcoat.toml or override the setting with a CLI flag",
                 }),
+                output_options,
             )
         }
     };
@@ -260,26 +286,32 @@ async fn run(cli: Cli) -> i32 {
         &resolved.rpc_url,
         &wallet_file,
         resolved.fee_rate,
-    );
+    )
+    .with_color(cli.color);
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
         Commands::New { .. } => {
             unreachable!("contract scaffolding handled before configuration loading")
         }
         Commands::Test { package } => {
-            finish_contract(json, "test", test_command::run(package.as_deref()))
+            let progress = output::Progress::new("Building contracts and running tests…", !json);
+            let result = test_command::run(package.as_deref());
+            progress.finish();
+            output::finish_contract(json, "test", result, output_options)
         }
         Commands::Wallet(cmd) => {
             let (name, res) = contract::wallet(&ctx, cmd).await;
-            finish_contract(json, name, res)
+            output::finish_contract(json, name, res, output_options)
         }
         Commands::Build { package, out_dir } => {
+            let progress = output::Progress::new("Building contract artifacts…", !json);
             let (cmd_name, res) = contract::build(package.as_deref(), &out_dir);
-            finish_contract(json, cmd_name, res)
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Abi(cmd) => {
             let (cmd_name, res) = contract::abi(&ctx, cmd).await;
-            finish_contract(json, cmd_name, res)
+            output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Deploy {
             package,
@@ -288,61 +320,79 @@ async fn run(cli: Cli) -> i32 {
             args,
             dry_run,
         } => {
+            let progress = output::Progress::new(
+                if dry_run {
+                    "Validating deployment…"
+                } else {
+                    "Deploying contract…"
+                },
+                !json,
+            );
             let (cmd_name, res) = if dry_run {
                 contract::deploy_dry_run(&ctx, package.as_deref(), wasm.as_deref(), name, &args)
             } else {
                 contract::deploy(&ctx, package.as_deref(), wasm.as_deref(), name, &args).await
             };
-            finish_contract(json, cmd_name, res)
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Call {
             contract,
-            opcode,
+            selector,
             args,
             dry_run,
         } => {
+            let progress = output::Progress::new(
+                if dry_run {
+                    "Validating contract call…"
+                } else {
+                    "Calling contract…"
+                },
+                !json,
+            );
             let (cmd_name, res) = if dry_run {
-                contract::call_dry_run(&ctx, &contract, opcode, &args)
+                contract::call_dry_run(&ctx, &contract, &selector, &args).await
             } else {
-                contract::call(&ctx, &contract, opcode, &args).await
+                contract::call(&ctx, &contract, &selector, &args).await
             };
-            finish_contract(json, cmd_name, res)
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Simulate {
             contract,
-            opcode,
+            selector,
             args,
         } => {
-            let (cmd_name, res) = contract::simulate(&ctx, &contract, opcode, &args).await;
-            finish_contract(json, cmd_name, res)
+            let (cmd_name, res) = contract::simulate(&ctx, &contract, &selector, &args).await;
+            output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Trace { txid, wait } => {
+            let progress = output::Progress::new(
+                if wait {
+                    "Waiting for transaction trace…"
+                } else {
+                    "Fetching transaction trace…"
+                },
+                !json,
+            );
             let (cmd_name, res) = contract::trace(&ctx, &txid, wait).await;
-            finish_contract(json, cmd_name, res)
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Lock(cmd) => {
             let (cmd_name, res) = contract::lock(&ctx, cmd);
-            finish_contract(json, cmd_name, res)
+            output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,
         Commands::Doctor => {
             let checks = doctor::run().await;
             let failed = checks.iter().any(|c| c.status == "fail");
-            if json {
-                finish(true, "doctor", Ok(serde_json::json!({ "checks": checks })));
-            } else {
-                for c in &checks {
-                    let mark = match c.status {
-                        "ok" => "✓",
-                        "warn" => "!",
-                        _ => "✗",
-                    };
-                    println!("{} {:<24} {}", mark, c.name, c.detail);
-                    if let Some(hint) = &c.hint {
-                        println!("    hint: {}", hint);
-                    }
-                }
-            }
+            output::finish(
+                json,
+                "doctor",
+                Ok(serde_json::json!({ "checks": checks })),
+                output_options,
+            );
             if failed {
                 1
             } else {
@@ -353,10 +403,11 @@ async fn run(cli: Cli) -> i32 {
             let reference = docs::reference(Cli::command(), mcp::tools());
             let _ = llm;
             if json {
-                finish(
+                output::finish(
                     true,
                     "docs",
                     Ok(serde_json::to_value(reference).expect("serializable docs reference")),
+                    output_options,
                 )
             } else {
                 println!("{}", reference.render_markdown());
@@ -365,15 +416,16 @@ async fn run(cli: Cli) -> i32 {
         }
         Commands::Up { no_download, ci } => {
             let mut devnet = Devnet::new();
+            let progress = output::Progress::new("Preparing devnet services…", !json);
             if !no_download {
-                eprintln!("Checking service binaries...");
-                if let Err(e) = devnet.ensure_binaries(progress_logger()).await {
-                    return finish(json, "up", Err(e));
+                if let Err(e) = devnet.ensure_binaries(progress_logger(!json && !ci)).await {
+                    progress.finish();
+                    return output::finish(json, "up", Err(e), output_options);
                 }
             }
-            eprintln!("Starting devnet services...");
             if let Err(e) = devnet.start() {
-                return finish(json, "up", Err(e));
+                progress.finish();
+                return output::finish(json, "up", Err(e), output_options);
             }
             let mut status = devnet.status().await;
             if ci {
@@ -391,13 +443,15 @@ async fn run(cli: Cli) -> i32 {
                         .map(|s| s.id.clone())
                         .collect();
                     std::mem::forget(devnet);
-                    return finish(
+                    progress.finish();
+                    return output::finish(
                         json,
                         "up",
                         Err(format!(
                             "devnet not ready after 120s; still down: {}",
                             not_ready.join(", ")
                         )),
+                        output_options,
                     );
                 }
             }
@@ -405,20 +459,15 @@ async fn run(cli: Cli) -> i32 {
             // The stack must outlive this process: dropping the handle
             // would stop the children it spawned.
             std::mem::forget(devnet);
+            progress.finish();
             let payload = serde_json::json!({
                 "status": status,
                 "endpoints": endpoints,
             });
             if json || ci {
-                finish(true, "up", Ok(payload))
+                output::finish(true, "up", Ok(payload), output_options)
             } else {
-                println!("Devnet is up.");
-                println!(
-                    "Unified JSON-RPC: {}",
-                    payload["endpoints"]["jsonrpc"].as_str().unwrap_or("?")
-                );
-                println!("Block height: {}", payload["status"]["block_height"]);
-                0
+                output::finish(false, "up", Ok(payload), output_options)
             }
         }
         Commands::Down => {
@@ -426,22 +475,17 @@ async fn run(cli: Cli) -> i32 {
             let res = devnet
                 .stop()
                 .map(|_| serde_json::json!({ "stopped": true }));
-            finish(json, "down", res)
+            output::finish(json, "down", res, output_options)
         }
         Commands::Status => {
             let mut devnet = Devnet::new();
             let status = devnet.status().await;
-            if json {
-                finish(json, "status", Ok(serde_json::to_value(&status).unwrap()))
-            } else {
-                for s in &status.services {
-                    println!("{:<22} {:<8} port {}", s.name, s.status, s.port);
-                }
-                println!("block height: {}", status.block_height);
-                println!("mempool: {}", status.mempool_size);
-                println!("ready: {}", status.is_ready);
-                0
-            }
+            output::finish(
+                json,
+                "status",
+                Ok(serde_json::to_value(&status).unwrap()),
+                output_options,
+            )
         }
         Commands::Mine { count, address } => {
             let devnet = Devnet::new();
@@ -449,7 +493,7 @@ async fn run(cli: Cli) -> i32 {
                 .mine(count, address)
                 .await
                 .map(|height| serde_json::json!({ "mined": count, "height": height }));
-            finish(json, "mine", res)
+            output::finish(json, "mine", res, output_options)
         }
         Commands::Fund { address, amount } => {
             let devnet = Devnet::new();
@@ -457,19 +501,17 @@ async fn run(cli: Cli) -> i32 {
                 .fund(&address, amount)
                 .await
                 .map(|txid| serde_json::json!({ "txid": txid }));
-            finish(json, "fund", res)
+            output::finish(json, "fund", res, output_options)
         }
         Commands::Logs { service, limit } => {
             let devnet = Devnet::new();
             let logs = devnet.logs(service, limit);
-            if json {
-                finish(json, "logs", Ok(serde_json::to_value(&logs).unwrap()))
-            } else {
-                for entry in logs {
-                    println!("[{}] {}", entry.service, entry.message);
-                }
-                0
-            }
+            output::finish(
+                json,
+                "logs",
+                Ok(serde_json::to_value(&logs).unwrap()),
+                output_options,
+            )
         }
         Commands::Reset { yes } => {
             if !yes && !json {
@@ -484,168 +526,57 @@ async fn run(cli: Cli) -> i32 {
             }
             let mut devnet = Devnet::new();
             let res = devnet.reset().map(|_| serde_json::json!({ "reset": true }));
-            finish(json, "reset", res)
+            output::finish(json, "reset", res, output_options)
         }
         Commands::Snapshot { name, list } => {
             let mut devnet = Devnet::new();
             if list || name.is_none() {
                 let names = devnet.snapshots();
-                return finish(
+                return output::finish(
                     json,
                     "snapshot",
                     Ok(serde_json::json!({ "snapshots": names })),
+                    output_options,
                 );
             }
             let name = name.unwrap();
             let res = devnet
                 .snapshot(&name)
                 .map(|path| serde_json::json!({ "snapshot": name, "path": path }));
-            finish(json, "snapshot", res)
+            output::finish(json, "snapshot", res, output_options)
         }
         Commands::Restore { name } => {
             let mut devnet = Devnet::new();
             let res = devnet
                 .restore(&name)
                 .map(|_| serde_json::json!({ "restored": name }));
-            finish(json, "restore", res)
+            output::finish(json, "restore", res, output_options)
         }
         Commands::Binaries { download } => {
             let devnet = Devnet::new();
             if download {
-                if let Err(e) = devnet.ensure_binaries(progress_logger()).await {
-                    return finish(json, "binaries", Err(e));
+                if let Err(e) = devnet.ensure_binaries(progress_logger(!json)).await {
+                    return output::finish(json, "binaries", Err(e), output_options);
                 }
             }
             let infos = devnet.check_binaries();
-            if json {
-                finish(json, "binaries", Ok(serde_json::to_value(&infos).unwrap()))
-            } else {
-                for b in infos {
-                    println!("{:<24} {:?}  {}", b.service, b.status, b.path);
-                }
-                0
-            }
+            output::finish(
+                json,
+                "binaries",
+                Ok(serde_json::to_value(&infos).unwrap()),
+                output_options,
+            )
         }
     }
 }
 
-fn progress_logger() -> impl Fn(isomer_core::ServiceId, f32) + Send + Clone + 'static {
-    |service, progress| {
-        if progress == 0.0 || progress >= 1.0 {
+fn progress_logger(enabled: bool) -> impl Fn(isomer_core::ServiceId, f32) + Send + Clone + 'static {
+    move |service, progress| {
+        if enabled
+            && std::io::IsTerminal::is_terminal(&std::io::stderr())
+            && (progress == 0.0 || progress >= 1.0)
+        {
             eprintln!("  {} {:.0}%", service.display_name(), progress * 100.0);
-        }
-    }
-}
-
-/// Envelope printer for contract commands (typed error codes + hints).
-fn finish_contract(json: bool, command: &str, res: contract::CmdResult) -> i32 {
-    if json {
-        let envelope = contract_envelope(command, &res);
-        println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
-        0
-    } else {
-        match res {
-            Ok(v) => {
-                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
-                0
-            }
-            Err(e) => {
-                eprintln!("error[{}]: {}", e.code, e.message);
-                eprintln!("hint: {}", e.hint);
-                1
-            }
-        }
-    }
-}
-
-/// Concise terminal output for project scaffolding, while preserving the
-/// standard typed JSON envelope for automation.
-fn finish_scaffold(json: bool, command: &str, res: contract::CmdResult) -> i32 {
-    if json {
-        return finish_contract(true, command, res);
-    }
-    match res {
-        Ok(value) => {
-            match command {
-                "init" => println!(
-                    "✓ Initialized {}",
-                    value["directory"].as_str().unwrap_or(".")
-                ),
-                "new" => println!(
-                    "✓ Created {}",
-                    value["contract"].as_str().unwrap_or("contract")
-                ),
-                _ => println!(
-                    "{}",
-                    serde_json::to_string_pretty(&value).unwrap_or_default()
-                ),
-            }
-            0
-        }
-        Err(error) => {
-            eprintln!("error[{}]: {}", error.code, error.message);
-            eprintln!("hint: {}", error.hint);
-            1
-        }
-    }
-}
-
-fn contract_envelope(command: &str, res: &contract::CmdResult) -> serde_json::Value {
-    match res {
-        Ok(value) => serde_json::json!({
-            "ok": true,
-            "command": command,
-            "schema": format!("labcoat/v1/{}", command),
-            "result": value,
-        }),
-        Err(error) => serde_json::json!({
-            "ok": false,
-            "command": command,
-            "schema": "labcoat/v1/error",
-            "error": {
-                "code": error.code,
-                "message": error.message,
-                "hint": error.hint,
-            },
-        }),
-    }
-}
-
-/// Print the result (JSON envelope or human text) and return the exit code.
-fn finish(json: bool, command: &str, res: Result<serde_json::Value, String>) -> i32 {
-    if json {
-        let envelope = match &res {
-            Ok(v) => serde_json::json!({
-                "ok": true,
-                "command": command,
-                "schema": format!("labcoat/v1/{}", command),
-                "result": v,
-            }),
-            Err(e) => serde_json::json!({
-                "ok": false,
-                "command": command,
-                "schema": "labcoat/v1/error",
-                "error": {
-                    "code": "DEVNET_ERROR",
-                    "message": e,
-                    "hint": "run `labcoat status` to inspect the devnet"
-                },
-            }),
-        };
-        println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
-        // An envelope (ok or error) was emitted: exit 0 so callers parse
-        // stdout instead of guessing from exit codes.
-        0
-    } else {
-        match res {
-            Ok(v) => {
-                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
-                0
-            }
-            Err(e) => {
-                eprintln!("error: {}", e);
-                1
-            }
         }
     }
 }
@@ -656,11 +587,11 @@ mod envelope_tests {
 
     #[test]
     fn contract_envelopes_preserve_schema_and_typed_errors() {
-        let success = contract_envelope("test", &Ok(serde_json::json!({ "passed": true })));
+        let success = output::contract_envelope("test", &Ok(serde_json::json!({ "passed": true })));
         assert_eq!(success["schema"], "labcoat/v1/test");
         assert_eq!(success["result"]["passed"], true);
 
-        let failure = contract_envelope(
+        let failure = output::contract_envelope(
             "test",
             &Err(contract::EnvelopeError {
                 code: "TEST_FAILED",
@@ -678,7 +609,18 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "new", "my-token"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "new"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "contract", "new", "my-token"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "init", "my-alkane"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "init", "--force"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "init", "--contract", "my-token"]).is_err());
+    }
+
+    #[test]
+    fn human_output_flags_have_the_expected_cli_contract() {
+        assert!(Cli::try_parse_from(["labcoat", "--verbose", "status"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "status", "--color", "never"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "tui"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "--json", "--verbose", "status"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "--color", "rainbow", "status"]).is_err());
     }
 
     #[test]
@@ -711,5 +653,13 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "build"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "build", "counter"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "compile", "counter"]).is_err());
+    }
+
+    #[test]
+    fn call_and_simulate_accept_method_names_and_numeric_opcodes() {
+        assert!(Cli::try_parse_from(["labcoat", "simulate", "counter", "increment"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "simulate", "counter", "1"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "call", "token", "mint", "1000"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "call", "counter"]).is_err());
     }
 }

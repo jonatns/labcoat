@@ -25,14 +25,17 @@ labcoat fund <address> && labcoat mine 1
 labcoat build counter
 labcoat deploy counter
 labcoat abi verify counter
-labcoat call counter <opcode> [args...]
+labcoat simulate counter get_count
+labcoat call counter increment
 labcoat trace <txid> --wait
 labcoat down
 ```
 
-## JSON envelopes (agent mode)
+## Output modes
 
-Every command accepts `--json` and prints exactly one envelope on stdout. Logs go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.
+Human-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.
+
+Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.
 
 ```json
 {"ok":true,"command":"status","schema":"labcoat/v1/status","result":{}}
@@ -48,13 +51,12 @@ Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or
 Scaffold a Rust-native Labcoat workspace with a Counter starter
 
 ```text
-init [OPTIONS] [DIRECTORY]
+init [NAME]
 ```
 
 Arguments and options:
 
-- `directory` (optional): Destination directory (defaults to the current directory)
-- `force` (optional): Overlay the template onto a non-empty directory Values: `true`, `false`.
+- `name` (optional): Project name (prompted for when omitted in an interactive terminal)
 
 ### `labcoat new`
 
@@ -305,29 +307,29 @@ Arguments and options:
 Execute a state-changing call on a deployed contract
 
 ```text
-call [OPTIONS] <CONTRACT> <OPCODE> [ARGS]...
+call [OPTIONS] <CONTRACT> <SELECTOR> [ARGS]...
 ```
 
 Arguments and options:
 
 - `contract` (required): Contract: labcoat.lock name or block:tx alkanes id
-- `opcode` (required): Opcode number
-- `args` (optional): Cellpack args (u128 / 0x-hex / short strings)
+- `selector` (required): Exact ABI method name or decimal opcode
+- `args` (optional): One typed value per ABI parameter, or raw cellpack args for numeric opcodes
 - `dry_run` (optional): Validate inputs and show what would happen without broadcasting Values: `true`, `false`.
 
 ### `labcoat simulate`
 
-Read-only simulation of a contract call
+Simulate a deployed contract against live indexed chain state
 
 ```text
-simulate <CONTRACT> <OPCODE> [ARGS]...
+simulate <CONTRACT> <SELECTOR> [ARGS]...
 ```
 
 Arguments and options:
 
 - `contract` (required): Contract: labcoat.lock name or block:tx alkanes id
-- `opcode` (required): Opcode number
-- `args` (optional): Cellpack args (u128 / 0x-hex / short strings)
+- `selector` (required): Exact ABI method name or decimal opcode
+- `args` (optional): One typed value per ABI parameter, or raw cellpack args for numeric opcodes
 
 ### `labcoat trace`
 
@@ -424,7 +426,7 @@ doctor
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
 | `deploy` | Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
 | `call` | Execute a state-changing contract call and wait for its trace. |
-| `simulate` | Read-only simulation of a contract call (no transaction). |
+| `simulate` | Simulate a deployed contract against live indexed chain state (no transaction). |
 | `trace` | Decoded protostone traces for a transaction. |
 
 ## Error codes
@@ -454,7 +456,7 @@ doctor
 - **Protostone outputs**: Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.
 - **Synchronization**: State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.
 - **labcoat.lock**: Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.
-- **Contract ABI**: Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.
+- **Contract ABI**: Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.
 
 ## alkanes-rs pin
 

@@ -37,6 +37,8 @@ fn rpc_url(config: &IsomerConfig) -> String {
 
 fn client(timeout: std::time::Duration) -> reqwest::Client {
     reqwest::Client::builder()
+        // These RPC helpers only talk to the loopback devnet.
+        .no_proxy()
         .timeout(timeout)
         .build()
         .unwrap_or_default()

@@ -13,7 +13,14 @@ Add another minimal contract and matching test with
 3. Initialize the keystore with `labcoat wallet init --json`.
 4. Build without deploying with `labcoat build counter --json` when needed.
 5. Deploy by package name with `labcoat deploy counter --json`; Labcoat recompiles it first.
-6. Use `simulate`, `call`, and `trace --wait` for the contract loop.
+6. Use ABI method names such as `simulate counter get_count` and
+   `call counter increment`, then `trace --wait`, for the contract loop.
+
+Named methods accept one shell argument per ABI parameter. Labcoat encodes
+`u128`, `String`, and `AlkaneId`; use a numeric opcode for raw cellpack args
+when a method uses an unsupported complex type. Simulation always targets the
+deployed contract and live indexed state; use `labcoat test <package>` for an
+undeployed local build. Use ordinary shell scripts for multi-step workflows.
 
 Secrets belong in environment variables or mnemonic stdin, never argv or
 `labcoat.toml`. Commit the `Cargo.lock` created by the first build. Run

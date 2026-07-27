@@ -50,40 +50,48 @@ pub async fn fetch_deployed(
     Ok(bytes)
 }
 
-#[derive(Debug, Deserialize)]
-struct AbiDocument {
-    contract: String,
-    methods: Vec<AbiMethod>,
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AbiDocument {
+    pub contract: String,
+    pub methods: Vec<AbiMethod>,
 }
 
-#[derive(Debug, Deserialize)]
-struct AbiMethod {
-    name: String,
-    opcode: u128,
-    params: Vec<AbiParam>,
-    returns: String,
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AbiMethod {
+    pub name: String,
+    pub opcode: u128,
+    pub params: Vec<AbiParam>,
+    pub returns: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct AbiParam {
-    name: String,
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AbiParam {
+    pub name: String,
     #[serde(rename = "type")]
-    type_: String,
+    pub type_: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedMethod {
+    pub name: String,
+    pub opcode: u128,
+    pub cellpack_args: Vec<u128>,
 }
 
 struct HostState {
     limits: StoreLimits,
 }
 
-pub fn validate(bytes: &[u8]) -> std::result::Result<(), String> {
+pub fn parse(bytes: &[u8]) -> std::result::Result<AbiDocument, String> {
     let text = std::str::from_utf8(bytes).map_err(|e| format!("ABI is not UTF-8: {e}"))?;
     let abi: AbiDocument =
         serde_json::from_str(text).map_err(|e| format!("ABI is not valid JSON: {e}"))?;
     if abi.contract.trim().is_empty() {
         return Err("ABI `contract` must not be empty".into());
     }
+    let mut names = BTreeMap::new();
     let mut opcodes = BTreeMap::new();
-    for method in abi.methods {
+    for method in &abi.methods {
         if method.name.trim().is_empty() {
             return Err("ABI method name must not be empty".into());
         }
@@ -107,8 +115,150 @@ pub fn validate(bytes: &[u8]) -> std::result::Result<(), String> {
                 method.opcode, previous, method.name
             ));
         }
+        if let Some(previous_opcode) = names.insert(method.name.clone(), method.opcode) {
+            return Err(format!(
+                "duplicate ABI method name `{}` for opcodes {} and {}",
+                method.name, previous_opcode, method.opcode
+            ));
+        }
     }
-    Ok(())
+    Ok(abi)
+}
+
+pub fn validate(bytes: &[u8]) -> std::result::Result<(), String> {
+    parse(bytes).map(|_| ())
+}
+
+/// Resolve an exact ABI method name and encode one shell argument per ABI
+/// parameter into the contract's raw cellpack representation.
+pub fn resolve_method(bytes: &[u8], selector: &str, args: &[String]) -> Result<ResolvedMethod> {
+    let abi = parse(bytes).map_err(|message| {
+        LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!("cannot resolve method from invalid ABI metadata: {message}"),
+            "verify the contract exports valid __meta ABI metadata",
+        )
+    })?;
+    let method = abi
+        .methods
+        .iter()
+        .find(|method| method.name == selector)
+        .ok_or_else(|| {
+            let available = abi
+                .methods
+                .iter()
+                .map(|method| method.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let message = if available.is_empty() {
+                format!("ABI method `{selector}` was not found; the contract exposes no methods")
+            } else {
+                format!("ABI method `{selector}` was not found; available methods: {available}")
+            };
+            let hint = if selector.contains('(') || selector.contains(')') {
+                "pass the bare ABI method name without parentheses, for example `increment`"
+            } else {
+                "pass an available ABI method name or a numeric opcode"
+            };
+            LabcoatError::new("CONFIG_INVALID", message, hint)
+        })?;
+
+    if args.len() != method.params.len() {
+        let expected = method
+            .params
+            .iter()
+            .map(|param| format!("{}: {}", param.name, param.type_))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(LabcoatError::new(
+            "CONFIG_INVALID",
+            format!(
+                "method `{}` expects {} parameter(s) ({expected}), received {}",
+                method.name,
+                method.params.len(),
+                args.len()
+            ),
+            "pass one shell argument per ABI parameter, or use a numeric opcode for raw cellpack arguments",
+        ));
+    }
+
+    let mut cellpack_args = Vec::new();
+    for (param, value) in method.params.iter().zip(args) {
+        let encoded = encode_parameter(&param.type_, value).map_err(|reason| {
+            LabcoatError::new(
+                "CONFIG_INVALID",
+                format!(
+                    "invalid parameter `{}` for method `{}`: expected {}, received `{}` ({reason})",
+                    param.name, method.name, param.type_, value
+                ),
+                "pass a value matching the ABI type, or use a numeric opcode for raw cellpack arguments",
+            )
+        })?;
+        cellpack_args.extend(encoded);
+    }
+
+    Ok(ResolvedMethod {
+        name: method.name.clone(),
+        opcode: method.opcode,
+        cellpack_args,
+    })
+}
+
+fn encode_parameter(type_: &str, value: &str) -> std::result::Result<Vec<u128>, String> {
+    match type_ {
+        "u128" => parse_typed_u128(value).map(|value| vec![value]),
+        "String" => encode_string(value),
+        "AlkaneId" => encode_alkane_id(value),
+        unsupported => Err(format!(
+            "ABI type `{unsupported}` is not supported by named invocation"
+        )),
+    }
+}
+
+fn parse_typed_u128(value: &str) -> std::result::Result<u128, String> {
+    if let Some(hex) = value.strip_prefix("0x") {
+        if hex.is_empty() {
+            return Err("hexadecimal values require digits after `0x`".into());
+        }
+        return u128::from_str_radix(hex, 16)
+            .map_err(|_| "value must be a hexadecimal u128".into());
+    }
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("value must be a decimal or 0x-prefixed hexadecimal u128".into());
+    }
+    value
+        .parse()
+        .map_err(|_| "decimal value must fit in u128".into())
+}
+
+fn encode_string(value: &str) -> std::result::Result<Vec<u128>, String> {
+    if value.as_bytes().contains(&0) {
+        return Err("strings cannot contain a null byte".into());
+    }
+    let mut bytes = value.as_bytes().to_vec();
+    bytes.push(0);
+    Ok(bytes
+        .chunks(16)
+        .map(|chunk| {
+            let mut padded = [0_u8; 16];
+            padded[..chunk.len()].copy_from_slice(chunk);
+            u128::from_le_bytes(padded)
+        })
+        .collect())
+}
+
+fn encode_alkane_id(value: &str) -> std::result::Result<Vec<u128>, String> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    if parts.len() != 2 || parts.iter().any(|part| part.is_empty()) {
+        return Err("AlkaneId must use decimal `block:tx` syntax".into());
+    }
+    let block = parts[0]
+        .parse::<u128>()
+        .map_err(|_| "AlkaneId block must be a decimal u128".to_string())?;
+    let tx = parts[1]
+        .parse::<u128>()
+        .map_err(|_| "AlkaneId tx must be a decimal u128".to_string())?;
+    Ok(vec![block, tx])
 }
 
 pub fn extract_file(path: &Path) -> Result<Vec<u8>> {
@@ -223,6 +373,91 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("duplicate ABI opcode"));
+
+        let error = validate(
+            br#"{"contract":"Token","methods":[{"name":"mint","opcode":1,"params":[],"returns":"void"},{"name":"mint","opcode":2,"params":[],"returns":"void"}]}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("duplicate ABI method name `mint`"));
+    }
+
+    #[test]
+    fn resolves_counter_method_names_to_opcodes() {
+        let abi = br#"{"contract":"Counter","methods":[{"name":"initialize","opcode":0,"params":[],"returns":"void"},{"name":"increment","opcode":1,"params":[],"returns":"u128"},{"name":"get_count","opcode":2,"params":[],"returns":"u128"}]}"#;
+
+        assert_eq!(resolve_method(abi, "initialize", &[]).unwrap().opcode, 0);
+        assert_eq!(resolve_method(abi, "increment", &[]).unwrap().opcode, 1);
+        assert_eq!(resolve_method(abi, "get_count", &[]).unwrap().opcode, 2);
+    }
+
+    #[test]
+    fn encodes_typed_u128_and_alkane_id_parameters() {
+        let abi = br#"{"contract":"Token","methods":[{"name":"configure","opcode":9,"params":[{"name":"amount","type":"u128"},{"name":"limit","type":"u128"},{"name":"owner","type":"AlkaneId"}],"returns":"void"}]}"#;
+        let args = vec!["42".into(), "0xff".into(), "2:3".into()];
+
+        let resolved = resolve_method(abi, "configure", &args).unwrap();
+        assert_eq!(resolved.name, "configure");
+        assert_eq!(resolved.opcode, 9);
+        assert_eq!(resolved.cellpack_args, vec![42, 255, 2, 3]);
+    }
+
+    #[test]
+    fn encodes_empty_multicell_and_exact_word_strings() {
+        let abi = br#"{"contract":"Registry","methods":[{"name":"set_name","opcode":3,"params":[{"name":"name","type":"String"}],"returns":"void"}]}"#;
+
+        let empty = resolve_method(abi, "set_name", &[String::new()]).unwrap();
+        assert_eq!(empty.cellpack_args, vec![0]);
+
+        let multicell = resolve_method(
+            abi,
+            "set_name",
+            &["a string longer than sixteen bytes".into()],
+        )
+        .unwrap();
+        assert!(multicell.cellpack_args.len() > 1);
+        assert_eq!(multicell.cellpack_args.last().unwrap().to_le_bytes()[15], 0);
+
+        let exact = resolve_method(abi, "set_name", &["1234567890abcdef".into()]).unwrap();
+        assert_eq!(exact.cellpack_args.len(), 2);
+        assert_eq!(exact.cellpack_args[1], 0);
+    }
+
+    #[test]
+    fn reports_named_method_and_parameter_errors() {
+        let abi = br#"{"contract":"Token","methods":[{"name":"mint","opcode":7,"params":[{"name":"amount","type":"u128"}],"returns":"void"},{"name":"batch","opcode":8,"params":[{"name":"amounts","type":"Vec<u128>"}],"returns":"void"}]}"#;
+
+        let unknown = resolve_method(abi, "burn", &[]).unwrap_err();
+        assert_eq!(unknown.code, "CONFIG_INVALID");
+        assert!(unknown.message.contains("available methods: mint, batch"));
+
+        let expression = resolve_method(abi, "mint(1)", &[]).unwrap_err();
+        assert!(expression.hint.contains("without parentheses"));
+
+        let arity = resolve_method(abi, "mint", &[]).unwrap_err();
+        assert!(arity.message.contains("amount: u128"));
+        assert!(arity.message.contains("received 0"));
+
+        let bad_u128 = resolve_method(abi, "mint", &["many".into()]).unwrap_err();
+        assert!(bad_u128.message.contains("parameter `amount`"));
+        assert!(bad_u128.message.contains("expected u128"));
+
+        let bad_hex = resolve_method(abi, "mint", &["0xgg".into()]).unwrap_err();
+        assert!(bad_hex.message.contains("hexadecimal u128"));
+
+        let unsupported = resolve_method(abi, "batch", &["[1,2]".into()]).unwrap_err();
+        assert!(unsupported.message.contains("Vec<u128>"));
+        assert!(unsupported.hint.contains("numeric opcode"));
+    }
+
+    #[test]
+    fn rejects_invalid_typed_values() {
+        let abi = br#"{"contract":"Registry","methods":[{"name":"set","opcode":4,"params":[{"name":"owner","type":"AlkaneId"},{"name":"name","type":"String"}],"returns":"void"}]}"#;
+
+        let bad_id = resolve_method(abi, "set", &["2:3:4".into(), "name".into()]).unwrap_err();
+        assert!(bad_id.message.contains("AlkaneId"));
+
+        let null = resolve_method(abi, "set", &["2:3".into(), "a\0b".into()]).unwrap_err();
+        assert!(null.message.contains("null byte"));
     }
 
     #[test]

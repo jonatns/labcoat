@@ -82,6 +82,9 @@ cd hello-alkane
 labcoat test
 ```
 
+Run `labcoat init` without a name to enter it interactively. Initialization
+always creates a new folder and refuses an existing destination.
+
 Every new project includes a fixed Counter starter. Add another minimal
 contract from anywhere inside the project with:
 
@@ -119,10 +122,22 @@ labcoat abi verify counter
 Interact with the deployed contract:
 
 ```bash
-labcoat simulate counter 2
-labcoat call counter 1
+labcoat simulate counter get_count
+labcoat call counter increment
 labcoat trace <txid> --wait
 ```
+
+Call and simulation selectors may be exact ABI method names or numeric opcodes.
+Named methods accept one shell argument per ABI parameter and encode `u128`,
+`String`, and `AlkaneId` values for the deployed contract. When the generated
+local ABI belongs to the exact Wasm recorded in `labcoat.lock`, Labcoat uses it
+without an indexer metadata request. If the local build differs, Labcoat warns
+and transparently uses the deployed ABI. Numeric opcodes retain the raw
+cellpack argument format for advanced or unsupported parameter types.
+
+Simulation always executes the deployed contract against live indexed chain
+state. Use `labcoat test <package>` to execute an undeployed local build in the
+isolated host test runtime.
 
 Stop the devnet when finished:
 
@@ -132,7 +147,7 @@ labcoat down
 
 ## Projects and configuration
 
-`labcoat init` creates:
+`labcoat init <project-name>` creates a new folder containing:
 
 ```text
 contracts/          Cargo contract packages
@@ -187,6 +202,23 @@ labcoat new token
 
 Run `labcoat --help`, `labcoat <command> --help`, or `labcoat docs --llm`
 for the full command reference.
+
+## Terminal output
+
+Labcoat defaults to concise human-readable output. Contract calls and
+simulations show the resolved method, decoded result, transaction identifiers,
+fees, and gas without dumping raw JSON. Add `--verbose` for ABI metadata,
+artifact hashes and paths, raw return bytes, and full decoded traces.
+
+```bash
+labcoat simulate counter get_count
+labcoat call counter increment --verbose
+labcoat status --color never
+```
+
+Color defaults to terminal auto-detection and honors `NO_COLOR`; use
+`--color always` or `--color never` to override it. Redirected output remains
+plain human text. Automation should request the stable JSON envelope explicitly.
 
 ## Automation
 

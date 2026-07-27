@@ -45,9 +45,10 @@ labcoat up --no-download
 ## 3. Generated project and contract loop
 
 ```bash
-PROJECT=$(mktemp -d)/project
-labcoat init "$PROJECT"
-cd "$PROJECT"
+SANDBOX=$(mktemp -d)
+cd "$SANDBOX"
+labcoat init project
+cd project
 labcoat test
 labcoat new stateful
 labcoat build counter
@@ -57,8 +58,8 @@ labcoat fund <address>
 labcoat mine 1
 labcoat deploy counter --dry-run
 labcoat deploy counter
-labcoat simulate counter 2
-labcoat call counter 1
+labcoat simulate counter get_count
+labcoat call counter increment
 labcoat trace <txid> --wait
 ```
 
@@ -71,7 +72,7 @@ labcoat trace <txid> --wait
 - [ ] Deployment is recorded in `labcoat.lock`.
 - [ ] Simulation and state-changing calls return expected data.
 - [ ] A bogus opcode returns a typed error instead of panicking.
-- [ ] A non-empty `labcoat init` target is rejected without `--force`.
+- [ ] Any existing `labcoat init` destination is rejected without modification.
 
 ## 4. Configuration and migration
 

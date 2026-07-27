@@ -152,7 +152,8 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             "labcoat build counter".into(),
             "labcoat deploy counter".into(),
             "labcoat abi verify counter".into(),
-            "labcoat call counter <opcode> [args...]".into(),
+            "labcoat simulate counter get_count".into(),
+            "labcoat call counter increment".into(),
             "labcoat trace <txid> --wait".into(),
             "labcoat down".into(),
         ],
@@ -196,7 +197,7 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             },
             ProtocolReference {
                 name: "Contract ABI".into(),
-                detail: "Build and test execute the Wasm __meta export locally; abi fetch and abi verify use Metashrew only for explicit deployed-bytecode inspection.".into(),
+                detail: "Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.".into(),
             },
         ],
     }
@@ -264,7 +265,7 @@ impl AgentReference {
             markdown.push_str(command);
             markdown.push('\n');
         }
-        markdown.push_str("```\n\n## JSON envelopes (agent mode)\n\nEvery command accepts `--json` and prints exactly one envelope on stdout. Logs go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.\n\n```json\n{\"ok\":true,\"command\":\"status\",\"schema\":\"labcoat/v1/status\",\"result\":{}}\n{\"ok\":false,\"command\":\"deploy\",\"schema\":\"labcoat/v1/error\",\"error\":{\"code\":\"WALLET_MISSING\",\"message\":\"...\",\"hint\":\"run `labcoat wallet init` first\"}}\n```\n\n");
+        markdown.push_str("```\n\n## Output modes\n\nHuman-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.\n\nEvery command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.\n\n```json\n{\"ok\":true,\"command\":\"status\",\"schema\":\"labcoat/v1/status\",\"result\":{}}\n{\"ok\":false,\"command\":\"deploy\",\"schema\":\"labcoat/v1/error\",\"error\":{\"code\":\"WALLET_MISSING\",\"message\":\"...\",\"hint\":\"run `labcoat wallet init` first\"}}\n```\n\n");
         markdown.push_str("Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `labcoat.toml` → defaults.\n\n");
         markdown.push_str("## Commands\n\n");
         render_commands(&mut markdown, &self.commands, 3);
