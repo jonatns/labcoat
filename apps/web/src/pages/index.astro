@@ -103,7 +103,7 @@ const softwareSchema = {
           <ol class="workflow-grid">
             <li><span>01</span><div class="workflow-icon"><Icon name="scaffold" /></div><h3>Scaffold</h3><p>Create a Rust contract project with tests, configuration, and agent instructions included.</p><code>labcoat init</code></li>
             <li><span>02</span><div class="workflow-icon"><Icon name="test" /></div><h3>Test</h3><p>Compile WASIp1 and run native integration tests before touching a chain.</p><code>labcoat test</code></li>
-            <li><span>03</span><div class="workflow-icon"><Icon name="devnet" /></div><h3>Run the devnet</h3><p>Start Bitcoin, indexers, explorer, and the unified RPC gateway as a managed local system.</p><code>labcoat up</code></li>
+            <li><span>03</span><div class="workflow-icon"><Icon name="devnet" /></div><h3>Run the devnet</h3><p>Start Qubitcoin with its in-process Alkanes and Esplora indexes.</p><code>labcoat up</code></li>
             <li><span>04</span><div class="workflow-icon"><Icon name="deploy" /></div><h3>Deploy &amp; inspect</h3><p>Deploy by package name, call opcodes, simulate reads, and decode traces.</p><code>labcoat deploy</code></li>
           </ol>
         </section>
@@ -112,24 +112,20 @@ const softwareSchema = {
           <div class="stack-visual" aria-label="Labcoat local development stack">
             <div class="stack-topline"><span>LABCOAT DEVNET</span><span class="status-dot">SYSTEM READY</span></div>
             <div class="stack-gateway">
-              <span>UNIFIED JSON-RPC GATEWAY</span><strong>localhost:18888</strong>
+              <span>QUBITCOIN RPC</span><strong>127.0.0.1:18443</strong>
             </div>
             <div class="stack-connectors" aria-hidden="true">
-              <span><i></i>RPC</span><span><i></i>INDEX</span><span><i></i>ORD</span><span><i></i>REST</span><span><i></i>UI</span>
+              <span><i></i>CHAIN</span><span><i></i>ALKANES</span><span><i></i>ESPLORA</span>
             </div>
             <div class="stack-services">
-              <div><i class="green"></i><strong>bitcoind</strong><span>regtest</span></div>
-              <div><i class="green"></i><strong>metashrew</strong><span>alkanes index</span></div>
-              <div><i class="green"></i><strong>ord</strong><span>inscriptions</span></div>
-              <div><i class="green"></i><strong>esplora</strong><span>chain API</span></div>
-              <div><i class="green"></i><strong>espo</strong><span>explorer</span></div>
+              <div><i class="green"></i><strong>qubitcoind</strong><span>chain + indexes</span></div>
             </div>
-            <div class="stack-command"><span>$</span><code>labcoat up</code><em>5 managed services · 1 gateway · ready</em></div>
+            <div class="stack-command"><span>$</span><code>labcoat up</code><em>1 managed service · 2 in-process indexes · ready</em></div>
           </div>
           <div class="stack-copy">
             <p class="eyebrow"><span></span> 02 / COMPLETE ENVIRONMENT</p>
             <h2 id="stack-title">The chain is part<br />of the tool.</h2>
-            <p>No hand-wired ports. Labcoat downloads pinned components, starts the managed local services, waits for readiness, and reports exactly what failed. Docker and Node.js remain runtime prerequisites.</p>
+            <p>No hand-wired ports. Labcoat downloads the pinned Qubitcoin executable and indexer modules, starts one local process, waits for readiness, and reports exactly what failed.</p>
             <ul>
               <li><Icon name="check" size={18} /> Deterministic service versions</li>
               <li><Icon name="check" size={18} /> Built-in wallet and faucet</li>

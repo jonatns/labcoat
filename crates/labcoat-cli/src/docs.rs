@@ -22,13 +22,13 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     ),
     (
         "RPC_UNREACHABLE",
-        "the configured gateway cannot be reached",
+        "the configured Qubitcoin endpoint cannot be reached",
         "run `labcoat status`",
     ),
     (
         "INDEXER_LAG",
         "indexed height did not catch chain height",
-        "inspect metashrew logs",
+        "inspect `qubitcoind` logs",
     ),
     (
         "INSUFFICIENT_FUNDS",

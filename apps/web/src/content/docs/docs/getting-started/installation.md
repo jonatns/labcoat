@@ -33,6 +33,17 @@ The installer downloads the latest `cli-v*` release, requires `sha256sum` or
 `${LABCOAT_INSTALL_DIR:-$HOME/.local/bin}`. It exits rather than installing a
 binary when the hashing tool is unavailable or verification fails.
 
+## Managed devnet payloads
+
+The Isomer devnet engine downloads its pinned service binaries, JSON-RPC
+bundle, and `alkanes.wasm` separately from the CLI executable:
+
+- macOS: `~/Library/Application Support/Labcoat/bin`
+- Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/bin`
+
+Files in the legacy `Isomer/bin` data directory are not migrated or reused.
+Run `labcoat binaries --verbose` to inspect the active paths.
+
 ## Install a specific version
 
 ```bash
@@ -88,8 +99,8 @@ rm "$HOME/.local/bin/labcoat"
 ```
 
 This does not remove project files, Labcoat-managed runtime downloads, wallet
-files, or local devnet data. Review paths with `labcoat binaries list` and your
-project configuration before removing that data manually.
+files, or local devnet data. Review paths with `labcoat binaries --verbose`
+and your project configuration before removing that data manually.
 
 ## Compilation prerequisites
 
@@ -114,10 +125,10 @@ export command to add.
 
 ## Runtime and security boundaries
 
-Labcoat provides one CLI entry point while downloading and orchestrating
-multiple local services. Docker is required, and Node.js is required by the
-gateway. Keep regtest ports on trusted local interfaces and never use production
-wallet seed phrases with Labcoat.
+Labcoat downloads one native `qubitcoind` executable plus two pinned WASM
+indexer modules. It binds the unauthenticated regtest RPC endpoint only to
+loopback; keep it local and never use production wallet seed phrases with
+Labcoat. Docker and Node.js are not runtime prerequisites.
 
 Labcoat is early-stage software for local Alkanes development. Interfaces may
 change before 1.0; mainnet deployment controls are not production-ready. Read

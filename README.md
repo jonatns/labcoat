@@ -55,6 +55,10 @@ curl -fsSL https://labcoat.sh/install \
   | sh -s -- 0.1.0
 ```
 
+Managed Isomer devnet payloads are downloaded separately to
+`~/Library/Application Support/Labcoat/bin` on macOS or
+`${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/bin` on Linux.
+
 Contract compilation requires an LLVM Clang with a WebAssembly backend.
 
 ```bash
@@ -265,6 +269,5 @@ crates/labcoat-test/  native WebAssembly contract test harness
 ```
 
 See [TOOLCHAIN.md](TOOLCHAIN.md) for pinned upstream revisions and build
-requirements, [docs/MIGRATING.md](docs/MIGRATING.md) for migration from the
-retired TypeScript package, and [docs/RELEASING.md](docs/RELEASING.md) for
-the CLI release process.
+requirements, and [docs/RELEASING.md](docs/RELEASING.md) for the CLI release
+process.

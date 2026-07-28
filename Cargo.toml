@@ -5,7 +5,6 @@ members = [
     "crates/labcoat-core",
     "crates/labcoat-cli",
     "crates/labcoat-test",
-    "apps/isomer/src-tauri",
 ]
 
 [workspace.package]
@@ -23,6 +22,8 @@ thiserror = "2"
 tracing = "0.1"
 toml = "0.8"
 wasmi = "=0.37.2"
+bitcoin = { version = "0.32", features = ["rand-std"] }
+rand = "0.8"
 
 # Hard constraint (see TOOLCHAIN.md): every alkanes-rs dependency is pinned
 # to a commit on the *develop* branch — never `main`, never a branch ref.

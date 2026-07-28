@@ -280,8 +280,7 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
                     .and_then(Extern::into_memory)
                     .ok_or_else(|| anyhow::anyhow!("missing memory export"))?;
                 memory.write(&mut caller, pointer as usize, &context)?;
-                // The contract ABI declares an i32 result. The legacy JS host
-                // returned `undefined`, which WebAssembly coerced to zero.
+                // The contract ABI declares an i32 result.
                 Ok(0)
             },
         )

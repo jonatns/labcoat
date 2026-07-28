@@ -23,8 +23,8 @@ labcoat up --json          # downloads binaries if missing, boots the stack
 labcoat status --json      # poll until result.is_ready == true
 ```
 
-`up` returns `result.endpoints` — the unified JSON-RPC gateway
-(`http://localhost:18888`) proxies everything.
+`up` returns `result.endpoints.qubitcoin_rpc`, the direct local Qubitcoin
+endpoint (`http://127.0.0.1:18443`).
 
 ## 2. Wallet
 
@@ -110,7 +110,7 @@ fallback.
 - `wallet_utxos` — Spendable wallet UTXOs.
 - `build` — Build Cargo contract packages and extract their Wasm-exported ABIs.
 - `test` — Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.
-- `abi_fetch` — Fetch ABI metadata from a deployed contract through Metashrew.
+- `abi_fetch` — Fetch ABI metadata from the in-process Alkanes indexer.
 - `abi_verify` — Compare a deployed ABI with a locally built contract package.
 - `deploy` — Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.
 - `call` — Execute a state-changing contract call and wait for its trace.

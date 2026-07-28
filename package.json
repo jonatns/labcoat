@@ -10,8 +10,6 @@
     "dev:web": "pnpm --filter @labcoat/web dev",
     "build:web": "pnpm --filter @labcoat/web build",
     "check:web": "pnpm --filter @labcoat/web check",
-    "sync:web-reference": "pnpm --filter @labcoat/web sync:reference",
-    "dev:isomer": "pnpm --filter @isomer/desktop tauri dev",
-    "build:isomer": "pnpm --filter @isomer/desktop tauri build"
+    "sync:web-reference": "pnpm --filter @labcoat/web sync:reference"
   }
 }

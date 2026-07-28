@@ -1,5 +1,5 @@
 //! Sync awareness: state-changing operations wait until the alkanes
-//! indexer (metashrew) has caught up with the chain tip, so freshly mined
+//! in-process Alkanes indexer has caught up with the chain tip, so freshly mined
 //! UTXOs are introspectable before we spend or trace against them.
 
 use crate::error::{LabcoatError, Result};
@@ -22,7 +22,7 @@ pub async fn wait_for_indexer(
             .get_metashrew_height()
             .await
             .map_err(|e| LabcoatError::classify(e.into()))?;
-        // metashrew reports the height it is *working on*; being one ahead
+        // The indexer may report the height it is working on; being one ahead
         // of the chain tip means fully synced.
         if indexed >= chain {
             return Ok(indexed);
@@ -31,7 +31,7 @@ pub async fn wait_for_indexer(
             return Err(LabcoatError::new(
                 "INDEXER_LAG",
                 format!("indexer at {} but chain at {}", indexed, chain),
-                "wait for metashrew to catch up (labcoat status / labcoat logs --service metashrew)",
+                "wait for the Alkanes index to catch up (`labcoat status` / `labcoat logs --service qubitcoind`)",
             ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;

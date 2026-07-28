@@ -21,10 +21,8 @@ and must not be reused.
 Actions are pinned to full commit SHAs. Dependabot proposes grouped weekly
 updates to those pins.
 
-The previous `release.yml` and `release-binaries.yml` workflows are retained
-temporarily as a rollback path. Do not invoke them for a new release. Remove
-them only after both new dry runs and the first `cli-v0.1.0` publication have
-succeeded.
+The obsolete multi-binary release workflow has been removed. Runtime releases
+are produced only by the Qubitcoin runtime workflow.
 
 ## CLI release (`cli-vX.Y.Z`)
 
@@ -83,30 +81,22 @@ notice.
 ## Runtime release (`runtime-vYYYY.MM.DD.N`)
 
 `runtime.json` is the reviewed source of truth for active downloads, exact
-upstream refs, component metadata, supported platforms, and legacy checksums.
+upstream refs, component metadata, supported platforms, and checksums.
 Never use `main`, `master`, `develop`, `trunk`, or `HEAD` as a source ref.
 
 1. Change upstream refs and versions in `runtime.json` through a normal PR.
-2. Merge that PR and run **Build and release runtime bundle** from `main`.
+2. Merge that PR and run **Build and release Qubitcoin runtime** from `main`.
 3. Start with `dry_run=true`. When it passes, rerun with `dry_run=false`.
 4. Review the generated `runtime-promotion/*` PR and merge it when ready.
 
-The workflow calculates the calendar version, builds only the assets used by
-the CLI, creates a checksum file and machine-readable release manifest,
-attests and publishes the runtime release without marking it latest, then opens
-the promotion PR. Promotion aborts if the source section changed after the
-build began.
+The workflow calculates the calendar version; builds `qubitcoind` for macOS
+ARM64 and Linux x86_64 with `cargo build --locked`; builds the pinned Alkanes
+and Esplora WASM modules; creates checksums and a machine-readable release
+manifest; attests and publishes the runtime release; then opens the promotion
+PR. Promotion aborts if the source section changed after the build began.
 
 The active legacy bundle remains `jonatns/isomer@binaries-v0.1.3` until the
 first promotion PR is merged.
-
-## Legacy desktop app
-
-The Isomer desktop application has no automatic release trigger. Use **Build
-legacy Isomer desktop** only for a deliberate maintenance build. It can create
-a draft `isomer-v*` release and can optionally attempt the standalone browser
-extension build. Desktop and extension artifacts never enter CLI runtime
-releases.
 
 ## Failure policy
 

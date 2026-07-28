@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 const DEFAULT_NETWORK: &str = "regtest";
-const DEFAULT_RPC_URL: &str = "http://localhost:18888";
+const DEFAULT_RPC_URL: &str = "http://127.0.0.1:18443";
 const DEFAULT_WALLET_FILE: &str = ".labcoat/wallet.json";
 
 #[derive(Debug, Default, Deserialize)]

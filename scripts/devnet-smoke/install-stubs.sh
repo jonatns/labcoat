@@ -1,27 +1,26 @@
 #!/usr/bin/env bash
-# Install protocol stubs into the Isomer bin dir so `labcoat up
-# --no-download` can exercise the full orchestration path in environments
-# where the real service binaries cannot be downloaded (sandboxed CI).
+# Install protocol stubs into the Labcoat runtime bin dir so `labcoat up
+# --no-download` can exercise orchestration without downloading Qubitcoin.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-case "$(uname -s)" in
-  Darwin) DATA_DIR="$HOME/Library/Application Support/Isomer" ;;
-  *)      DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Isomer" ;;
-esac
+if [ -n "${LABCOAT_DATA_HOME:-}" ]; then
+  case "$(uname -s)" in
+    Darwin) DATA_DIR="$LABCOAT_DATA_HOME/Labcoat" ;;
+    *)      DATA_DIR="$LABCOAT_DATA_HOME/labcoat" ;;
+  esac
+else
+  case "$(uname -s)" in
+    Darwin) DATA_DIR="$HOME/Library/Application Support/Labcoat" ;;
+    *)      DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/labcoat" ;;
+  esac
+fi
 BIN_DIR="$DATA_DIR/bin"
-mkdir -p "$BIN_DIR/jsonrpc/bin"
+mkdir -p "$BIN_DIR"
 
-cp "$HERE/stub-bitcoind" "$BIN_DIR/bitcoind"
-for name in rockshrew-mono ord flextrs espo; do
-  cp "$HERE/stub-service" "$BIN_DIR/$name"
-done
-cp "$HERE/stub-jsonrpc.js" "$BIN_DIR/jsonrpc/bin/jsonrpc.js"
-# metashrew's indexer wasm just needs to exist for arg construction
-touch "$BIN_DIR/alkanes.wasm"
-
-chmod +x "$BIN_DIR"/bitcoind "$BIN_DIR"/rockshrew-mono "$BIN_DIR"/ord \
-  "$BIN_DIR"/flextrs "$BIN_DIR"/espo
+cp "$HERE/stub-qubitcoind" "$BIN_DIR/qubitcoind"
+touch "$BIN_DIR/alkanes.wasm" "$BIN_DIR/esplorashrew.wasm"
+chmod +x "$BIN_DIR/qubitcoind"
 
 echo "Stubs installed to $BIN_DIR"

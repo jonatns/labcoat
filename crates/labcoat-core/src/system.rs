@@ -1,7 +1,7 @@
 //! Provider bootstrap against the pinned alkanes-rs develop commit.
 //!
 //! Mirrors what alkanes-cli's `SystemAlkanes::new_with_options` does for
-//! our fixed shape (unified JSON-RPC endpoint, project-local keystore),
+//! our fixed shape (Qubitcoin RPC endpoint, project-local keystore),
 //! without depending on `alkanes-cli-sys` (broken at the pinned rev) or
 //! clap `Args`.
 
@@ -15,8 +15,8 @@ pub struct ToolkitConfig {
     /// Network name: regtest | signet | mainnet | testnet.
     /// ("oylnet" is accepted as a deprecated alias for regtest.)
     pub network: String,
-    /// Unified JSON-RPC endpoint (the devnet gateway on regtest).
-    pub jsonrpc_url: String,
+    /// Direct Qubitcoin RPC endpoint.
+    pub rpc_url: String,
     /// Keystore path (project-local by default).
     pub wallet_file: PathBuf,
     /// Fee rate in sat/vB for state-changing operations.
@@ -27,7 +27,7 @@ impl Default for ToolkitConfig {
     fn default() -> Self {
         Self {
             network: "regtest".to_string(),
-            jsonrpc_url: "http://localhost:18888".to_string(),
+            rpc_url: "http://127.0.0.1:18443".to_string(),
             wallet_file: PathBuf::from(".labcoat/wallet.json"),
             fee_rate: Some(2.0),
         }
@@ -94,18 +94,19 @@ pub async fn connect(
     }
 
     let mut provider = ConcreteProvider::new_with_headers(
-        None,                             // bitcoin_rpc_url — the gateway proxies it
-        config.jsonrpc_url.clone(),       // metashrew_rpc_url
-        Some(config.jsonrpc_url.clone()), // jsonrpc_url
-        None,                             // titan_api_url
-        None,                             // esplora_url — gateway again
-        None,                             // brc20_prog_rpc_url
+        Some(config.rpc_url.clone()),
+        config.rpc_url.clone(),
+        None,
+        None,
+        None,
+        None,
         network,
         Some(config.wallet_file.clone()),
         Vec::new(),
     )
     .await
     .map_err(|e| LabcoatError::classify(e.into()))?;
+    provider.rpc_config.qubitcoin_rpc_url = Some(config.rpc_url.clone());
 
     // In-memory cache: deterministic, no ~/.alkanes/cache.sqlite3 side state.
     provider = provider.with_cache(std::sync::Arc::new(
@@ -121,4 +122,27 @@ pub async fn connect(
     }
 
     Ok(provider)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(target_os = "macos"))]
+    #[tokio::test]
+    async fn provider_uses_qubitcoin_mode_without_gateway() {
+        let config = ToolkitConfig::default();
+        let provider = connect(&config, None, false).await.unwrap();
+        assert_eq!(
+            provider.rpc_config.qubitcoin_rpc_url.as_deref(),
+            Some("http://127.0.0.1:18443")
+        );
+        assert!(provider.rpc_config.jsonrpc_url.is_none());
+        assert!(provider.rpc_config.is_qubitcoin_mode());
+    }
+
+    #[test]
+    fn toolkit_defaults_to_local_qubitcoin_rpc() {
+        assert_eq!(ToolkitConfig::default().rpc_url, "http://127.0.0.1:18443");
+    }
 }

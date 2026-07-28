@@ -27,8 +27,8 @@ CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
 ```
 
 `labcoat.toml` supports `network`, `rpc_url`, `wallet_file`, and `fee_rate`.
-The default network is `regtest` and the default gateway is
-`http://localhost:18888`.
+The default network is `regtest` and the default Qubitcoin RPC endpoint is
+`http://127.0.0.1:18443`.
 
 ## Secrets
 

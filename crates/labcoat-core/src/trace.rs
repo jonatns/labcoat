@@ -1,7 +1,7 @@
 //! Transaction trace fetching + bounded wait.
 //!
-//! `trace_protostones` computes the protostone vouts itself
-//! (tx.output.len() + 1 + i) — fixing the old TS `vout: 4` hardcode.
+//! `trace_protostones` computes protostone vouts from the transaction output
+//! count instead of assuming a fixed index.
 
 use crate::error::{LabcoatError, Result};
 use alkanes_cli_common::provider::ConcreteProvider;
@@ -48,7 +48,7 @@ pub async fn wait_for_trace(
             return Err(LabcoatError::new(
                 "TRACE_TIMEOUT",
                 format!("no trace for {} after {:?}", txid, timeout),
-                "is metashrew synced? labcoat status; then labcoat trace <txid>",
+                "is the Alkanes index synced? run `labcoat status`, then `labcoat trace <txid>`",
             ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;

@@ -147,7 +147,7 @@ logs [OPTIONS]
 
 Arguments and options:
 
-- `service` (optional): Filter to one service (bitcoind, metashrew, ord, esplora, espo, jsonrpc)
+- `service` (optional): Filter to the Qubitcoin service (qubitcoind) Values: `qubitcoind`.
 - `limit` (optional): Max entries
 
 ### `labcoat reset`
@@ -352,14 +352,6 @@ labcoat.lock utilities
 lock <COMMAND>
 ```
 
-#### `labcoat lock migrate`
-
-Migrate a legacy deployments/manifest.json into labcoat.lock
-
-```text
-migrate
-```
-
 #### `labcoat lock show`
 
 Show the lockfile
@@ -422,7 +414,7 @@ doctor
 | `wallet_utxos` | Spendable wallet UTXOs. |
 | `build` | Build Cargo contract packages and extract their Wasm-exported ABIs. |
 | `test` | Build every contract for WASIp1 and run host integration tests; the first build may take several minutes. |
-| `abi_fetch` | Fetch ABI metadata from a deployed contract through Metashrew. |
+| `abi_fetch` | Fetch ABI metadata from the in-process Alkanes indexer. |
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
 | `deploy` | Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
 | `call` | Execute a state-changing contract call and wait for its trace. |
@@ -436,8 +428,8 @@ doctor
 | `CONFIG_INVALID` | configuration is invalid | run `labcoat doctor` |
 | `WALLET_MISSING` | the project wallet does not exist | run `labcoat wallet init` |
 | `WALLET_LOCKED` | the keystore could not be unlocked | set `LABCOAT_WALLET_PASSPHRASE` |
-| `RPC_UNREACHABLE` | the configured gateway cannot be reached | run `labcoat status` |
-| `INDEXER_LAG` | indexed height did not catch chain height | inspect metashrew logs |
+| `RPC_UNREACHABLE` | the configured Qubitcoin endpoint cannot be reached | run `labcoat status` |
+| `INDEXER_LAG` | indexed height did not catch chain height | inspect `qubitcoind` logs |
 | `INSUFFICIENT_FUNDS` | spendable BTC cannot cover the operation | fund the wallet and mine a block |
 | `EXECUTION_REVERT` | the contract explicitly reverted | inspect the revert reason and trace |
 | `TRACE_TIMEOUT` | a decoded trace did not arrive in time | retry `labcoat trace --wait` |

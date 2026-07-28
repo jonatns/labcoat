@@ -62,7 +62,7 @@ gh attestation verify ./labcoat-* --repo jonatns/labcoat
 - ${maturity}
 - Supported release binaries target macOS and Linux on arm64 and x86_64. Windows is unsupported.
 - The website tracks the current main branch; \`labcoat docs --llm\` is the installed-version reference.
-- The local gateway requires Node.js, and Labcoat downloads and orchestrates multiple local services.
+- The local devnet runs one Qubitcoin process with its two indexers loaded in-process; Docker and Node.js are not runtime prerequisites.
 
 Read the [full changelog](https://github.com/jonatns/labcoat/blob/${tag}/CHANGELOG.md).
 `;

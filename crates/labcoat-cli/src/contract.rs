@@ -26,8 +26,6 @@ pub enum WalletCmd {
 
 #[derive(Subcommand)]
 pub enum LockCmd {
-    /// Migrate a legacy deployments/manifest.json into labcoat.lock
-    Migrate,
     /// Show the lockfile
     Show,
 }
@@ -62,7 +60,7 @@ impl Ctx {
         Self {
             config: ToolkitConfig {
                 network: network.to_string(),
-                jsonrpc_url: rpc_url.to_string(),
+                rpc_url: rpc_url.to_string(),
                 wallet_file: PathBuf::from(wallet_file),
                 fee_rate: fee_rate.or(Some(2.0)),
             },
@@ -760,15 +758,9 @@ pub async fn trace(ctx: &Ctx, txid: &str, wait: bool) -> (&'static str, CmdResul
     ("trace", to_envelope(res))
 }
 
-pub fn lock(ctx: &Ctx, cmd: LockCmd) -> (&'static str, CmdResult) {
+pub fn lock(cmd: LockCmd) -> (&'static str, CmdResult) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
     match cmd {
-        LockCmd::Migrate => {
-            let network = ctx.config.normalized_network();
-            let res = labcoat_core::lockfile::migrate_legacy(&cwd, &network)
-                .map(|n| serde_json::json!({ "migrated": n, "network": network }));
-            ("lock-migrate", to_envelope(res))
-        }
         LockCmd::Show => {
             let lockfile = labcoat_core::lockfile::load(&cwd);
             (

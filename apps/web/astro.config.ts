@@ -61,7 +61,6 @@ export default defineConfig({
             { label: 'Protocol', slug: 'docs/reference/protocol' },
             { label: 'Errors & recovery', slug: 'docs/reference/errors' },
             { label: 'Stability & releases', slug: 'docs/reference/stability' },
-            { label: 'Migration', slug: 'docs/migration' },
           ],
         },
       ],

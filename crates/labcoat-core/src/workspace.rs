@@ -187,7 +187,7 @@ pub fn select(workspace: &WorkspaceInfo, package: Option<&str>) -> Result<Vec<Co
         return Err(LabcoatError::new(
             "CONFIG_INVALID",
             "loose .rs contracts are no longer supported",
-            "migrate the contract to contracts/<name>/Cargo.toml (see docs/MIGRATING.md)",
+            "use a contracts/<name>/Cargo.toml package with a cdylib library target",
         ));
     }
     workspace

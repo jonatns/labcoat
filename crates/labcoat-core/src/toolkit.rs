@@ -226,7 +226,7 @@ pub fn resolve_contract(config: &ToolkitConfig, name: &str) -> Result<(u128, u12
         LabcoatError::new(
             "CONTRACT_NOT_FOUND",
             format!("no deployment of '{}' on {} in labcoat.lock", name, network),
-            "deploy it first, or run `labcoat lock migrate` for legacy manifests",
+            "deploy the contract first or pass its block:tx id directly",
         )
     })?;
     parse_alkanes_id(&dep.alkanes_id)

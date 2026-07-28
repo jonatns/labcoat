@@ -106,8 +106,8 @@ enum Commands {
     },
     /// Show recent service logs
     Logs {
-        /// Filter to one service (bitcoind, metashrew, ord, esplora, espo, jsonrpc)
-        #[arg(long)]
+        /// Filter to the Qubitcoin service (qubitcoind)
+        #[arg(long, value_parser = ["qubitcoind"])]
         service: Option<String>,
         /// Max entries
         #[arg(long, default_value_t = 200)]
@@ -380,7 +380,7 @@ async fn run(cli: Cli) -> i32 {
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Lock(cmd) => {
-            let (cmd_name, res) = contract::lock(&ctx, cmd);
+            let (cmd_name, res) = contract::lock(cmd);
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,

@@ -136,9 +136,11 @@
       {
         "arguments": [
           {
-            "description": "Filter to one service (bitcoind, metashrew, ord, esplora, espo, jsonrpc)",
+            "description": "Filter to the Qubitcoin service (qubitcoind)",
             "id": "service",
-            "possibleValues": [],
+            "possibleValues": [
+              "qubitcoind"
+            ],
             "required": false
           },
           {
@@ -488,14 +490,6 @@
         "subcommands": [
           {
             "arguments": [],
-            "description": "Migrate a legacy deployments/manifest.json into labcoat.lock",
-            "name": "migrate",
-            "path": "labcoat lock migrate",
-            "subcommands": [],
-            "usage": "migrate"
-          },
-          {
-            "arguments": [],
             "description": "Show the lockfile",
             "name": "show",
             "path": "labcoat lock show",
@@ -588,13 +582,13 @@
       },
       {
         "code": "RPC_UNREACHABLE",
-        "meaning": "the configured gateway cannot be reached",
+        "meaning": "the configured Qubitcoin endpoint cannot be reached",
         "recovery": "run `labcoat status`"
       },
       {
         "code": "INDEXER_LAG",
         "meaning": "indexed height did not catch chain height",
-        "recovery": "inspect metashrew logs"
+        "recovery": "inspect `qubitcoind` logs"
       },
       {
         "code": "INSUFFICIENT_FUNDS",
@@ -739,12 +733,7 @@
             },
             "service": {
               "enum": [
-                "bitcoind",
-                "metashrew",
-                "ord",
-                "esplora",
-                "espo",
-                "jsonrpc"
+                "qubitcoind"
               ],
               "type": "string"
             }
@@ -820,7 +809,7 @@
         "name": "test"
       },
       {
-        "description": "Fetch ABI metadata from a deployed contract through Metashrew.",
+        "description": "Fetch ABI metadata from the in-process Alkanes indexer.",
         "inputSchema": {
           "properties": {
             "contract": {
