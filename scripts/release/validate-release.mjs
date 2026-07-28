@@ -143,6 +143,36 @@ function validateActions() {
   }
 }
 
+function validateRuntimeWorkflow() {
+  const workflow = read('.github/workflows/release-runtime.yml');
+  const selectors = [
+    '.sources.qubitcoin.repository',
+    '.sources.qubitcoin.revision',
+    '.sources["alkanes-wasm"].repository',
+    '.sources["alkanes-wasm"].revision',
+    '.sources["esplorashrew-wasm"].repository',
+    '.sources["esplorashrew-wasm"].revision',
+  ];
+  for (const selector of selectors) {
+    if (!workflow.includes(`jq -er '${selector} | select(type == "string" and length > 0)'`)) {
+      fail(`release-runtime.yml does not validate metadata selector ${selector}`);
+    }
+  }
+  const metashrewRevision = '22824e4ce8812751bd85b4dfff0da66b4ee025df';
+  if (!workflow.includes(`QUBITCOIN_METASHREW_REV: ${metashrewRevision}`)) {
+    fail('release-runtime.yml must pin the Qubitcoin-compatible Metashrew revision');
+  }
+  if (!workflow.includes('cargo update -p metashrew-runtime --precise "$QUBITCOIN_METASHREW_REV"')) {
+    fail('release-runtime.yml must apply the Qubitcoin-compatible Metashrew revision');
+  }
+  if (!workflow.includes('cargo build --locked --release --target wasm32-unknown-unknown --features regtest -p alkanes')) {
+    fail('release-runtime.yml must build the Alkanes regtest WASM');
+  }
+  if (workflow.includes('wasm-opt')) {
+    fail('release-runtime.yml must publish the reproducible Alkanes cargo output without wasm-opt');
+  }
+}
+
 function main() {
   const [command = 'validate', value] = process.argv.slice(2);
   if (command === '--workspace-version') return console.log(workspaceVersion());
@@ -164,6 +194,7 @@ function main() {
   const version = validateCargo();
   validateRuntime();
   validateActions();
+  validateRuntimeWorkflow();
   console.log(`release metadata valid (CLI ${version}, runtime sources ${sourceDigest()})`);
 }
 
