@@ -171,6 +171,14 @@ function validateRuntimeWorkflow() {
   if (workflow.includes('wasm-opt')) {
     fail('release-runtime.yml must publish the reproducible Alkanes cargo output without wasm-opt');
   }
+  if (!workflow.includes('RUSTFLAGS: "-C link-arg=--allow-undefined"')) {
+    fail('release-runtime.yml must allow Esplorashrew Metashrew host imports');
+  }
+  for (const hostImport of ['__host_len', '__load_input', '__get_len', '__get', '__flush', '__log']) {
+    if (!workflow.includes(`env:${hostImport}:function`)) {
+      fail(`release-runtime.yml must verify the Esplorashrew ${hostImport} import`);
+    }
+  }
 }
 
 function main() {
