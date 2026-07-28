@@ -1,7 +1,6 @@
 //! Shared devnet state types
 //!
 //! Pure serde types describing services, accounts, and system status.
-//! (The Tauri `AppState` wrapper lives in the desktop app.)
 
 use serde::{Deserialize, Serialize};
 

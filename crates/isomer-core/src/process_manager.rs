@@ -127,8 +127,8 @@ const MAX_LOG_ENTRIES: usize = 1000;
 /// How service output is captured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogMode {
-    /// Pipe stdout/stderr into an in-memory buffer via reader threads
-    /// (the desktop app's behavior — logs die with the managing process).
+    /// Pipe stdout/stderr into an in-memory buffer via reader threads.
+    /// Logs end with the managing process.
     Pipe,
     /// Redirect stdout/stderr straight into `logs/<service>.log` files so
     /// services survive the managing process exiting (CLI mode).
@@ -150,8 +150,8 @@ impl Default for ProcessManager {
 }
 
 impl ProcessManager {
-    /// The desktop app's manager: pipes logs in-memory and cleans up
-    /// orphaned processes from previous runs on construction.
+    /// A foreground manager that pipes logs in-memory and cleans up orphaned
+    /// processes from previous runs on construction.
     pub fn new() -> Self {
         // Clean up any orphaned processes from previous runs
         Self::kill_orphans();
@@ -663,7 +663,7 @@ impl ProcessManager {
                 std::thread::sleep(std::time::Duration::from_secs(2));
 
                 // Bootstrap the wallet in a separate thread to avoid tokio runtime conflicts
-                // (reqwest::blocking creates its own runtime which conflicts with Tauri's)
+                // (reqwest::blocking creates its own runtime, which conflicts with Tokio)
                 let config_clone = config.clone();
                 let handle = std::thread::spawn(move || Self::bootstrap_wallet_sync(&config_clone));
 

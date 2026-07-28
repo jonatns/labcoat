@@ -1,8 +1,7 @@
 //! Bitcoin Core JSON-RPC helpers for the devnet
 //!
-//! Thin async client used by every frontend for chain queries, mining,
-//! and the dev-wallet faucet. Extracted verbatim from the Tauri command
-//! layer so the desktop app and the CLI share one code path.
+//! Thin async client used by the CLI and other engine consumers for chain
+//! queries, mining, and the dev-wallet faucet.
 
 use crate::config::IsomerConfig;
 use serde::Serialize;

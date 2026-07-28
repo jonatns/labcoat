@@ -18,12 +18,38 @@ if "--version" in sys.argv:
     print(f"{NAME} 0.0.0-stub")
     sys.exit(0)
 
-PORTS = {
-    "rockshrew-mono": [8080],
-    "ord": [8090],
-    "flextrs": [50010, 50001],
-    "espo": [8081, 8083],
-}.get(NAME, [8099])
+def option(name: str):
+    try:
+        return sys.argv[sys.argv.index(name) + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def address_port(value: str | None, default: int):
+    return int(value.rsplit(":", 1)[-1]) if value else default
+
+
+if NAME == "rockshrew-mono":
+    PORTS = [int(option("--port") or 8080)]
+elif NAME == "ord":
+    PORTS = [int(option("--http-port") or 8090)]
+elif NAME == "flextrs":
+    PORTS = [
+        address_port(option("--http-addr"), 50010),
+        address_port(option("--electrum-rpc-addr"), 50001),
+    ]
+elif NAME == "espo":
+    config_path = option("--config-path")
+    config = {}
+    if config_path:
+        with open(config_path, encoding="utf-8") as config_file:
+            config = json.load(config_file)
+    PORTS = [
+        address_port(config.get("explorer_host"), 8081),
+        int(config.get("port", 8083)),
+    ]
+else:
+    PORTS = [8099]
 
 
 class Handler(BaseHTTPRequestHandler):

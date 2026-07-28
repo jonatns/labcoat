@@ -1,8 +1,7 @@
 //! alkanes-cli wallet discovery and inspection
 //!
 //! Lists wallets under `~/.alkanes/` and shells out to a locally
-//! installed `alkanes-cli` for addresses/balances. Extracted verbatim
-//! from the Tauri command layer.
+//! installed `alkanes-cli` for addresses and balances.
 
 use crate::state::{AddressInfo, AlkanesWallet};
 

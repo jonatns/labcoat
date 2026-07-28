@@ -1,8 +1,7 @@
 //! The headless devnet facade
 //!
-//! One handle over binaries + processes + chain RPC, used by the
-//! `labcoat` CLI (and any other non-Tauri frontend). The desktop app
-//! composes the same underlying pieces through its own AppState.
+//! One handle over binaries, processes, and chain RPC, used by the
+//! `labcoat` CLI and other engine consumers.
 
 use crate::binary_manager::{BinaryInfo, BinaryManager};
 use crate::config::{get_logs_dir, get_runtime_dir, IsomerConfig};
@@ -12,19 +11,17 @@ use std::path::PathBuf;
 
 /// A headless devnet instance.
 ///
-/// Unlike the desktop app (which owns its child processes for the whole
-/// session), a `Devnet` is typically short-lived: `labcoat up` starts
-/// services that outlive the process, and later invocations observe or
-/// control them via ports, log files, and process names. Construction
-/// never kills existing processes.
+/// A `Devnet` is typically short-lived: `labcoat up` starts services that
+/// outlive the process, and later invocations observe or control them via
+/// ports, log files, and process names. Construction never kills existing
+/// processes.
 pub struct Devnet {
     pub config: IsomerConfig,
     process_manager: ProcessManager,
 }
 
 impl Devnet {
-    /// Create a devnet handle with config loaded from disk
-    /// (the same config file the desktop app uses).
+    /// Create a devnet handle with config loaded from disk.
     pub fn new() -> Self {
         Self::with_config(IsomerConfig::load())
     }

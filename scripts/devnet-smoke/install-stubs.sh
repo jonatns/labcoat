@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install protocol stubs into the Isomer bin dir so `labcoat up
+# Install protocol stubs into the Labcoat runtime bin dir so `labcoat up
 # --no-download` can exercise the full orchestration path in environments
 # where the real service binaries cannot be downloaded (sandboxed CI).
 set -euo pipefail
@@ -7,8 +7,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 case "$(uname -s)" in
-  Darwin) DATA_DIR="$HOME/Library/Application Support/Isomer" ;;
-  *)      DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Isomer" ;;
+  Darwin) DATA_DIR="$HOME/Library/Application Support/Labcoat" ;;
+  *)      DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/labcoat" ;;
 esac
 BIN_DIR="$DATA_DIR/bin"
 mkdir -p "$BIN_DIR/jsonrpc/bin"

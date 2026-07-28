@@ -3,7 +3,7 @@
 //! Handles user preferences and service configuration
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Service ports configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,9 +123,19 @@ pub fn get_data_dir() -> PathBuf {
         .join("Isomer")
 }
 
-/// Get the binary directory
+fn labcoat_bin_dir(data_dir: &Path, target_os: &str) -> PathBuf {
+    let product_dir = if target_os == "linux" {
+        "labcoat"
+    } else {
+        "Labcoat"
+    };
+    data_dir.join(product_dir).join("bin")
+}
+
+/// Get the Labcoat-managed service binary directory.
 pub fn get_bin_dir() -> PathBuf {
-    get_data_dir().join("bin")
+    let data_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+    labcoat_bin_dir(&data_dir, std::env::consts::OS)
 }
 
 /// Get the runtime data directory (bitcoin data, indexes, etc)
@@ -136,4 +146,27 @@ pub fn get_runtime_dir() -> PathBuf {
 /// Get the logs directory
 pub fn get_logs_dir() -> PathBuf {
     get_data_dir().join("logs")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macos_binaries_use_labcoat_application_support() {
+        let base = Path::new("/Users/test/Library/Application Support");
+        assert_eq!(
+            labcoat_bin_dir(base, "macos"),
+            PathBuf::from("/Users/test/Library/Application Support/Labcoat/bin")
+        );
+    }
+
+    #[test]
+    fn linux_binaries_use_xdg_data_home() {
+        let xdg_data_home = Path::new("/home/test/custom-data");
+        assert_eq!(
+            labcoat_bin_dir(xdg_data_home, "linux"),
+            PathBuf::from("/home/test/custom-data/labcoat/bin")
+        );
+    }
 }

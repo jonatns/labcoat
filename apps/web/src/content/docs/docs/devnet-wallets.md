@@ -5,6 +5,8 @@ description: Operate the managed local Bitcoin devnet services and project walle
 
 `labcoat up` checks required service binaries, downloads missing pinned builds,
 starts the managed local services, and exposes one JSON-RPC gateway.
+The payloads live under `~/Library/Application Support/Labcoat/bin` on macOS
+or `${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/bin` on Linux.
 
 | Service | Purpose |
 | --- | --- |

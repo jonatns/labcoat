@@ -1,8 +1,7 @@
 //! Espo explorer/indexer API client
 //!
 //! Queries the local Espo instance for deployed alkanes and explorer
-//! block data. Extracted from the Tauri command layer; ports now come
-//! from config instead of being hardcoded.
+//! block data using ports from the engine configuration.
 
 use crate::config::IsomerConfig;
 use serde::{Deserialize, Serialize};

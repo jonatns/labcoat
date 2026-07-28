@@ -1,10 +1,8 @@
 //! # isomer-core
 //!
 //! Headless Alkanes devnet engine: binary management, service
-//! orchestration, chain control, and devnet queries. Every frontend —
-//! the Isomer desktop app (Tauri), the `labcoat` CLI, agents — drives
-//! the devnet through this one crate so behavior stays identical
-//! across surfaces.
+//! orchestration, chain control, and devnet queries. The `labcoat` CLI
+//! and agents drive the Isomer devnet through this crate.
 
 pub mod alkanes_wallets;
 pub mod binary_manager;

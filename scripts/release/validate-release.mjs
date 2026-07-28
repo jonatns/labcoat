@@ -68,7 +68,7 @@ function validateCargo() {
       fail(`${name} publish must be ${shouldPublish}`);
     }
   }
-  for (const path of ['crates/isomer-core/Cargo.toml', 'apps/isomer/src-tauri/Cargo.toml']) {
+  for (const path of ['crates/isomer-core/Cargo.toml']) {
     if (!/^publish\s*=\s*false$/m.test(cargoPackage(path).packageBlock)) fail(`${path} must not be publishable`);
   }
   const template = read('crates/labcoat-cli/templates/default/Cargo.toml');

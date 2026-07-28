@@ -672,18 +672,6 @@ impl BinaryManager {
         Ok(())
     }
 
-    /// Download and extract the Chrome extension
-    /// Returns the path to the extension directory
-    pub fn is_extension_installed() -> bool {
-        use crate::config::get_data_dir;
-        let extension_dir = get_data_dir().join("extension");
-        extension_dir.join("manifest.json").exists()
-    }
-
-    pub async fn download_extension() -> Result<PathBuf, String> {
-        Err("the Isomer browser extension is maintained by the manual legacy desktop workflow and is not part of Labcoat runtime releases".to_string())
-    }
-
     fn verify_checksum(bytes: &[u8], expected: &str, name: &str) -> Result<(), String> {
         if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(format!("Invalid SHA-256 checksum configured for {}", name));

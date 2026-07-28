@@ -17,7 +17,7 @@ fi
 
 curl() {
     printf '%s\n' \
-        '[{"tag_name":"isomer-v9.9.9"},' \
+        '[{"tag_name":"runtime-v2026.07.27.1"},' \
         '{"tag_name":"cli-v0.8.1"},' \
         '{"tag_name":"cli-v0.1.0"}]'
 }

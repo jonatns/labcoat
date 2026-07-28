@@ -55,6 +55,10 @@ curl -fsSL https://labcoat.sh/install \
   | sh -s -- 0.1.0
 ```
 
+Managed Isomer devnet payloads are downloaded separately to
+`~/Library/Application Support/Labcoat/bin` on macOS or
+`${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/bin` on Linux.
+
 Contract compilation requires an LLVM Clang with a WebAssembly backend.
 
 ```bash

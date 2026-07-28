@@ -21,10 +21,9 @@ and must not be reused.
 Actions are pinned to full commit SHAs. Dependabot proposes grouped weekly
 updates to those pins.
 
-The previous `release.yml` and `release-binaries.yml` workflows are retained
-temporarily as a rollback path. Do not invoke them for a new release. Remove
-them only after both new dry runs and the first `cli-v0.1.0` publication have
-succeeded.
+The previous `release-binaries.yml` workflow is retained temporarily as a
+runtime rollback path. Do not invoke it for a new release. Remove it only after
+the new runtime workflow and first publication have succeeded.
 
 ## CLI release (`cli-vX.Y.Z`)
 
@@ -99,14 +98,6 @@ build began.
 
 The active legacy bundle remains `jonatns/isomer@binaries-v0.1.3` until the
 first promotion PR is merged.
-
-## Legacy desktop app
-
-The Isomer desktop application has no automatic release trigger. Use **Build
-legacy Isomer desktop** only for a deliberate maintenance build. It can create
-a draft `isomer-v*` release and can optionally attempt the standalone browser
-extension build. Desktop and extension artifacts never enter CLI runtime
-releases.
 
 ## Failure policy
 
