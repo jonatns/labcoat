@@ -84,7 +84,7 @@ function validateCargo() {
 }
 
 function validateRuntime() {
-  if (manifest.schema !== 1) fail('runtime.json schema must be 1');
+  if (manifest.schema !== 2) fail('runtime.json schema must be 2');
   const active = manifest.active_release;
   if (!active?.owner || !active?.repository || !active?.tag) fail('runtime.json has an incomplete active release');
   if (!(runtimeTag.test(active.tag) || (active.owner === 'jonatns' && active.repository === 'isomer' && active.tag === 'binaries-v0.1.3'))) {
@@ -99,29 +99,35 @@ function validateRuntime() {
     }
   }
   const sources = Object.entries(manifest.sources ?? {});
-  if (sources.length !== 5) fail('runtime.json must declare exactly five build sources');
+  if (sources.length !== 3) fail('runtime.json must declare exactly three build sources');
   for (const [name, source] of sources) {
     if (!source.repository || !source.revision || !source.version) fail(`incomplete runtime source: ${name}`);
     if (['main', 'master', 'develop', 'trunk', 'HEAD'].includes(source.revision)) fail(`${name} uses moving ref ${source.revision}`);
     if (!gitCommit.test(source.revision) && !/v\d/.test(source.revision)) fail(`${name} revision is not an immutable commit or version tag`);
   }
-  for (const key of ['metashrew', 'esplora', 'espo', 'jsonrpc', 'alkanes_wasm']) {
+  const expectedSources = {
+    qubitcoin: 'e7f2f9d8844bdc7662030d98abb0544cc3e5a8da',
+    'alkanes-wasm': '5b7f43567b828d0bb7b8907ce78fa0242943c54d',
+    'esplorashrew-wasm': '7f7660908cdb54d12540ac6a8b337ef6a70e8057',
+  };
+  for (const [name, revision] of Object.entries(expectedSources)) {
+    if (manifest.sources[name]?.revision !== revision) fail(`${name} must use the approved revision`);
+  }
+  for (const key of ['qubitcoind', 'alkanes_wasm', 'esplorashrew_wasm']) {
     const component = manifest.hosted?.[key];
     if (!component?.asset_pattern || !component?.version || !component?.size_bytes) fail(`incomplete hosted component: ${key}`);
     const hashes = Object.values(component.sha256 ?? {});
     if (hashes.length === 0 || hashes.some((hash) => !sha256.test(hash))) fail(`invalid hosted checksums: ${key}`);
   }
-  for (const key of ['bitcoind', 'ord']) {
-    const component = manifest.external?.[key];
-    for (const [platform, asset] of Object.entries(component?.platforms ?? {})) {
-      if (!asset.url?.startsWith('https://') || !sha256.test(asset.sha256) || !asset.archive_path) {
-        fail(`invalid external asset: ${key}/${platform}`);
-      }
-    }
+  if (manifest.external !== undefined) fail('runtime.json must not declare external runtime binaries');
+  const platforms = Object.keys(manifest.hosted.qubitcoind.sha256).sort().join(',');
+  if (platforms !== 'darwin-arm64,linux-x86_64') {
+    fail('qubitcoind must declare the two supported native runtime platforms');
   }
-  for (const key of ['metashrew', 'esplora', 'espo']) {
-    const platforms = Object.keys(manifest.hosted[key].sha256).sort().join(',');
-    if (platforms !== 'darwin-arm64,linux-x86_64') fail(`${key} must declare the two supported native runtime platforms`);
+  for (const key of ['alkanes_wasm', 'esplorashrew_wasm']) {
+    if (Object.keys(manifest.hosted[key].sha256).join(',') !== 'all') {
+      fail(`${key} must be platform independent`);
+    }
   }
 }
 

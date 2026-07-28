@@ -106,8 +106,8 @@ enum Commands {
     },
     /// Show recent service logs
     Logs {
-        /// Filter to one service (bitcoind, metashrew, ord, esplora, espo, jsonrpc)
-        #[arg(long)]
+        /// Filter to the Qubitcoin service (qubitcoind)
+        #[arg(long, value_parser = ["qubitcoind"])]
         service: Option<String>,
         /// Max entries
         #[arg(long, default_value_t = 200)]

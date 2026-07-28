@@ -10,8 +10,8 @@ JSON errors use stable codes and always include a next-step hint.
 | `CONFIG_INVALID` | Project or environment configuration is invalid | Run `labcoat doctor` |
 | `WALLET_MISSING` | No project wallet exists | Run `labcoat wallet init` |
 | `WALLET_LOCKED` | Passphrase is missing or incorrect | Set `LABCOAT_WALLET_PASSPHRASE` |
-| `RPC_UNREACHABLE` | The configured gateway cannot be reached | Run `labcoat status` |
-| `INDEXER_LAG` | Indexed height did not reach chain height | Inspect metashrew logs |
+| `RPC_UNREACHABLE` | The configured Qubitcoin endpoint cannot be reached | Run `labcoat status` |
+| `INDEXER_LAG` | Indexed height did not reach chain height | Inspect `qubitcoind` logs |
 | `INSUFFICIENT_FUNDS` | Spendable BTC cannot cover the transaction | Fund and mine the wallet |
 | `EXECUTION_REVERT` | The contract explicitly reverted | Inspect `revertReason` and trace |
 | `TRACE_TIMEOUT` | A decoded trace did not arrive in time | Retry `labcoat trace --wait` |

@@ -54,8 +54,8 @@ fn wallet_config(config: &ToolkitConfig) -> WalletConfig {
     WalletConfig {
         wallet_path: config.wallet_file.display().to_string(),
         network,
-        bitcoin_rpc_url: config.jsonrpc_url.clone(),
-        metashrew_rpc_url: config.jsonrpc_url.clone(),
+        bitcoin_rpc_url: config.rpc_url.clone(),
+        metashrew_rpc_url: config.rpc_url.clone(),
         network_params: None,
     }
 }

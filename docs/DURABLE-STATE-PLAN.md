@@ -26,7 +26,7 @@ labcoat.toml          desired resource topology
         +
 Labcoat state         prior instances and operation history
         +
-Bitcoin/Metashrew     observed state
+Qubitcoin             observed chain and indexed state
         |
         v
 labcoat plan          create / replace / configure / upgrade / drift
@@ -63,7 +63,7 @@ verified state        active IDs, history, transactions, outputs
 - Deleting contracts from the chain. Alkanes deployments are immutable.
 - Inferring arbitrary hardcoded cross-contract IDs from Wasm.
 - Claiming that a plan simulates a new deployment. Accurate new-Wasm execution
-  requires a Metashrew deployment view or an embedded snapshot-capable Alkanes
+  requires a Qubitcoin Alkanes deployment view or an embedded snapshot-capable Alkanes
   runtime.
 - Shipping a remote state backend in the first durable-state milestone. The
   backend API is part of that milestone; at least one production backend is a
@@ -92,7 +92,7 @@ durable state:
   other initializer opcodes.
 - Constructor arguments are untyped raw `u128` values even though local ABI
   metadata contains methods, opcodes, and parameter types.
-- `simulate` executes an existing deployed contract through Metashrew; the
+- `simulate` executes an existing deployed contract through Qubitcoin's Alkanes index; the
   current deploy dry-run only validates local input and prints intent.
 - The executor calls upstream `execute_full` as one operation, so Labcoat cannot
   durably checkpoint each commit/reveal phase.
@@ -104,8 +104,8 @@ durable state:
 1. **Desired state** is human-authored and committed in `labcoat.toml`.
 2. **Operational state** is machine-owned and records resource instances,
    relationships, outputs, and every apply operation.
-3. **Observed state** is refreshed from Bitcoin and Metashrew. Bitcoin is the
-   canonical chain; Metashrew is the indexed Alkanes read model.
+3. **Observed state** is refreshed from Qubitcoin. Its chain is canonical, and
+   its Alkanes secondary index is the indexed read model.
 
 Planning is a three-way comparison:
 
@@ -190,7 +190,7 @@ Extend `labcoat.toml` with resources while preserving the existing settings:
 ```toml
 network = "regtest"
 environment = "dev"
-rpc_url = "http://localhost:18888"
+rpc_url = "http://127.0.0.1:18443"
 wallet_file = ".labcoat/wallet.json"
 fee_rate = 2.0
 
@@ -316,7 +316,7 @@ State-changing calls need `prepared`, `broadcast`, `confirmed`, `indexed`, and
 `abandoned`.
 
 Persist each transition before beginning the next irreversible step. On
-resume, query the mempool, chain, and Metashrew by recorded transaction ID
+resume, query Qubitcoin's mempool, chain, and Alkanes index by recorded transaction ID
 before deciding whether to retry. Never blindly repeat a pending deployment.
 
 ## Durable local backend
@@ -449,7 +449,7 @@ state and receipts as the concise active-address view.
 Loss of a workstation must not force redeployment or make an upgradeable system
 unmanageable. Provide a recovery workflow that accepts `labcoat.lock`, receipts,
 and explicit Alkane IDs, then verifies all recoverable facts through Bitcoin
-and Metashrew before constructing new operational state.
+and the Alkanes secondary index before constructing new operational state.
 
 Recovery cannot reconstruct secrets or undeclared intent. It must label fields
 as observed, receipt-proven, or unknown rather than inventing configuration.
@@ -469,7 +469,7 @@ instances without a Labcoat UUID are distinguished by verifying all recorded
 deployment transactions and block hashes during refresh.
 
 Refresh should use Bitcoin RPC for transaction inclusion, block hashes, and
-confirmations, and Metashrew for:
+confirmations, and the Alkanes secondary index for:
 
 - indexer height;
 - Alkane ID to creation outpoint;
@@ -485,7 +485,7 @@ Drift classifications include:
 - `missing`: no observed Alkane exists at the recorded ID;
 - `bytecode_mismatch`: observed code differs from state;
 - `configuration_drift`: a managed proxy/beacon pointer differs;
-- `indexer_stale`: Metashrew cannot yet make a reliable comparison;
+- `indexer_stale`: the Alkanes index cannot yet make a reliable comparison;
 - `chain_mismatch`: state belongs to a different chain or devnet instance.
 
 `indexer_stale` must block mutation rather than appear as drift to repair.
@@ -543,11 +543,11 @@ Apply actions in topological order:
 
 1. Lock and reload state.
 2. Validate the saved plan against current state and chain identity.
-3. Recheck Metashrew synchronization, wallet balance, spendable UTXOs, fee
+3. Recheck Alkanes-index synchronization, wallet balance, spendable UTXOs, fee
    bounds, total spend policy, signer identity, and authorization capabilities.
 4. Write the operation's `prepared` journal entry.
 5. Execute and persist each transaction transition.
-6. Wait for the configured confirmation policy and Metashrew indexing.
+6. Wait for the configured confirmation policy and Alkanes indexing.
 7. Verify bytecode, traces, IDs, and managed configuration readbacks.
 8. Append the new instance or mutation to resource history.
 9. Move the logical resource's active pointer only after verification.
@@ -629,9 +629,9 @@ Keep planning, simulation, and verification separate:
 
 - Local plan validation checks Wasm shape, gzip handling, ABI metadata, typed
   arguments, resource references, and dependency cycles.
-- Metashrew simulation validates calls and upgrades against existing indexed
+- Qubitcoin simulation validates calls and upgrades against existing indexed
   state.
-- New deployment simulation remains `not simulated` until Metashrew exposes a
+- New deployment simulation remains `not simulated` until the Alkanes index exposes a
   view that accepts new Wasm/envelope context or Labcoat embeds the exact
   Alkanes runtime against a state snapshot.
 - Post-apply verification checks the actual deployed bytecode, trace status,
@@ -681,7 +681,7 @@ manifest.rs          desired resource configuration and references
 resource.rs          resource kinds, instances, outputs, and typed edges
 state.rs             schema, validation, migration, and state transitions
 state_backend.rs     locking and atomic local persistence
-observer.rs          Bitcoin/Metashrew refresh and drift classification
+observer.rs          Qubitcoin chain/index refresh and drift classification
 graph.rs             dependency graph and cycle detection
 plan.rs              three-way diff and immutable plan format
 apply.rs             ordered execution and recovery
@@ -738,7 +738,7 @@ Acceptance criteria:
 
 ### Milestone 3: observation, refresh, and import
 
-- Implement Bitcoin and Metashrew observation.
+- Implement Qubitcoin chain and secondary-index observation.
 - Add drift classification and chain identity validation.
 - Add `refresh` and `state import`.
 - Resolve active resource names from canonical state, with `labcoat.lock`
@@ -747,7 +747,7 @@ Acceptance criteria:
 Acceptance criteria:
 
 - Refresh detects missing transactions, a reorged deployment block, bytecode
-  mismatch, stale Metashrew, and a reset regtest.
+  mismatch, stale Alkanes index, and a reset regtest.
 - Import verifies the Alkane exists and records observed bytecode and outpoint
   information without claiming Labcoat deployed it.
 
@@ -847,7 +847,7 @@ Interrupt apply before and after each durable transition:
 - commit confirmation;
 - reveal broadcast;
 - reveal confirmation;
-- Metashrew indexing;
+- Alkanes indexing;
 - verification;
 - active-pointer update;
 - compatibility export.
@@ -868,7 +868,7 @@ Every case must either resume safely or stop with a specific recovery command.
 - Remote lease contention, expiry, stale serial, and point-in-time restore.
 - Receipt generation and recovery on a clean workstation.
 - Partial apply recovery.
-- Metashrew lag.
+- Alkanes-index lag.
 - Snapshot/restore, reorg where practical, and full reset detection.
 - Import and legacy migration.
 
@@ -895,7 +895,7 @@ Every case must either resume safely or stop with a specific recovery command.
   compare-and-swap. A future remote backend must provide equivalent semantics.
 - **Reorgs and resets:** persist block hashes and devnet identity, refresh before
   mutation, and mark affected instances orphaned rather than deleting them.
-- **Metashrew lag:** classify separately and block mutation until observation is
+- **Alkanes-index lag:** classify separately and block mutation until observation is
   reliable.
 - **Proxy storage corruption:** require storage compatibility metadata or
   explicit unsafe approval.
@@ -921,9 +921,9 @@ Durable state is complete when:
 - Direct, reserved, factory, proxy, and beacon lifecycles plan correctly.
 - Dependency changes produce correct replacement or upgrade behavior.
 - Every broadcast operation is journaled and safely resumable.
-- State corruption, stale plans, chain mismatch, reorg, reset, and Metashrew lag
+- State corruption, stale plans, chain mismatch, reorg, reset, and Alkanes-index lag
   fail closed.
-- Active state is updated only after chain and Metashrew verification.
+- Active state is updated only after Qubitcoin chain and Alkanes-index verification.
 - Upgrade plans report authorization, storage compatibility, and blast radius.
 - The existing direct CLI remains compatible throughout migration.
 

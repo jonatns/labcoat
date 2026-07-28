@@ -48,7 +48,7 @@ pub async fn wait_for_trace(
             return Err(LabcoatError::new(
                 "TRACE_TIMEOUT",
                 format!("no trace for {} after {:?}", txid, timeout),
-                "is metashrew synced? labcoat status; then labcoat trace <txid>",
+                "is the Alkanes index synced? run `labcoat status`, then `labcoat trace <txid>`",
             ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;

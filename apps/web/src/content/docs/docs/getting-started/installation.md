@@ -125,10 +125,10 @@ export command to add.
 
 ## Runtime and security boundaries
 
-Labcoat provides one CLI entry point while downloading and orchestrating
-multiple local services. Docker is required, and Node.js is required by the
-gateway. Keep regtest ports on trusted local interfaces and never use production
-wallet seed phrases with Labcoat.
+Labcoat downloads one native `qubitcoind` executable plus two pinned WASM
+indexer modules. It binds the unauthenticated regtest RPC endpoint only to
+loopback; keep it local and never use production wallet seed phrases with
+Labcoat. Docker and Node.js are not runtime prerequisites.
 
 Labcoat is early-stage software for local Alkanes development. Interfaces may
 change before 1.0; mainnet deployment controls are not production-ready. Read

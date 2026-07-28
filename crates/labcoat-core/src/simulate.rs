@@ -1,4 +1,4 @@
-//! Read-only contract simulation via the metashrew simulate view.
+//! Read-only contract simulation via Qubitcoin's Alkanes secondary view.
 //!
 //! Mirrors alkanes-cli's `alkanes simulate` construction. Result decoding
 //! checks for a printable string before interpreting the data as an integer.

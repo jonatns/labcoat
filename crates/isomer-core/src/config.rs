@@ -8,80 +8,33 @@ use std::path::{Path, PathBuf};
 /// Service ports configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortConfig {
-    pub bitcoind_rpc: u16,
-    pub bitcoind_p2p: u16,
-    pub metashrew: u16,
-    pub ord: u16,
-    pub esplora_http: u16,
-    pub esplora_electrum: u16,
-    pub jsonrpc: u16,
-    pub espo_rpc: u16,
-    pub espo_explorer: u16,
+    pub qubitcoin_rpc: u16,
+    pub qubitcoin_p2p: u16,
 }
 
 impl Default for PortConfig {
     fn default() -> Self {
         Self {
-            bitcoind_rpc: 18443,
-            bitcoind_p2p: 18444,
-            metashrew: 8080,
-            ord: 8090,
-            esplora_http: 50010,
-            esplora_electrum: 50001,
-            jsonrpc: 18888,
-            espo_rpc: 8083,
-            espo_explorer: 8081,
-        }
-    }
-}
-
-/// Bitcoin Core configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BitcoindConfig {
-    pub rpc_user: String,
-    pub rpc_password: String,
-    pub fallback_fee: f64,
-}
-
-impl Default for BitcoindConfig {
-    fn default() -> Self {
-        Self {
-            rpc_user: "isomer".to_string(),
-            rpc_password: "isomer".to_string(),
-            fallback_fee: 0.00001,
-        }
-    }
-}
-
-/// Mining configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MiningConfig {
-    /// Enable auto-mining on new mempool transactions
-    pub auto_mine: bool,
-    /// Block interval in milliseconds when auto-mining
-    pub block_interval_ms: u64,
-    /// Number of blocks to mine on startup to fund accounts
-    pub initial_blocks: u32,
-}
-
-impl Default for MiningConfig {
-    fn default() -> Self {
-        Self {
-            auto_mine: true,
-            block_interval_ms: 1000,
-            initial_blocks: 101, // Makes coinbase spendable
+            qubitcoin_rpc: 18443,
+            qubitcoin_p2p: 18444,
         }
     }
 }
 
 /// Complete Isomer configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IsomerConfig {
+    pub schema: u32,
     pub ports: PortConfig,
-    pub bitcoind: BitcoindConfig,
-    pub mining: MiningConfig,
-    /// Mnemonic for deterministic wallet generation (optional)
-    pub mnemonic: Option<String>,
+}
+
+impl Default for IsomerConfig {
+    fn default() -> Self {
+        Self {
+            schema: 2,
+            ports: PortConfig::default(),
+        }
+    }
 }
 
 impl IsomerConfig {
@@ -95,8 +48,9 @@ impl IsomerConfig {
         let path = Self::config_path();
         if path.exists() {
             match std::fs::read_to_string(&path) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(config) => return config,
+                Ok(content) => match serde_json::from_str::<Self>(&content) {
+                    Ok(config) if config.schema == 2 => return config,
+                    Ok(_) => tracing::warn!("Ignoring legacy Isomer configuration"),
                     Err(e) => tracing::warn!("Failed to parse config: {}", e),
                 },
                 Err(e) => tracing::warn!("Failed to read config: {}", e),
@@ -118,7 +72,9 @@ impl IsomerConfig {
 
 /// Get the Isomer data directory
 pub fn get_data_dir() -> PathBuf {
-    dirs::data_dir()
+    std::env::var_os("LABCOAT_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(dirs::data_dir)
         .unwrap_or_else(|| PathBuf::from("."))
         .join("Isomer")
 }
@@ -134,18 +90,26 @@ fn labcoat_bin_dir(data_dir: &Path, target_os: &str) -> PathBuf {
 
 /// Get the Labcoat-managed service binary directory.
 pub fn get_bin_dir() -> PathBuf {
-    let data_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+    let data_dir = std::env::var_os("LABCOAT_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(dirs::data_dir)
+        .unwrap_or_else(|| PathBuf::from("."));
     labcoat_bin_dir(&data_dir, std::env::consts::OS)
 }
 
 /// Get the runtime data directory (bitcoin data, indexes, etc)
 pub fn get_runtime_dir() -> PathBuf {
-    get_data_dir().join("data")
+    get_data_dir().join("runtime-v2")
 }
 
 /// Get the logs directory
 pub fn get_logs_dir() -> PathBuf {
     get_data_dir().join("logs")
+}
+
+/// Qubitcoin's network-specific data root.
+pub fn get_qubitcoin_dir() -> PathBuf {
+    get_runtime_dir().join("qubitcoin")
 }
 
 #[cfg(test)]
@@ -167,6 +131,16 @@ mod tests {
         assert_eq!(
             labcoat_bin_dir(xdg_data_home, "linux"),
             PathBuf::from("/home/test/custom-data/labcoat/bin")
+        );
+    }
+
+    #[test]
+    fn v2_config_has_only_qubitcoin_ports() {
+        let value = serde_json::to_value(IsomerConfig::default()).unwrap();
+        assert_eq!(value["schema"], 2);
+        assert_eq!(
+            value["ports"],
+            serde_json::json!({"qubitcoin_rpc": 18443, "qubitcoin_p2p": 18444})
         );
     }
 }

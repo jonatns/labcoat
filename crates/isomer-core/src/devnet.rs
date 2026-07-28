@@ -38,23 +38,22 @@ impl Devnet {
         BinaryManager::new().check_all()
     }
 
-    /// Download any missing binaries (including alkanes.wasm), reporting
+    /// Download any missing binaries and indexer WASM modules, reporting
     /// per-service progress through the callback.
     pub async fn ensure_binaries(
         &self,
         progress: impl Fn(ServiceId, f32) + Send + Clone + 'static,
     ) -> Result<(), String> {
-        BinaryManager::download_alkanes_wasm().await?;
+        BinaryManager::download_runtime_assets().await?;
         BinaryManager::new().download_all(progress).await
     }
 
-    /// Start the full service stack in dependency order (blocking;
-    /// includes dev-wallet bootstrap and initial mining). Any orphaned
-    /// service processes from previous runs are cleaned up first.
+    /// Start Qubitcoin and bootstrap the persistent Labcoat faucet.
     pub fn start(&mut self) -> Result<(), String> {
         ProcessManager::kill_orphans();
         let config = self.config.clone();
-        self.process_manager.start_all(&config)
+        self.process_manager.start_all(&config)?;
+        crate::faucet::bootstrap_blocking(&config)
     }
 
     /// Stop all services — both any owned by this handle and detached
@@ -101,11 +100,11 @@ impl Devnet {
             is_ready,
         };
 
-        let bitcoind_running = status
+        let qubitcoind_running = status
             .services
             .iter()
-            .any(|s| s.id == "bitcoind" && s.status == "running");
-        if bitcoind_running {
+            .any(|s| s.id == "qubitcoind" && s.status == "running");
+        if qubitcoind_running {
             if let Some(height) = crate::rpc::try_block_count(&self.config).await {
                 status.block_height = height;
             }
@@ -119,13 +118,16 @@ impl Devnet {
 
     /// Mine blocks (to the default dev address unless one is given).
     pub async fn mine(&self, count: u32, address: Option<String>) -> Result<u64, String> {
-        let addr = address.unwrap_or_else(|| crate::rpc::DEFAULT_MINE_ADDRESS.to_string());
+        let addr = match address {
+            Some(address) => address,
+            None => crate::faucet::address()?,
+        };
         crate::rpc::mine_blocks(&self.config, count, &addr).await
     }
 
-    /// Send BTC from the dev wallet to an address; returns the txid.
+    /// Construct, sign, and broadcast an exact-amount faucet transaction.
     pub async fn fund(&self, address: &str, amount: f64) -> Result<String, String> {
-        crate::rpc::faucet(&self.config, address, amount).await
+        crate::faucet::fund(&self.config, address, amount).await
     }
 
     /// Recent service logs (most recent `limit`, optionally one service).
@@ -170,24 +172,16 @@ impl Devnet {
         entries[start..].to_vec()
     }
 
-    /// The unified JSON-RPC endpoint and per-service endpoints as a
-    /// machine-readable manifest.
+    /// The one public runtime endpoint.
     pub fn endpoints(&self) -> serde_json::Value {
         let p = &self.config.ports;
         serde_json::json!({
-            "jsonrpc": format!("http://127.0.0.1:{}", p.jsonrpc),
-            "bitcoind_rpc": format!("http://127.0.0.1:{}", p.bitcoind_rpc),
-            "metashrew": format!("http://127.0.0.1:{}", p.metashrew),
-            "ord": format!("http://127.0.0.1:{}", p.ord),
-            "esplora_http": format!("http://127.0.0.1:{}", p.esplora_http),
-            "esplora_electrum": format!("tcp://127.0.0.1:{}", p.esplora_electrum),
-            "espo_rpc": format!("http://127.0.0.1:{}/rpc", p.espo_rpc),
-            "espo_explorer": format!("http://127.0.0.1:{}", p.espo_explorer),
+            "qubitcoin_rpc": format!("http://127.0.0.1:{}", p.qubitcoin_rpc),
         })
     }
 
     fn snapshots_dir() -> PathBuf {
-        crate::config::get_data_dir().join("snapshots")
+        crate::config::get_data_dir().join("snapshots-v2")
     }
 
     /// Snapshot the devnet data directory under the given name.
@@ -283,5 +277,14 @@ mod tests {
         assert!(validate_snapshot_name("").is_err());
         assert!(validate_snapshot_name("../escape").is_err());
         assert!(validate_snapshot_name("a/b").is_err());
+    }
+
+    #[test]
+    fn endpoint_manifest_exposes_only_qubitcoin() {
+        let endpoints = Devnet::with_config(IsomerConfig::default()).endpoints();
+        assert_eq!(
+            endpoints,
+            serde_json::json!({"qubitcoin_rpc": "http://127.0.0.1:18443"})
+        );
     }
 }

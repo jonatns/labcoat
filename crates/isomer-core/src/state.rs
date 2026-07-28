@@ -26,32 +26,6 @@ pub struct ServiceInfo {
     pub version: Option<String>,
 }
 
-/// Pre-funded development account
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Account {
-    pub index: usize,
-    pub address: String,
-    pub private_key: String,
-    pub balance_sats: u64,
-}
-
-/// Detailed address information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AddressInfo {
-    pub address: String,
-    pub type_label: String,
-    pub index: usize,
-}
-
-/// Alkanes-CLI wallet
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AlkanesWallet {
-    pub name: String,
-    pub file_path: String,
-    pub balance: Option<String>,
-    pub addresses: Vec<AddressInfo>,
-}
-
 /// Overall system status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemStatus {

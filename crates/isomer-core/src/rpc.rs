@@ -1,12 +1,8 @@
-//! Bitcoin Core JSON-RPC helpers for the devnet
-//!
-//! Thin async client used by the CLI and other engine consumers for chain
-//! queries, mining, and the dev-wallet faucet.
+//! Direct Qubitcoin JSON-RPC helpers for the local devnet.
 
 use crate::config::IsomerConfig;
 use serde::Serialize;
 
-/// A block summary as shown in explorer carousels.
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockSummary {
     pub height: u64,
@@ -14,14 +10,12 @@ pub struct BlockSummary {
     pub time: Option<u64>,
 }
 
-/// A transaction entry within [`BlockDetails`].
 #[derive(Debug, Clone, Serialize)]
 pub struct TransactionInfo {
     pub txid: String,
     pub is_trace: bool,
 }
 
-/// Full block details including transaction ids.
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockDetails {
     pub height: u64,
@@ -30,250 +24,210 @@ pub struct BlockDetails {
     pub transactions: Vec<TransactionInfo>,
 }
 
-fn rpc_url(config: &IsomerConfig) -> String {
-    format!("http://127.0.0.1:{}", config.ports.bitcoind_rpc)
+pub fn rpc_url(config: &IsomerConfig) -> String {
+    format!("http://127.0.0.1:{}", config.ports.qubitcoin_rpc)
 }
 
-fn client(timeout: std::time::Duration) -> reqwest::Client {
-    reqwest::Client::builder()
-        // These RPC helpers only talk to the loopback devnet.
-        .no_proxy()
-        .timeout(timeout)
-        .build()
-        .unwrap_or_default()
+fn request_body(method: &str, params: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "labcoat",
+        "method": method,
+        "params": params
+    })
 }
 
-/// Perform a Bitcoin Core JSON-RPC call and return the `result` value.
+fn result_from_response(response: serde_json::Value) -> Result<serde_json::Value, String> {
+    if let Some(error) = response.get("error").filter(|value| !value.is_null()) {
+        let message = error
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown error");
+        return Err(format!("Qubitcoin RPC error: {message}"));
+    }
+    response
+        .get("result")
+        .cloned()
+        .ok_or_else(|| "Qubitcoin RPC response is missing result".to_string())
+}
+
 pub async fn call(
     config: &IsomerConfig,
-    wallet: Option<&str>,
     method: &str,
     params: serde_json::Value,
     timeout: std::time::Duration,
 ) -> Result<serde_json::Value, String> {
-    let mut url = rpc_url(config);
-    if let Some(wallet) = wallet {
-        url = format!("{}/wallet/{}", url, wallet);
-    }
-
-    let response = client(timeout)
-        .post(&url)
-        .basic_auth(
-            &config.bitcoind.rpc_user,
-            Some(&config.bitcoind.rpc_password),
-        )
-        .json(&serde_json::json!({
-            "jsonrpc": "1.0",
-            "id": "isomer",
-            "method": method,
-            "params": params
-        }))
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| format!("Failed to create Qubitcoin RPC client: {e}"))?
+        .post(rpc_url(config))
+        .json(&request_body(method, params))
         .send()
         .await
-        .map_err(|e| format!("RPC call failed: {}", e))?;
-
-    let result: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-    if let Some(error) = result.get("error").and_then(|e| e.as_object()) {
-        return Err(format!(
-            "Bitcoin RPC error: {}",
-            error
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown")
-        ));
+        .map_err(|e| format!("Qubitcoin RPC call failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Qubitcoin RPC returned HTTP {}", response.status()));
     }
-
-    Ok(result
-        .get("result")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null))
+    result_from_response(
+        response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse Qubitcoin RPC response: {e}"))?,
+    )
 }
 
-/// Current block count, or None if bitcoind is unreachable.
+pub fn call_blocking(
+    config: &IsomerConfig,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use std::io::{Read, Write};
+
+    let timeout = std::time::Duration::from_secs(60);
+    let mut stream = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], config.ports.qubitcoin_rpc)),
+        timeout,
+    )
+    .map_err(|e| format!("Qubitcoin RPC call failed: {e}"))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|e| format!("Failed to configure Qubitcoin RPC: {e}"))?;
+    let body = serde_json::to_vec(&request_body(method, params))
+        .map_err(|e| format!("Failed to encode Qubitcoin RPC request: {e}"))?;
+    write!(
+        stream,
+        "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .and_then(|_| stream.write_all(&body))
+    .map_err(|e| format!("Qubitcoin RPC call failed: {e}"))?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(|e| format!("Failed to read Qubitcoin RPC response: {e}"))?;
+    let body_start = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|position| position + 4)
+        .ok_or_else(|| "Invalid Qubitcoin HTTP response".to_string())?;
+    result_from_response(
+        serde_json::from_slice(&response[body_start..])
+            .map_err(|e| format!("Failed to parse Qubitcoin RPC response: {e}"))?,
+    )
+}
+
 pub async fn try_block_count(config: &IsomerConfig) -> Option<u64> {
     call(
         config,
-        None,
         "getblockcount",
         serde_json::json!([]),
         std::time::Duration::from_millis(500),
     )
     .await
     .ok()
-    .and_then(|v| v.as_u64())
+    .and_then(|value| value.as_u64())
 }
 
-/// Current mempool size, or None if bitcoind is unreachable.
 pub async fn try_mempool_size(config: &IsomerConfig) -> Option<usize> {
     call(
         config,
-        None,
         "getmempoolinfo",
         serde_json::json!([]),
         std::time::Duration::from_millis(500),
     )
     .await
     .ok()
-    .and_then(|v| v.get("size").and_then(|s| s.as_u64()))
-    .map(|s| s as usize)
+    .and_then(|value| value.get("size").and_then(serde_json::Value::as_u64))
+    .map(|size| size as usize)
 }
 
-/// Send BTC from the dev wallet to any address (the faucet).
-/// Returns the txid. Amounts <= 0 default to 1 BTC.
-pub async fn faucet(config: &IsomerConfig, address: &str, amount: f64) -> Result<String, String> {
-    let amount_btc = if amount <= 0.0 { 1.0 } else { amount };
-
-    let result = call(
-        config,
-        Some("dev"),
-        "sendtoaddress",
-        serde_json::json!([address, amount_btc]),
-        std::time::Duration::from_secs(30),
-    )
-    .await
-    .map_err(|e| format!("Faucet error: {}", e))?;
-
-    let txid = result.as_str().unwrap_or("unknown").to_string();
-
-    tracing::info!(
-        "Faucet: sent {} BTC to {} (txid: {})",
-        amount_btc,
-        address,
-        txid
-    );
-
-    Ok(txid)
-}
-
-/// Fallback mine-to address when no account or explicit address exists.
-pub const DEFAULT_MINE_ADDRESS: &str = "bcrt1q9zuctyd46l7sdedccdk47335lzsmjz2wngdv3u";
-
-/// Mine `count` blocks to `address` and return the new block height.
 pub async fn mine_blocks(config: &IsomerConfig, count: u32, address: &str) -> Result<u64, String> {
     if count > 1000 {
-        return Err("Cannot mine more than 1000 blocks at once.".to_string());
+        return Err("Cannot mine more than 1000 blocks at once".to_string());
     }
-
     call(
         config,
-        None,
         "generatetoaddress",
         serde_json::json!([count, address]),
         std::time::Duration::from_secs(60),
     )
     .await?;
-
-    let height = call(
+    call(
         config,
-        None,
         "getblockcount",
         serde_json::json!([]),
         std::time::Duration::from_secs(10),
     )
     .await?
     .as_u64()
-    .unwrap_or(0);
-
-    Ok(height)
+    .ok_or_else(|| "Invalid Qubitcoin block count response".to_string())
 }
 
-/// Latest block info directly from Bitcoin Core (for optimistic UI updates).
 pub async fn latest_block(config: &IsomerConfig) -> Result<BlockSummary, String> {
-    let timeout = std::time::Duration::from_millis(500);
-
-    let height = call(
-        config,
-        None,
-        "getblockcount",
-        serde_json::json!([]),
-        timeout,
-    )
-    .await
-    .map_err(|e| format!("Failed to connect to Bitcoin Core: {}", e))?
-    .as_u64()
-    .ok_or("Invalid block count response")?;
-
-    let hash = call(
-        config,
-        None,
-        "getblockhash",
-        serde_json::json!([height]),
-        timeout,
-    )
-    .await
-    .map_err(|e| format!("Failed to get block hash: {}", e))?;
-    let hash = hash.as_str().ok_or("Invalid block hash response")?;
-
-    let block = call(config, None, "getblock", serde_json::json!([hash]), timeout)
-        .await
-        .map_err(|e| format!("Failed to get block details: {}", e))?;
-    let time = block.get("time").and_then(|t| t.as_u64());
-
+    let timeout = std::time::Duration::from_secs(1);
+    let height = call(config, "getblockcount", serde_json::json!([]), timeout)
+        .await?
+        .as_u64()
+        .ok_or_else(|| "Invalid Qubitcoin block count response".to_string())?;
+    let hash = call(config, "getblockhash", serde_json::json!([height]), timeout)
+        .await?
+        .as_str()
+        .ok_or_else(|| "Invalid Qubitcoin block hash response".to_string())?
+        .to_string();
+    let block = call(config, "getblock", serde_json::json!([hash]), timeout).await?;
     Ok(BlockSummary {
         height,
-        traces: 0, // Bitcoin Core doesn't know about traces, Espo will fill this later
-        time,
+        traces: 0,
+        time: block.get("time").and_then(serde_json::Value::as_u64),
     })
 }
 
-/// Full block details including transactions from Bitcoin Core.
 pub async fn block_details(config: &IsomerConfig, height: u64) -> Result<BlockDetails, String> {
-    let timeout = std::time::Duration::from_millis(1000);
-
-    let hash = call(
-        config,
-        None,
-        "getblockhash",
-        serde_json::json!([height]),
-        timeout,
-    )
-    .await
-    .map_err(|e| format!("Failed to get block hash: {}", e))?;
-    let hash = hash
+    let timeout = std::time::Duration::from_secs(1);
+    let hash = call(config, "getblockhash", serde_json::json!([height]), timeout)
+        .await?
         .as_str()
-        .ok_or_else(|| format!("Block not found at height {}", height))?
+        .ok_or_else(|| format!("Block not found at height {height}"))?
         .to_string();
-
-    // 1 for JSON with txids
-    let block = call(
-        config,
-        None,
-        "getblock",
-        serde_json::json!([hash, 1]),
-        timeout,
-    )
-    .await
-    .map_err(|e| format!("Failed to get block details: {}", e))?;
-
-    let time = block.get("time").and_then(|t| t.as_u64());
-    let raw_txs = block
+    let block = call(config, "getblock", serde_json::json!([hash, 1]), timeout).await?;
+    let transactions = block
         .get("tx")
-        .and_then(|t| t.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect::<Vec<String>>()
-        })
-        .unwrap_or_default();
-
-    // Trace indices are not yet sourced (Espo tx-level trace endpoint TBD);
-    // mirror the previous behavior of marking none.
-    let transactions = raw_txs
+        .and_then(serde_json::Value::as_array)
         .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
         .map(|txid| TransactionInfo {
-            txid,
+            txid: txid.to_string(),
             is_trace: false,
         })
         .collect();
-
     Ok(BlockDetails {
         height,
         hash,
-        time,
+        time: block.get("time").and_then(serde_json::Value::as_u64),
         transactions,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn endpoint_is_the_single_qubitcoin_rpc() {
+        let config = IsomerConfig::default();
+        assert_eq!(rpc_url(&config), "http://127.0.0.1:18443");
+    }
+
+    #[test]
+    fn reports_rpc_errors() {
+        let error = result_from_response(serde_json::json!({
+            "result": null,
+            "error": {"message": "boom"}
+        }))
+        .unwrap_err();
+        assert_eq!(error, "Qubitcoin RPC error: boom");
+    }
 }

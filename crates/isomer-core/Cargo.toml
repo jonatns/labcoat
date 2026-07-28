@@ -10,16 +10,13 @@ repository.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
 tracing.workspace = true
-reqwest = { version = "0.12", features = ["json", "stream", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 dirs = "6"
 sha2 = "0.10"
 hex = "0.4"
-tar = "0.4"
-flate2 = "1.0"
-futures-util = "0.3.31"
-bytes = "1.11.0"
+bitcoin.workspace = true
+rand.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

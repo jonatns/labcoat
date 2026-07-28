@@ -60,7 +60,7 @@ impl Ctx {
         Self {
             config: ToolkitConfig {
                 network: network.to_string(),
-                jsonrpc_url: rpc_url.to_string(),
+                rpc_url: rpc_url.to_string(),
                 wallet_file: PathBuf::from(wallet_file),
                 fee_rate: fee_rate.or(Some(2.0)),
             },
