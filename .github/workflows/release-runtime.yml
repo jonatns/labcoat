@@ -37,7 +37,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: metadata
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,7 +85,7 @@ jobs:
             suffix: linux-x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.metadata.outputs.metashrew_repo }}
           ref: ${{ needs.metadata.outputs.metashrew_ref }}
@@ -112,7 +112,7 @@ jobs:
             suffix: linux-x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.metadata.outputs.flextrs_repo }}
           ref: ${{ needs.metadata.outputs.flextrs_ref }}
@@ -137,7 +137,7 @@ jobs:
             suffix: linux-x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.metadata.outputs.espo_repo }}
           ref: ${{ needs.metadata.outputs.espo_ref }}
@@ -157,7 +157,7 @@ jobs:
     needs: metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.metadata.outputs.wasm_repo }}
           ref: ${{ needs.metadata.outputs.wasm_ref }}
@@ -178,7 +178,7 @@ jobs:
     needs: metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.metadata.outputs.jsonrpc_repo }}
           ref: ${{ needs.metadata.outputs.jsonrpc_ref }}
@@ -200,7 +200,7 @@ jobs:
     needs: [metadata, build-metashrew, build-flextrs, build-espo, build-wasm, bundle-jsonrpc]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.metadata.outputs.sha }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -251,7 +251,7 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0

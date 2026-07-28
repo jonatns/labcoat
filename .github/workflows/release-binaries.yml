@@ -32,7 +32,7 @@ jobs:
     runs-on: macos-14 # M1/M2 runner
     steps:
       - name: Checkout metashrew
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: kungfuflex/metashrew
           ref: ${{ env.METASHREW_VERSION }}
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout metashrew
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: sandshrewmetaprotocols/metashrew
           ref: ${{ env.METASHREW_VERSION }}
@@ -104,7 +104,7 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout flextrs
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: kungfuflex/flextrs
           ref: ${{ env.FLEXTRS_COMMIT }}
@@ -128,7 +128,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout flextrs
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: kungfuflex/flextrs
           ref: ${{ env.FLEXTRS_COMMIT }}
@@ -152,7 +152,7 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout espo
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.ESPO_REPO }}
           ref: ${{ env.ESPO_VERSION }}
@@ -181,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout espo
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.ESPO_REPO }}
           ref: ${{ env.ESPO_VERSION }}
@@ -210,7 +210,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout alkanes
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: kungfuflex/alkanes-rs
           # Pinned commit on the develop branch — see TOOLCHAIN.md. Never a
@@ -245,7 +245,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout alkanes
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: kungfuflex/alkanes
           ref: main
@@ -278,7 +278,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout isomer
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
