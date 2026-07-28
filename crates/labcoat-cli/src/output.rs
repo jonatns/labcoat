@@ -856,7 +856,6 @@ fn action_or_generic_document(command: &str, value: &Value, verbose: bool) -> Do
         "reset" => Some("Devnet reset"),
         "snapshot" => Some("Snapshot created"),
         "restore" => Some("Snapshot restored"),
-        "lock-migrate" => Some("Lockfile migrated"),
         _ => None,
     };
     let fallback = format!("{} succeeded", title(command));

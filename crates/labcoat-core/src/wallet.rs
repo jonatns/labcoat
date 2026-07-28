@@ -1,6 +1,5 @@
-//! Wallet lifecycle over the alkanes keystore (BIP-86/84/49/44 — the same
-//! derivation paths the old oyl-sdk `Signer` used, so a given mnemonic
-//! yields the same addresses as before the rebase).
+//! Wallet lifecycle over the alkanes keystore using BIP-86/84/49/44
+//! derivation paths.
 
 use crate::error::{LabcoatError, Result};
 use crate::system::ToolkitConfig;

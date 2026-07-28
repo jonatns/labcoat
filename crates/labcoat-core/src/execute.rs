@@ -204,8 +204,8 @@ fn scan_for_return(value: &serde_json::Value) -> Option<(String, Option<String>)
     }
 }
 
-/// Same semantics as the old TS decodeRevertReason: skip "0x" + 4-byte
-/// selector, interpret the rest as UTF-8.
+/// Skip the "0x" prefix and 4-byte selector, then interpret the rest as
+/// UTF-8.
 pub fn decode_revert_reason(hex_str: &str) -> Option<String> {
     if hex_str.is_empty() || hex_str == "0x" {
         return None;

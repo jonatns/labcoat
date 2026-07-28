@@ -488,14 +488,6 @@
         "subcommands": [
           {
             "arguments": [],
-            "description": "Migrate a legacy deployments/manifest.json into labcoat.lock",
-            "name": "migrate",
-            "path": "labcoat lock migrate",
-            "subcommands": [],
-            "usage": "migrate"
-          },
-          {
-            "arguments": [],
             "description": "Show the lockfile",
             "name": "show",
             "path": "labcoat lock show",

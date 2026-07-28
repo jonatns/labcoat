@@ -4,7 +4,7 @@
 //! TOOLCHAIN.md): wallet keystore, deploy (commit/reveal envelope),
 //! execute, simulate, trace, UTXO queries, contract compilation, and the
 //! labcoat.lock deployment ledger. The Rust `labcoat` CLI and MCP server
-//! drive this crate — no oyl-sdk anywhere in the tree.
+//! drive this crate.
 
 pub mod abi;
 pub mod compile;
@@ -27,8 +27,8 @@ pub use alkanes_cli_common::provider::ConcreteProvider;
 pub use alkanes_support::cellpack::Cellpack;
 
 /// Convert user-facing call arguments (decimal ints, 0x-hex, or UTF-8
-/// strings) to the u128 cellpack values — the same semantics as the old
-/// TS `encodeArg` (strings become little-endian byte integers).
+/// strings) to u128 cellpack values. Strings become little-endian byte
+/// integers.
 pub fn parse_arg(arg: &str) -> Result<u128> {
     if let Some(hex_str) = arg.strip_prefix("0x") {
         return u128::from_str_radix(hex_str, 16).map_err(|e| {

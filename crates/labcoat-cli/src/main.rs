@@ -380,7 +380,7 @@ async fn run(cli: Cli) -> i32 {
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Lock(cmd) => {
-            let (cmd_name, res) = contract::lock(&ctx, cmd);
+            let (cmd_name, res) = contract::lock(cmd);
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,

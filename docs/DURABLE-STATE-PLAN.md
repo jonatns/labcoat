@@ -885,9 +885,6 @@ Every case must either resume safely or stop with a specific recovery command.
    regtest tests pass.
 6. Route direct deploy through the apply engine only after synthetic plans are
    behaviorally compatible.
-7. Deprecate `lock migrate` in favor of `state migrate`, but retain it as an
-   alias for at least one release cycle.
-
 ## Risks and mitigations
 
 - **Commit broadcast without recorded txid:** refactor the executor to emit or

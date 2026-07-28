@@ -164,12 +164,6 @@ pub async fn run() -> Vec<Check> {
     // Project state
     if std::path::Path::new("labcoat.lock").exists() {
         checks.push(ok("labcoat.lock", "present"));
-    } else if std::path::Path::new("deployments/manifest.json").exists() {
-        checks.push(warn(
-            "labcoat.lock",
-            "legacy deployments/manifest.json found without a lockfile",
-            "labcoat lock migrate",
-        ));
     }
     if std::path::Path::new(".labcoat/wallet.json").exists() {
         checks.push(ok("wallet", ".labcoat/wallet.json present"));

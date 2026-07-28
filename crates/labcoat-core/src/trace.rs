@@ -1,7 +1,7 @@
 //! Transaction trace fetching + bounded wait.
 //!
-//! `trace_protostones` computes the protostone vouts itself
-//! (tx.output.len() + 1 + i) — fixing the old TS `vout: 4` hardcode.
+//! `trace_protostones` computes protostone vouts from the transaction output
+//! count instead of assuming a fixed index.
 
 use crate::error::{LabcoatError, Result};
 use alkanes_cli_common::provider::ConcreteProvider;

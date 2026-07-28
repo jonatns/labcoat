@@ -7,7 +7,6 @@ wallets, the local devnet, deployment, calls, simulation, and tracing.
 ## Start here
 
 - [README and quick start](../README.md)
-- [Migrating from the retired TypeScript package](MIGRATING.md)
 - [Releasing the CLI](RELEASING.md)
 - [Durable state and declarative deployment plan](DURABLE-STATE-PLAN.md)
 - [Toolchain and upstream pins](../TOOLCHAIN.md)

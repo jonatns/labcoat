@@ -1,8 +1,7 @@
 //! Read-only contract simulation via the metashrew simulate view.
 //!
-//! Mirrors alkanes-cli's `alkanes simulate` construction; result decoding
-//! reproduces the old TS `decodeAlkanesResult` (printable-string first,
-//! then integer).
+//! Mirrors alkanes-cli's `alkanes simulate` construction. Result decoding
+//! checks for a printable string before interpreting the data as an integer.
 
 use crate::error::{LabcoatError, Result};
 use alkanes_cli_common::proto::alkanes::{MessageContextParcel, SimulateResponse};

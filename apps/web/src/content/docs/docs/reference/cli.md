@@ -352,14 +352,6 @@ labcoat.lock utilities
 lock <COMMAND>
 ```
 
-#### `labcoat lock migrate`
-
-Migrate a legacy deployments/manifest.json into labcoat.lock
-
-```text
-migrate
-```
-
 #### `labcoat lock show`
 
 Show the lockfile

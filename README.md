@@ -265,6 +265,5 @@ crates/labcoat-test/  native WebAssembly contract test harness
 ```
 
 See [TOOLCHAIN.md](TOOLCHAIN.md) for pinned upstream revisions and build
-requirements, [docs/MIGRATING.md](docs/MIGRATING.md) for migration from the
-retired TypeScript package, and [docs/RELEASING.md](docs/RELEASING.md) for
-the CLI release process.
+requirements, and [docs/RELEASING.md](docs/RELEASING.md) for the CLI release
+process.
