@@ -2,9 +2,9 @@
   "schema": 2,
   "active_release": {
     "owner": "jonatns",
-    "repository": "isomer",
-    "tag": "binaries-v0.1.3",
-    "checksums_asset": null
+    "repository": "labcoat",
+    "tag": "runtime-v2026.07.28.1",
+    "checksums_asset": "checksums.json"
   },
   "sources": {
     "qubitcoin": {
