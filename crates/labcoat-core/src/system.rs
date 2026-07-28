@@ -1,4 +1,4 @@
-//! Provider bootstrap against the pinned alkanes-rs develop commit.
+//! Provider bootstrap against the pinned alkanes-rs main commit.
 //!
 //! Mirrors what alkanes-cli's `SystemAlkanes::new_with_options` does for
 //! our fixed shape (Qubitcoin RPC endpoint, project-local keystore),

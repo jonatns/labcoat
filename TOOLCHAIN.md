@@ -8,34 +8,33 @@ reviewed change — never a side effect of `cargo update` or a lockfile refresh.
 ## alkanes-rs pin (hard constraint)
 
 Every reference to `alkanes-rs` — Cargo `git` dependencies, CI, contract
-templates, docs — MUST point at the **`develop`** branch, pinned to the
-exact commit below. Never `main`, never a moving branch ref.
+templates, docs — MUST point at the **`main`** branch, pinned to the
+exact commit below. Never use a moving branch ref.
 
 | | |
 |---|---|
 | Repo | `https://github.com/kungfuflex/alkanes-rs` |
-| Branch | `develop` |
-| **Pinned commit** | `5b7f43567b828d0bb7b8907ce78fa0242943c54d` |
-| Recorded | 2026-07-14 |
-| For reference, `main` was | `8336eb517577c8a6ba5e6d707e5fd6d0d60eccc0` (do not use) |
+| Branch | `main` |
+| **Pinned commit** | `714843c416e2ab57352a33f05b8461cf3f540f5a` |
+| Recorded | 2026-07-27 |
 
 Transitive git deps of alkanes-rs are declared as branch refs upstream
-(`metashrew@develop`, `emasm-rs@master`). Cargo forbids `[patch]`-ing a git
+(`emasm-rs@master`) or immutable tags (`metashrew@v9.0.5-rc.8`). Cargo forbids `[patch]`-ing a git
 source with itself at a rev, so the reproducibility pin is the **committed
 `Cargo.lock`** — it records the exact commits (metashrew at
-`eca790ca1eeddc7cdac201b741637b8f18234924`, matching alkanes-rs's own lock
+`22824e4ce8812751bd85b4dfff0da66b4ee025df`, matching alkanes-rs's own lock
 at the pinned commit) and CI builds with `--locked`. Never run a bare
 `cargo update`.
 
 Generated project templates pin `alkanes-rs` directly and use the same
-`kungfuflex/metashrew@develop` SourceId as that revision's transitive
+`kungfuflex/metashrew@v9.0.5-rc.8` SourceId as that revision's transitive
 dependencies. They create their own `Cargo.lock` on first build; commit that
 lockfile because it is the reproducibility boundary for a Labcoat project.
 
 **Upgrade procedure:** update the rev here and in every `Cargo.toml` /
 contract template / workflow, `cargo update` only the affected git deps, run the
 full integration suite against `labcoat up`, and land it as its own
-reviewed PR. CI verifies the pin is reachable from `develop`.
+reviewed PR. CI verifies the pin is reachable from `main`.
 
 ## Toolchains
 

@@ -452,4 +452,4 @@ doctor
 
 ## alkanes-rs pin
 
-All alkanes-rs code paths are pinned to commit `5b7f43567b828d0bb7b8907ce78fa0242943c54d` on the `develop` branch. See TOOLCHAIN.md before changing the pin.
+All alkanes-rs code paths are pinned to commit `714843c416e2ab57352a33f05b8461cf3f540f5a` on the `main` branch. See TOOLCHAIN.md before changing the pin.

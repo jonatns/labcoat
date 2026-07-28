@@ -75,8 +75,8 @@ dependencies = [
 
 [[package]]
 name = "alkanes-asc"
-version = "10.0.0"
-source = "git+https://github.com/kungfuflex/alkanes-rs?rev=5b7f43567b828d0bb7b8907ce78fa0242943c54d#5b7f43567b828d0bb7b8907ce78fa0242943c54d"
+version = "2.2.1-rc.3"
+source = "git+https://github.com/kungfuflex/alkanes-rs?rev=714843c416e2ab57352a33f05b8461cf3f540f5a#714843c416e2ab57352a33f05b8461cf3f540f5a"
 dependencies = [
  "base64 0.22.1",
  "crc24",
@@ -86,8 +86,8 @@ dependencies = [
 
 [[package]]
 name = "alkanes-cli-common"
-version = "10.0.0"
-source = "git+https://github.com/kungfuflex/alkanes-rs?rev=5b7f43567b828d0bb7b8907ce78fa0242943c54d#5b7f43567b828d0bb7b8907ce78fa0242943c54d"
+version = "2.2.1-rc.3"
+source = "git+https://github.com/kungfuflex/alkanes-rs?rev=714843c416e2ab57352a33f05b8461cf3f540f5a#714843c416e2ab57352a33f05b8461cf3f540f5a"
 dependencies = [
  "aes-gcm",
  "alkanes-asc",
@@ -148,8 +148,8 @@ dependencies = [
 
 [[package]]
 name = "alkanes-pretty-print-macro"
-version = "10.0.0"
-source = "git+https://github.com/kungfuflex/alkanes-rs?rev=5b7f43567b828d0bb7b8907ce78fa0242943c54d#5b7f43567b828d0bb7b8907ce78fa0242943c54d"
+version = "2.2.1-rc.3"
+source = "git+https://github.com/kungfuflex/alkanes-rs?rev=714843c416e2ab57352a33f05b8461cf3f540f5a#714843c416e2ab57352a33f05b8461cf3f540f5a"
 dependencies = [
  "quote",
  "serde_json",
@@ -158,8 +158,8 @@ dependencies = [
 
 [[package]]
 name = "alkanes-support"
-version = "10.0.0"
-source = "git+https://github.com/kungfuflex/alkanes-rs?rev=5b7f43567b828d0bb7b8907ce78fa0242943c54d#5b7f43567b828d0bb7b8907ce78fa0242943c54d"
+version = "2.2.1-rc.3"
+source = "git+https://github.com/kungfuflex/alkanes-rs?rev=714843c416e2ab57352a33f05b8461cf3f540f5a#714843c416e2ab57352a33f05b8461cf3f540f5a"
 dependencies = [
  "anyhow",
  "bitcoin 0.32.101",
@@ -1567,7 +1567,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1754,7 +1754,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2959,8 +2959,8 @@ dependencies = [
 
 [[package]]
 name = "metashrew-support"
-version = "10.0.0-alpha.1"
-source = "git+https://github.com/kungfuflex/metashrew?branch=develop#eca790ca1eeddc7cdac201b741637b8f18234924"
+version = "9.0.4-rc.5"
+source = "git+https://github.com/kungfuflex/metashrew?tag=v9.0.5-rc.8#22824e4ce8812751bd85b4dfff0da66b4ee025df"
 dependencies = [
  "anyhow",
  "bech32 0.11.1",
@@ -3058,7 +3058,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3178,8 +3178,8 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ordinals"
-version = "10.0.0"
-source = "git+https://github.com/kungfuflex/alkanes-rs?rev=5b7f43567b828d0bb7b8907ce78fa0242943c54d#5b7f43567b828d0bb7b8907ce78fa0242943c54d"
+version = "2.2.1-rc.3"
+source = "git+https://github.com/kungfuflex/alkanes-rs?rev=714843c416e2ab57352a33f05b8461cf3f540f5a#714843c416e2ab57352a33f05b8461cf3f540f5a"
 dependencies = [
  "bitcoin 0.32.101",
  "derive_more 1.0.0",
@@ -3521,8 +3521,8 @@ dependencies = [
 
 [[package]]
 name = "protorune-support"
-version = "10.0.0"
-source = "git+https://github.com/kungfuflex/alkanes-rs?rev=5b7f43567b828d0bb7b8907ce78fa0242943c54d#5b7f43567b828d0bb7b8907ce78fa0242943c54d"
+version = "2.2.1-rc.3"
+source = "git+https://github.com/kungfuflex/alkanes-rs?rev=714843c416e2ab57352a33f05b8461cf3f540f5a#714843c416e2ab57352a33f05b8461cf3f540f5a"
 dependencies = [
  "anyhow",
  "bech32 0.11.1",
@@ -3624,7 +3624,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4036,7 +4036,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4645,7 +4645,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.3",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5829,7 +5829,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

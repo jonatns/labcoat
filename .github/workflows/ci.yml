@@ -191,7 +191,7 @@ jobs:
             echo '::error::oyl reference found in Cargo.lock (banned — see TOOLCHAIN.md)'
             exit 1
           fi
-      - name: "Guard: every alkanes-rs reference is pinned to the TOOLCHAIN.md rev on develop"
+      - name: "Guard: every alkanes-rs reference is pinned to the TOOLCHAIN.md rev on main"
         run: |
           PIN=$(grep -oE '\*\*Pinned commit\*\* \| `[0-9a-f]{40}`' TOOLCHAIN.md | grep -oE '[0-9a-f]{40}')
           echo "Pinned rev: $PIN"
@@ -207,11 +207,8 @@ jobs:
             echo '::error::alkanes-rs referenced without the pinned rev (see TOOLCHAIN.md)'
             exit 1
           fi
-          # 2) The pin itself must be reachable from develop (and not from main)
+          # 2) The pin itself must be reachable from main.
           git clone --bare --filter=blob:none https://github.com/kungfuflex/alkanes-rs /tmp/alkanes-rs-check
           cd /tmp/alkanes-rs-check
-          git merge-base --is-ancestor "$PIN" refs/heads/develop \
-            || { echo '::error::pinned rev is not reachable from alkanes-rs develop'; exit 1; }
-          if git merge-base --is-ancestor "$PIN" refs/heads/main; then
-            echo '::warning::pinned rev is also on main — verify it was pinned from develop'
-          fi
+          git merge-base --is-ancestor "$PIN" refs/heads/main \
+            || { echo '::error::pinned rev is not reachable from alkanes-rs main'; exit 1; }

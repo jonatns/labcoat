@@ -2,7 +2,7 @@
 //!
 //! Devnet verbs (up, down, status, mine, fund, logs, reset, snapshot,
 //! restore, binaries) + contract ops (wallet, build, deploy, call,
-//! simulate, trace, lock) on the pinned alkanes-rs develop commit.
+//! simulate, trace, lock) on the pinned alkanes-rs main commit.
 
 mod contract;
 mod docs;

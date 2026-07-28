@@ -415,7 +415,7 @@ mod tests {
         );
         assert_eq!(
             manifest.sources["alkanes-wasm"].revision,
-            "5b7f43567b828d0bb7b8907ce78fa0242943c54d"
+            "714843c416e2ab57352a33f05b8461cf3f540f5a"
         );
         assert_eq!(
             manifest.sources["esplorashrew-wasm"].revision,
