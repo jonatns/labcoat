@@ -14,7 +14,7 @@
     },
     "alkanes-wasm": {
       "repository": "kungfuflex/alkanes-rs",
-      "revision": "5b7f43567b828d0bb7b8907ce78fa0242943c54d",
+      "revision": "714843c416e2ab57352a33f05b8461cf3f540f5a",
       "version": "0.1.0"
     },
     "esplorashrew-wasm": {

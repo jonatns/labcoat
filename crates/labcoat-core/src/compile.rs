@@ -9,9 +9,9 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 /// alkanes-rs pin — keep in sync with TOOLCHAIN.md and the project template.
-pub const ALKANES_RS_REV: &str = "5b7f43567b828d0bb7b8907ce78fa0242943c54d";
+pub const ALKANES_RS_REV: &str = "714843c416e2ab57352a33f05b8461cf3f540f5a";
 /// metashrew rev matching alkanes-rs's Cargo.lock at the pinned commit.
-pub const METASHREW_REV: &str = "eca790ca1eeddc7cdac201b741637b8f18234924";
+pub const METASHREW_REV: &str = "22824e4ce8812751bd85b4dfff0da66b4ee025df";
 
 /// Locate a C compiler with a WebAssembly backend. Apple Clang omits it,
 /// while Homebrew LLVM and standard Linux Clang provide it.

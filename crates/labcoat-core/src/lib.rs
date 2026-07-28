@@ -1,6 +1,6 @@
 //! # labcoat-core
 //!
-//! Contract toolkit core on the pinned alkanes-rs develop commit (see
+//! Contract toolkit core on the pinned alkanes-rs main commit (see
 //! TOOLCHAIN.md): wallet keystore, deploy (commit/reveal envelope),
 //! execute, simulate, trace, UTXO queries, contract compilation, and the
 //! labcoat.lock deployment ledger. The Rust `labcoat` CLI and MCP server

@@ -348,7 +348,7 @@ mod tests {
         let manifest = include_str!("../templates/default/Cargo.toml");
         assert!(manifest.contains(labcoat_core::compile::ALKANES_RS_REV));
         assert!(manifest.contains(
-            "metashrew-support = { git = \"https://github.com/kungfuflex/metashrew\", branch = \"develop\" }"
+            "metashrew-support = { git = \"https://github.com/kungfuflex/metashrew\", tag = \"v9.0.5-rc.8\" }"
         ));
         assert!(!manifest.contains("sandshrewmetaprotocols/metashrew"));
         assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));

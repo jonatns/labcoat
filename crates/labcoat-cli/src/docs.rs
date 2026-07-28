@@ -293,7 +293,7 @@ impl AgentReference {
             markdown.push_str(&format!("- **{}**: {}\n", note.name, note.detail));
         }
         markdown.push_str(&format!(
-            "\n## alkanes-rs pin\n\nAll alkanes-rs code paths are pinned to commit `{}` on the `develop` branch. See TOOLCHAIN.md before changing the pin.\n",
+            "\n## alkanes-rs pin\n\nAll alkanes-rs code paths are pinned to commit `{}` on the `main` branch. See TOOLCHAIN.md before changing the pin.\n",
             labcoat_core::compile::ALKANES_RS_REV
         ));
         markdown

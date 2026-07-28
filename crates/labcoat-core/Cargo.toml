@@ -21,7 +21,7 @@ prost = "0.12.6"
 flate2 = "1.0"
 sha2 = "0.10"
 
-# Pinned alkanes-rs develop commit (see TOOLCHAIN.md).
+# Pinned alkanes-rs main commit (see TOOLCHAIN.md).
 alkanes-support.workspace = true
 alkanes-cli-common.workspace = true
 

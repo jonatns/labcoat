@@ -73,7 +73,7 @@ function validateCargo() {
   }
   const template = read('crates/labcoat-cli/templates/default/Cargo.toml');
   if (!template.includes('labcoat-test = "={{LABCOAT_VERSION}}"')) fail('project template must use the CLI version placeholder');
-  if (!template.includes('metashrew-support = { git = "https://github.com/kungfuflex/metashrew", branch = "develop" }')) {
+  if (!template.includes('metashrew-support = { git = "https://github.com/kungfuflex/metashrew", tag = "v9.0.5-rc.8" }')) {
     fail('project template must use the same metashrew source as alkanes-rs');
   }
   if (template.includes('sandshrewmetaprotocols/metashrew')) fail('project template uses the legacy metashrew remote');
@@ -107,7 +107,7 @@ function validateRuntime() {
   }
   const expectedSources = {
     qubitcoin: 'e7f2f9d8844bdc7662030d98abb0544cc3e5a8da',
-    'alkanes-wasm': '5b7f43567b828d0bb7b8907ce78fa0242943c54d',
+    'alkanes-wasm': '714843c416e2ab57352a33f05b8461cf3f540f5a',
     'esplorashrew-wasm': '7f7660908cdb54d12540ac6a8b337ef6a70e8057',
   };
   for (const [name, revision] of Object.entries(expectedSources)) {

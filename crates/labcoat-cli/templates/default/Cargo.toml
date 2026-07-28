@@ -10,9 +10,9 @@ members = ["contracts/*"]
 
 [workspace.dependencies]
 # Keep these revisions synchronized with the Labcoat release and TOOLCHAIN.md.
-alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "5b7f43567b828d0bb7b8907ce78fa0242943c54d" }
-alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "5b7f43567b828d0bb7b8907ce78fa0242943c54d" }
-metashrew-support = { git = "https://github.com/kungfuflex/metashrew", branch = "develop" }
+alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714843c416e2ab57352a33f05b8461cf3f540f5a" }
+alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714843c416e2ab57352a33f05b8461cf3f540f5a" }
+metashrew-support = { git = "https://github.com/kungfuflex/metashrew", tag = "v9.0.5-rc.8" }
 anyhow = "1.0"
 
 # Direct contract dependencies pin transitive releases to Rust 1.86-compatible versions.
