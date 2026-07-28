@@ -16,6 +16,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Qubitcoin's pinned lockfile follows Metashrew develop past the API it implements.
+  QUBITCOIN_METASHREW_REV: 22824e4ce8812751bd85b4dfff0da66b4ee025df
+
 jobs:
   metadata:
     runs-on: ubuntu-latest
@@ -50,17 +54,23 @@ jobs:
           node scripts/release/validate-release.mjs --validate-runtime-tag "$tag"
           publish=true
           [ "$DRY_RUN" = true ] && publish=false
+          qubitcoin_repo=$(jq -er '.sources.qubitcoin.repository | select(type == "string" and length > 0)' runtime.json)
+          qubitcoin_ref=$(jq -er '.sources.qubitcoin.revision | select(type == "string" and length > 0)' runtime.json)
+          alkanes_repo=$(jq -er '.sources["alkanes-wasm"].repository | select(type == "string" and length > 0)' runtime.json)
+          alkanes_ref=$(jq -er '.sources["alkanes-wasm"].revision | select(type == "string" and length > 0)' runtime.json)
+          esplorashrew_repo=$(jq -er '.sources["esplorashrew-wasm"].repository | select(type == "string" and length > 0)' runtime.json)
+          esplorashrew_ref=$(jq -er '.sources["esplorashrew-wasm"].revision | select(type == "string" and length > 0)' runtime.json)
           {
             echo "tag=$tag"
             echo "sha=$(git rev-parse HEAD)"
             echo "source_digest=$(node scripts/release/validate-release.mjs --runtime-source-digest)"
             echo "publish=$publish"
-            echo "qubitcoin_repo=$(jq -r '.sources.qubitcoin.repository' runtime.json)"
-            echo "qubitcoin_ref=$(jq -r '.sources.qubitcoin.revision' runtime.json)"
-            echo "alkanes_repo=$(jq -r '.sources[\"alkanes-wasm\"].repository' runtime.json)"
-            echo "alkanes_ref=$(jq -r '.sources[\"alkanes-wasm\"].revision' runtime.json)"
-            echo "esplorashrew_repo=$(jq -r '.sources[\"esplorashrew-wasm\"].repository' runtime.json)"
-            echo "esplorashrew_ref=$(jq -r '.sources[\"esplorashrew-wasm\"].revision' runtime.json)"
+            echo "qubitcoin_repo=$qubitcoin_repo"
+            echo "qubitcoin_ref=$qubitcoin_ref"
+            echo "alkanes_repo=$alkanes_repo"
+            echo "alkanes_ref=$alkanes_ref"
+            echo "esplorashrew_repo=$esplorashrew_repo"
+            echo "esplorashrew_ref=$esplorashrew_ref"
           } >> "$GITHUB_OUTPUT"
 
   build-qubitcoind:
@@ -83,6 +93,8 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install protobuf compiler
         run: ${{ runner.os == 'macOS' && 'brew install protobuf' || 'sudo apt-get update && sudo apt-get install -y clang protobuf-compiler' }}
+      - name: Pin Qubitcoin-compatible Metashrew
+        run: cargo update -p metashrew-runtime --precise "$QUBITCOIN_METASHREW_REV"
       - run: cargo build --locked --release -p qubitcoind
       - run: cp target/release/qubitcoind qubitcoind-${{ matrix.suffix }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -102,10 +114,10 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: sudo apt-get update && sudo apt-get install -y binaryen protobuf-compiler
+      - run: sudo apt-get update && sudo apt-get install -y clang protobuf-compiler
       - run: |
-          cargo build --locked --release --target wasm32-unknown-unknown -p alkanes
-          wasm-opt -O3 target/wasm32-unknown-unknown/release/alkanes.wasm -o alkanes.wasm
+          cargo build --locked --release --target wasm32-unknown-unknown --features regtest -p alkanes
+          cp target/wasm32-unknown-unknown/release/alkanes.wasm alkanes.wasm
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: alkanes-wasm
