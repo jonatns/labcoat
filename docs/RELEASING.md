@@ -34,6 +34,9 @@ Because Cargo correctly marks the CLI and core packages non-publishable,
 Release-plz tracks them through the deterministic `labcoat-test/RELEASE_TRIGGER`
 digest refreshed by the PR workflow. This makes changes in any of the three
 packages part of the one release without weakening their publish settings.
+The workflow exclusively owns this generated file; contributor PRs do not
+refresh it, and general release validation checks its format rather than its
+freshness.
 
 1. Review the bot's `release-plz-*` PR and generated `CHANGELOG.md`.
 2. Approve its GitHub Actions run when prompted. Bot-created PR workflows need

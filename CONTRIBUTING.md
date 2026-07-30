@@ -22,8 +22,12 @@ Do not hand-edit these generated surfaces:
 - `apps/web/src/content/docs/docs/reference/cli.md`
 - `apps/web/public/og.svg`
 - `apps/web/public/og.png`
+- `crates/labcoat-test/RELEASE_TRIGGER`
 
-Regenerate them with the owning script, then commit the source and generated output together.
+Regenerate the web surfaces with their owning scripts, then commit the source
+and generated output together. The release PR workflow exclusively owns
+`RELEASE_TRIGGER`; contributors should not edit or refresh it in normal pull
+requests.
 
 ## Validate a change
 

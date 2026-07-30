@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
-import { execFileSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '../..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
@@ -37,27 +36,6 @@ function sourceDigest() {
   return createHash('sha256').update(JSON.stringify(manifest.sources)).digest('hex');
 }
 
-function releaseTriggerDigest() {
-  const trigger = 'crates/labcoat-test/RELEASE_TRIGGER';
-  const files = execFileSync(
-    'git',
-    ['ls-files', '-z', 'crates/labcoat-cli', 'crates/labcoat-core', 'crates/labcoat-test'],
-    { cwd: root },
-  )
-    .toString()
-    .split('\0')
-    .filter((path) => path && path !== trigger && existsSync(resolve(root, path)))
-    .sort();
-  const hash = createHash('sha256');
-  for (const path of files) {
-    hash.update(path);
-    hash.update('\0');
-    hash.update(readFileSync(resolve(root, path)));
-    hash.update('\0');
-  }
-  return hash.digest('hex');
-}
-
 function validateCargo() {
   const version = workspaceVersion();
   for (const name of ['labcoat-cli', 'labcoat-core', 'labcoat-test']) {
@@ -79,7 +57,6 @@ function validateCargo() {
   if (template.includes('sandshrewmetaprotocols/metashrew')) fail('project template uses the legacy metashrew remote');
   const trigger = read('crates/labcoat-test/RELEASE_TRIGGER').trim();
   if (!sha256.test(trigger)) fail('labcoat-test release trigger must be a SHA-256 digest');
-  if (trigger !== releaseTriggerDigest()) fail('labcoat-test release trigger is stale; run update-release-trigger.mjs');
   return version;
 }
 
