@@ -21,10 +21,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Refresh release input digest
+        run: node scripts/release/update-release-trigger.mjs --write
       - name: Validate release metadata
         run: node scripts/release/validate-release.mjs
-      - name: Refresh release input digest
-        run: node scripts/release/update-release-trigger.mjs
       - name: Prepare or update release PR
         uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
         env:
