@@ -26,9 +26,35 @@ jobs:
       - name: Validate release metadata
         run: node scripts/release/validate-release.mjs
       - name: Prepare or update release PR
+        id: release-plz
         uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           command: release-pr
           config: release-plz.toml
+      - name: Refresh generated CLI reference in release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR: ${{ steps.release-plz.outputs.pr }}
+        run: |
+          pr_number=$(jq -r '.number // empty' <<<"$RELEASE_PR")
+          if [ -z "$pr_number" ]; then
+            echo "No release PR to refresh"
+            exit 0
+          fi
+          gh pr checkout "$pr_number"
+          cargo build --locked -p labcoat-cli
+          node apps/web/scripts/sync-reference.mjs --bin ./target/debug/labcoat
+          generated_files=(
+            apps/web/src/content/docs/docs/reference/cli.md
+            apps/web/src/generated/cli-reference.json
+            skills/SKILL.md
+          )
+          if git diff --quiet -- "${generated_files[@]}"; then
+            echo "Generated CLI reference is current"
+            exit 0
+          fi
+          git add -- "${generated_files[@]}"
+          git commit -m "chore: refresh generated CLI reference"
+          git push
