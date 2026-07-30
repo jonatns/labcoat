@@ -4,6 +4,29 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-30
+
+### Added
+
+- add Labcoat branding, documentation, and icon components
+
+### Fixed
+
+- update RELEASE_TRIGGER hash for consistency
+
+### Other
+
+- Pin Alkanes runtime to main
+- Refactor devnet smoke stubs and update runtime validation
+- Refactor workspace configuration and update Rust toolchain
+- remove legacy migration support and update documentation
+- Refactor assert_revert function and update test cases for improved error handling
+- Add storage_u128 method to ContractHarness for decoding u128 values
+- Remove shared crate templates and update related logic in project files
+- Refactor contract initialization logic and update test assertions
+- Enhance contract scaffolding and testing framework
+- Refresh labcoat-test release trigger
+
 ### Changed
 
 - replace raw successful-command JSON dumps with concise, color-aware human output
