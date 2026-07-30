@@ -107,6 +107,10 @@ pub async fn connect(
     .await
     .map_err(|e| LabcoatError::classify(e.into()))?;
     provider.rpc_config.qubitcoin_rpc_url = Some(config.rpc_url.clone());
+    // Upstream's legacy URL selector does not consider qubitcoin_rpc_url for
+    // Esplora/Ord commands. Point its JSON-RPC fallback at the same direct
+    // Qubitcoin endpoint so `call()` can apply the secondaryview translation.
+    provider.rpc_config.jsonrpc_url = Some(config.rpc_url.clone());
 
     // In-memory cache: deterministic, no ~/.alkanes/cache.sqlite3 side state.
     provider = provider.with_cache(std::sync::Arc::new(
@@ -127,18 +131,35 @@ pub async fn connect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alkanes_cli_common::commands::{Commands, EsploraCommands};
+    use alkanes_cli_common::rpc::{determine_rpc_call_type, get_rpc_url, RpcCallType};
 
-    #[cfg(not(target_os = "macos"))]
     #[tokio::test]
-    async fn provider_uses_qubitcoin_mode_without_gateway() {
+    async fn provider_routes_legacy_esplora_commands_to_qubitcoin() {
         let config = ToolkitConfig::default();
         let provider = connect(&config, None, false).await.unwrap();
+        let tip_height = Commands::Esplora {
+            command: EsploraCommands::BlocksTipHeight { raw: false },
+        };
+
         assert_eq!(
             provider.rpc_config.qubitcoin_rpc_url.as_deref(),
             Some("http://127.0.0.1:18443")
         );
-        assert!(provider.rpc_config.jsonrpc_url.is_none());
+        assert_eq!(
+            provider.rpc_config.jsonrpc_url.as_deref(),
+            provider.rpc_config.qubitcoin_rpc_url.as_deref()
+        );
+        assert!(provider.rpc_config.esplora_url.is_none());
         assert!(provider.rpc_config.is_qubitcoin_mode());
+        assert_eq!(
+            get_rpc_url(&provider.rpc_config, &tip_height).unwrap(),
+            "http://127.0.0.1:18443"
+        );
+        assert_eq!(
+            determine_rpc_call_type(&provider.rpc_config, &tip_height),
+            RpcCallType::JsonRpc
+        );
     }
 
     #[test]
