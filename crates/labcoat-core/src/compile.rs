@@ -84,6 +84,7 @@ pub fn compile_packages(
     }
     let mut packages = packages.to_vec();
     packages.sort_by(|a, b| a.name.cmp(&b.name));
+    let _local_harness = explicit_local_labcoat_test_override(&workspace.root)?;
 
     let mut command = std::process::Command::new("cargo");
     command
@@ -94,9 +95,9 @@ pub fn compile_packages(
             .to_string_lossy()
             .replace('\\', "\\\\")
             .replace('"', "\\\"");
-        command
-            .arg("--config")
-            .arg(format!("patch.crates-io.labcoat-test.path=\"{escaped}\""));
+        command.arg("--config").arg(format!(
+            "patch.'https://github.com/jonatns/labcoat'.labcoat-test.path=\"{escaped}\""
+        ));
     }
     for package in &packages {
         command.arg("-p").arg(&package.name);
@@ -204,13 +205,183 @@ pub fn compile_packages(
 
 /// Resolve the unpublished test harness while developing Labcoat from source.
 fn local_labcoat_test_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("LABCOAT_TEST_CRATE_PATH") {
-        return Some(PathBuf::from(path));
+    if std::env::var_os("LABCOAT_TEST_CRATE_PATH").is_some() {
+        return None;
     }
     let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
         .join("labcoat-test");
     candidate.join("Cargo.toml").is_file().then_some(candidate)
+}
+
+/// Temporarily replace the release-tagged test harness with an explicit local
+/// path. This is used by CI before the release tag exists. The project manifest
+/// and lockfile are restored when the guard is dropped.
+pub fn explicit_local_labcoat_test_override(
+    workspace_root: &Path,
+) -> Result<Option<LocalLabcoatTestOverride>> {
+    let Some(path) = std::env::var_os("LABCOAT_TEST_CRATE_PATH") else {
+        return Ok(None);
+    };
+    LocalLabcoatTestOverride::apply(workspace_root, &PathBuf::from(path))
+}
+
+pub struct LocalLabcoatTestOverride {
+    manifest_path: PathBuf,
+    manifest: Vec<u8>,
+    lock_path: PathBuf,
+    lock: Option<Vec<u8>>,
+    backup_dir: PathBuf,
+}
+
+impl LocalLabcoatTestOverride {
+    fn apply(workspace_root: &Path, harness_path: &Path) -> Result<Option<Self>> {
+        Self::recover_stale(workspace_root)?;
+        let manifest_path = workspace_root.join("Cargo.toml");
+        let manifest = std::fs::read(&manifest_path).map_err(|error| {
+            LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!("cannot read {}: {error}", manifest_path.display()),
+                "check project permissions",
+            )
+        })?;
+        let source = String::from_utf8(manifest.clone()).map_err(|error| {
+            LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("{} is not UTF-8: {error}", manifest_path.display()),
+                "repair the project Cargo.toml",
+            )
+        })?;
+        let escaped = harness_path
+            .to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        let mut replaced = false;
+        let rendered = source
+            .lines()
+            .map(|line| {
+                if line.trim_start().starts_with("labcoat-test = {")
+                    && line.contains("git = \"https://github.com/jonatns/labcoat\"")
+                {
+                    replaced = true;
+                    format!("labcoat-test = {{ path = \"{escaped}\" }}")
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + if source.ends_with('\n') { "\n" } else { "" };
+        if !replaced {
+            return Ok(None);
+        }
+
+        let lock_path = workspace_root.join("Cargo.lock");
+        let lock = std::fs::read(&lock_path).ok();
+        let backup_dir = workspace_root.join(".labcoat/local-harness-override");
+        std::fs::create_dir_all(&backup_dir).map_err(|error| {
+            LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!("cannot create {}: {error}", backup_dir.display()),
+                "check project permissions",
+            )
+        })?;
+        write_project_file(&backup_dir.join("Cargo.toml"), &manifest)?;
+        write_project_file(
+            &backup_dir.join("pid"),
+            std::process::id().to_string().as_bytes(),
+        )?;
+        match &lock {
+            Some(contents) => write_project_file(&backup_dir.join("Cargo.lock"), contents)?,
+            None => write_project_file(&backup_dir.join("lock-absent"), b"")?,
+        }
+        let guard = Self {
+            manifest_path,
+            manifest,
+            lock_path,
+            lock,
+            backup_dir,
+        };
+        write_project_file(&guard.manifest_path, rendered.as_bytes())?;
+        Ok(Some(guard))
+    }
+
+    fn recover_stale(workspace_root: &Path) -> Result<()> {
+        let backup_dir = workspace_root.join(".labcoat/local-harness-override");
+        let manifest_backup = backup_dir.join("Cargo.toml");
+        if !manifest_backup.exists() {
+            return Ok(());
+        }
+        if std::fs::read_to_string(backup_dir.join("pid"))
+            .ok()
+            .and_then(|value| value.trim().parse::<u32>().ok())
+            == Some(std::process::id())
+        {
+            return Ok(());
+        }
+        let manifest = std::fs::read(&manifest_backup).map_err(|error| {
+            LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!("cannot recover {}: {error}", manifest_backup.display()),
+                "restore the project Cargo.toml from version control",
+            )
+        })?;
+        write_project_file(&workspace_root.join("Cargo.toml"), &manifest)?;
+        let lock_backup = backup_dir.join("Cargo.lock");
+        if lock_backup.exists() {
+            let lock = std::fs::read(&lock_backup).map_err(|error| {
+                LabcoatError::new(
+                    "TOOLKIT_ERROR",
+                    format!("cannot recover {}: {error}", lock_backup.display()),
+                    "restore the project Cargo.lock from version control",
+                )
+            })?;
+            write_project_file(&workspace_root.join("Cargo.lock"), &lock)?;
+        } else if backup_dir.join("lock-absent").exists() {
+            let _ = std::fs::remove_file(workspace_root.join("Cargo.lock"));
+        }
+        std::fs::remove_dir_all(&backup_dir).map_err(|error| {
+            LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!("cannot remove {}: {error}", backup_dir.display()),
+                "check project permissions",
+            )
+        })
+    }
+}
+
+impl Drop for LocalLabcoatTestOverride {
+    fn drop(&mut self) {
+        let _ = write_project_file(&self.manifest_path, &self.manifest);
+        match &self.lock {
+            Some(lock) => {
+                let _ = write_project_file(&self.lock_path, lock);
+            }
+            None => {
+                let _ = std::fs::remove_file(&self.lock_path);
+            }
+        }
+        let _ = std::fs::remove_dir_all(&self.backup_dir);
+    }
+}
+
+fn write_project_file(path: &Path, contents: &[u8]) -> Result<()> {
+    let temporary = path.with_extension(format!("labcoat-{}.tmp", std::process::id()));
+    std::fs::write(&temporary, contents).map_err(|error| {
+        LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!("cannot write {}: {error}", temporary.display()),
+            "check project permissions",
+        )
+    })?;
+    std::fs::rename(&temporary, path).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!("cannot replace {}: {error}", path.display()),
+            "check project permissions",
+        )
+    })
 }
 
 #[cfg(test)]
@@ -226,6 +397,58 @@ mod tests {
 
         assert_eq!(wasi_include_in(&root), Some(include));
 
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn explicit_test_harness_override_restores_manifest_and_lockfile() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-harness-override-{}", std::process::id()));
+        let harness = root.join("harness");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&harness).unwrap();
+        let manifest = b"[dev-dependencies]\nlabcoat-test = { git = \"https://github.com/jonatns/labcoat\", tag = \"cli-v9.9.9\" }\n";
+        let lock = b"original lock\n";
+        std::fs::write(root.join("Cargo.toml"), manifest).unwrap();
+        std::fs::write(root.join("Cargo.lock"), lock).unwrap();
+
+        {
+            let _guard = LocalLabcoatTestOverride::apply(&root, &harness)
+                .unwrap()
+                .unwrap();
+            let temporary = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+            assert!(temporary.contains("labcoat-test = { path = "));
+            std::fs::write(root.join("Cargo.lock"), "temporary lock\n").unwrap();
+        }
+
+        assert_eq!(std::fs::read(root.join("Cargo.toml")).unwrap(), manifest);
+        assert_eq!(std::fs::read(root.join("Cargo.lock")).unwrap(), lock);
+        assert!(!root.join(".labcoat/local-harness-override").exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn explicit_test_harness_override_recovers_an_interrupted_run() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-harness-recovery-{}", std::process::id()));
+        let backup = root.join(".labcoat/local-harness-override");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&backup).unwrap();
+        let original = b"[dev-dependencies]\nlabcoat-test = { git = \"https://github.com/jonatns/labcoat\", tag = \"cli-v9.9.9\" }\n";
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "labcoat-test = { path = \"stale\" }\n",
+        )
+        .unwrap();
+        std::fs::write(backup.join("Cargo.toml"), original).unwrap();
+        std::fs::write(backup.join("lock-absent"), "").unwrap();
+        std::fs::write(root.join("Cargo.lock"), "temporary lock\n").unwrap();
+
+        LocalLabcoatTestOverride::recover_stale(&root).unwrap();
+
+        assert_eq!(std::fs::read(root.join("Cargo.toml")).unwrap(), original);
+        assert!(!root.join("Cargo.lock").exists());
+        assert!(!backup.exists());
         std::fs::remove_dir_all(root).ok();
     }
 }

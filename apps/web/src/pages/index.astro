@@ -16,7 +16,6 @@ const softwareSchema = {
   description: brand.description,
   url: 'https://labcoat.sh',
   downloadUrl: 'https://github.com/jonatns/labcoat/releases',
-  softwareVersion: brand.stableRelease.version,
   license: 'https://opensource.org/license/mit',
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   codeRepository: 'https://github.com/jonatns/labcoat',
@@ -79,16 +78,11 @@ const softwareSchema = {
               <a class="button button-ghost" href="https://github.com/jonatns/labcoat">{brand.ctas.secondary} <Icon name="external" size={15} /></a>
             </div>
             <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
-            <p class="hero-support">macOS and Linux · arm64 and x86_64 · MIT licensed</p>
+            <p class="hero-support">CLI: macOS and Linux · arm64 and x86_64 · MIT licensed</p>
             <p class="maturity-notice"><Icon name="warning" size={17} label="Early-stage notice" />{brand.maturityNotice}</p>
           </div>
           <ProtocolRunner />
         </section>
-
-        <aside class="compatibility-notice" aria-label="Stable release compatibility">
-          <Icon name="status" size={18} label="Release channel" />
-          <p><strong>Stable versus main:</strong> {brand.stableRelease.compatibilityNotice} <a href="/docs/reference/stability/">Compare release channels</a>.</p>
-        </aside>
 
         <section class="signal-strip" aria-label="Labcoat capabilities">
           <p>RUST-NATIVE CLI</p><i></i><p>NATIVE WASM TESTS</p><i></i><p>MANAGED REGTEST</p><i></i><p>JSON + MCP</p><i></i><p>ONE COMMAND SYSTEM</p>
@@ -125,7 +119,7 @@ const softwareSchema = {
           <div class="stack-copy">
             <p class="eyebrow"><span></span> 02 / COMPLETE ENVIRONMENT</p>
             <h2 id="stack-title">The chain is part<br />of the tool.</h2>
-            <p>No hand-wired ports. Labcoat downloads the pinned Qubitcoin executable and indexer modules, starts one local process, waits for readiness, and reports exactly what failed.</p>
+            <p>No hand-wired ports. Labcoat downloads the exact Qubitcoin executable and indexer modules for your CLI release, starts one local process, waits for readiness, and reports exactly what failed.</p>
             <ul>
               <li><Icon name="check" size={18} /> Deterministic service versions</li>
               <li><Icon name="check" size={18} /> Built-in wallet and faucet</li>

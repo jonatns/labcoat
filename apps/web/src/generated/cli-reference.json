@@ -51,7 +51,7 @@
       {
         "arguments": [
           {
-            "description": "Skip the binary download/check step",
+            "description": "Skip runtime bundle verification and download",
             "id": "no_download",
             "possibleValues": [
               "true",
@@ -69,7 +69,7 @@
             "required": false
           }
         ],
-        "description": "Download binaries if needed and boot the full devnet stack",
+        "description": "Prepare this CLI release's exact runtime bundle and boot the devnet",
         "name": "up",
         "path": "labcoat up",
         "subcommands": [],
@@ -225,7 +225,7 @@
             "required": false
           }
         ],
-        "description": "Check (and with --download, fetch) service binaries",
+        "description": "Inspect (and with --download, repair) this CLI release's runtime bundle",
         "name": "binaries",
         "path": "labcoat binaries",
         "subcommands": [],
@@ -645,7 +645,7 @@
     "mcpProtocolVersion": "2024-11-05",
     "mcpTools": [
       {
-        "description": "Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest.",
+        "description": "Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
         "inputSchema": {
           "properties": {
             "noDownload": {

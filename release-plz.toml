@@ -11,12 +11,12 @@ pr_name = "chore: release Labcoat v{{ version }}"
 features_always_increment_minor = true
 
 [[package]]
-name = "labcoat-test"
+name = "labcoat-cli"
 release = true
 publish = false
 git_tag_name = "cli-v{{ version }}"
 changelog_path = "CHANGELOG.md"
-changelog_include = ["labcoat-cli", "labcoat-core"]
+changelog_include = ["labcoat-core", "isomer-core", "labcoat-test"]
 
 [changelog]
 protect_breaking_commits = true

@@ -44,8 +44,7 @@ impl Devnet {
         &self,
         progress: impl Fn(ServiceId, f32) + Send + Clone + 'static,
     ) -> Result<(), String> {
-        BinaryManager::download_runtime_assets().await?;
-        BinaryManager::new().download_all(progress).await
+        BinaryManager::ensure_bundle(progress).await
     }
 
     /// Start Qubitcoin and bootstrap the persistent Labcoat faucet.

@@ -4,6 +4,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+VERSION="$("$ROOT/target/debug/labcoat" --version | awk '{print $2}')"
 
 if [ -n "${LABCOAT_DATA_HOME:-}" ]; then
   case "$(uname -s)" in
@@ -16,7 +18,7 @@ else
     *)      DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/labcoat" ;;
   esac
 fi
-BIN_DIR="$DATA_DIR/bin"
+BIN_DIR="$DATA_DIR/runtimes/cli-v$VERSION"
 mkdir -p "$BIN_DIR"
 
 cp "$HERE/stub-qubitcoind" "$BIN_DIR/qubitcoind"

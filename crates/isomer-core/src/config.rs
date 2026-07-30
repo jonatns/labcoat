@@ -79,22 +79,32 @@ pub fn get_data_dir() -> PathBuf {
         .join("Isomer")
 }
 
-fn labcoat_bin_dir(data_dir: &Path, target_os: &str) -> PathBuf {
+fn labcoat_product_dir(data_dir: &Path, target_os: &str) -> PathBuf {
     let product_dir = if target_os == "linux" {
         "labcoat"
     } else {
         "Labcoat"
     };
-    data_dir.join(product_dir).join("bin")
+    data_dir.join(product_dir)
 }
 
-/// Get the Labcoat-managed service binary directory.
+fn labcoat_runtime_dir(data_dir: &Path, target_os: &str, release_tag: &str) -> PathBuf {
+    labcoat_product_dir(data_dir, target_os)
+        .join("runtimes")
+        .join(release_tag)
+}
+
+/// Get the Labcoat-managed runtime directory for this exact product version.
 pub fn get_bin_dir() -> PathBuf {
     let data_dir = std::env::var_os("LABCOAT_DATA_HOME")
         .map(PathBuf::from)
         .or_else(dirs::data_dir)
         .unwrap_or_else(|| PathBuf::from("."));
-    labcoat_bin_dir(&data_dir, std::env::consts::OS)
+    labcoat_runtime_dir(
+        &data_dir,
+        std::env::consts::OS,
+        &format!("cli-v{}", env!("CARGO_PKG_VERSION")),
+    )
 }
 
 /// Get the runtime data directory (bitcoin data, indexes, etc)
@@ -117,20 +127,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn macos_binaries_use_labcoat_application_support() {
+    fn macos_runtime_is_versioned_below_labcoat_application_support() {
         let base = Path::new("/Users/test/Library/Application Support");
         assert_eq!(
-            labcoat_bin_dir(base, "macos"),
-            PathBuf::from("/Users/test/Library/Application Support/Labcoat/bin")
+            labcoat_runtime_dir(base, "macos", "cli-v1.2.3"),
+            PathBuf::from("/Users/test/Library/Application Support/Labcoat/runtimes/cli-v1.2.3")
         );
     }
 
     #[test]
-    fn linux_binaries_use_xdg_data_home() {
+    fn linux_runtime_is_versioned_below_xdg_data_home() {
         let xdg_data_home = Path::new("/home/test/custom-data");
         assert_eq!(
-            labcoat_bin_dir(xdg_data_home, "linux"),
-            PathBuf::from("/home/test/custom-data/labcoat/bin")
+            labcoat_runtime_dir(xdg_data_home, "linux", "cli-v1.2.3"),
+            PathBuf::from("/home/test/custom-data/labcoat/runtimes/cli-v1.2.3")
         );
     }
 

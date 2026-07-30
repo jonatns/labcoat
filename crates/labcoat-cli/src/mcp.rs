@@ -30,7 +30,7 @@ pub(crate) fn tools() -> Vec<Value> {
         "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)"
     });
     vec![
-        tool("devnet_up", "Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest.",
+        tool("devnet_up", "Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
             json!({"noDownload": {"type": "boolean", "description": "skip the binary check/download"}}), &[]),
         tool("devnet_down", "Stop all devnet services.", json!({}), &[]),
         tool("devnet_status", "Devnet service health, block height, and mempool size.", json!({}), &[]),

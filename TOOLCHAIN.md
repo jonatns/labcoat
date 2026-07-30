@@ -1,9 +1,10 @@
 # Toolchain & Pins
 
-Toolchain policy for this monorepo. `runtime.json` is the machine-readable
-source of truth for downloadable service versions and build refs; this file
-documents the Cargo/toolchain constraints. Bumping either is a deliberate,
-reviewed change — never a side effect of `cargo update` or a lockfile refresh.
+Toolchain policy for this monorepo.
+`crates/labcoat-cli/runtime-sources.json` is the machine-readable source of
+truth for managed-runtime build refs; this file documents the Cargo and
+toolchain constraints. Bumping either is a deliberate, reviewed change—never a
+side effect of `cargo update` or a lockfile refresh.
 
 ## alkanes-rs pin (hard constraint)
 
@@ -31,10 +32,10 @@ Generated project templates pin `alkanes-rs` directly and use the same
 dependencies. They create their own `Cargo.lock` on first build; commit that
 lockfile because it is the reproducibility boundary for a Labcoat project.
 
-**Upgrade procedure:** update the rev here and in every `Cargo.toml` /
-contract template / workflow, `cargo update` only the affected git deps, run the
-full integration suite against `labcoat up`, and land it as its own
-reviewed PR. CI verifies the pin is reachable from `main`.
+**Upgrade procedure:** update the rev here, in the affected Cargo manifests and
+templates, and in `runtime-sources.json`; update only the affected git
+dependencies; run the full integration suite against `labcoat up`; and land the
+change in its own reviewed PR. CI verifies the pin is reachable from `main`.
 
 ## Toolchains
 

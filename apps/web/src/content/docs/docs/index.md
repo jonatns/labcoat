@@ -26,7 +26,7 @@ labcoat up
   directory to a deployed contract.
 - Integrate an AI agent through [MCP or JSON envelopes](/docs/automation/).
 - Read the generated [CLI reference](/docs/reference/cli/).
-- Review [stability and release channels](/docs/reference/stability/) before
+- Review [stability and releases](/docs/reference/stability/) before
   pinning automation.
 
 ## The supported interface

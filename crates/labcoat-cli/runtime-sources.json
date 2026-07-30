@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "sources": {
+    "qubitcoin": {
+      "repository": "subfrost/qubitcoin",
+      "revision": "e7f2f9d8844bdc7662030d98abb0544cc3e5a8da"
+    },
+    "alkanes-wasm": {
+      "repository": "kungfuflex/alkanes-rs",
+      "revision": "714843c416e2ab57352a33f05b8461cf3f540f5a"
+    },
+    "esplorashrew-wasm": {
+      "repository": "kungfuflex/esplorashrew-rs",
+      "revision": "7f7660908cdb54d12540ac6a8b337ef6a70e8057"
+    }
+  },
+  "compatibility": {
+    "qubitcoin_metashrew_revision": "22824e4ce8812751bd85b4dfff0da66b4ee025df"
+  }
+}

@@ -252,10 +252,10 @@ mod tests {
             .contains("for_contract(\"counter\")"));
         assert!(std::fs::read_to_string(root.join("Cargo.toml"))
             .unwrap()
-            .contains(&format!(
-                "labcoat-test = \"={}\"",
-                env!("CARGO_PKG_VERSION")
-            )));
+            .contains(&format!("tag = \"cli-v{}\"", env!("CARGO_PKG_VERSION"))));
+        assert!(std::fs::read_to_string(root.join("Cargo.toml"))
+            .unwrap()
+            .contains("git = \"https://github.com/jonatns/labcoat\""));
         std::fs::remove_dir_all(parent).ok();
     }
 

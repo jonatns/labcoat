@@ -3,10 +3,15 @@ title: Devnet and wallets
 description: Operate the managed local Qubitcoin devnet and project wallet.
 ---
 
-`labcoat up` downloads the pinned Qubitcoin executable and its Alkanes and
-Esplora WASM modules, then starts one `qubitcoind` process.
-The payloads live under `~/Library/Application Support/Labcoat/bin` on macOS
-or `${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/bin` on Linux.
+`labcoat up` downloads the Qubitcoin executable and its Alkanes and Esplora
+WASM modules from the installed CLI's exact `cli-vX.Y.Z` release, then starts
+one `qubitcoind` process. The payloads live under a matching version directory:
+
+- macOS: `~/Library/Application Support/Labcoat/runtimes/cli-vX.Y.Z/`
+- Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/runtimes/cli-vX.Y.Z/`
+
+Labcoat does not check for an independently newer runtime. Updating the CLI
+selects a new versioned bundle.
 
 | Service | Purpose |
 | --- | --- |

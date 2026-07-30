@@ -20,4 +20,4 @@ serde_with = { version = "=3.16.1", default-features = false }
 time = { version = "=0.3.44", default-features = false }
 
 [dev-dependencies]
-labcoat-test = "={{LABCOAT_VERSION}}"
+labcoat-test = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }

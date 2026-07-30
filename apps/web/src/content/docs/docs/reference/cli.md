@@ -84,7 +84,7 @@ Arguments and options:
 
 ### `labcoat up`
 
-Download binaries if needed and boot the full devnet stack
+Prepare this CLI release's exact runtime bundle and boot the devnet
 
 ```text
 up [OPTIONS]
@@ -92,7 +92,7 @@ up [OPTIONS]
 
 Arguments and options:
 
-- `no_download` (optional): Skip the binary download/check step Values: `true`, `false`.
+- `no_download` (optional): Skip runtime bundle verification and download Values: `true`, `false`.
 - `ci` (optional): CI mode: wait (bounded) for full readiness, then emit the machine-readable endpoint manifest; non-zero exit if the stack never becomes ready Values: `true`, `false`.
 
 ### `labcoat down`
@@ -189,7 +189,7 @@ Arguments and options:
 
 ### `labcoat binaries`
 
-Check (and with --download, fetch) service binaries
+Inspect (and with --download, repair) this CLI release's runtime bundle
 
 ```text
 binaries [OPTIONS]
@@ -402,7 +402,7 @@ doctor
 
 | Tool | Description |
 |---|---|
-| `devnet_up` | Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest. |
+| `devnet_up` | Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest. |
 | `devnet_down` | Stop all devnet services. |
 | `devnet_status` | Devnet service health, block height, and mempool size. |
 | `devnet_mine` | Mine blocks on the devnet. |

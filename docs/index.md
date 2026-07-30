@@ -7,8 +7,8 @@ wallets, the local devnet, deployment, calls, simulation, and tracing.
 ## Start here
 
 - [README and quick start](../README.md)
-- [Releasing the CLI](RELEASING.md)
-- [Durable state and declarative deployment plan](DURABLE-STATE-PLAN.md)
+- [Releasing Labcoat](RELEASING.md)
+- [Proposed durable state design (not implemented)](DURABLE-STATE-PLAN.md)
 - [Toolchain and upstream pins](../TOOLCHAIN.md)
 - [Agent workflow](../skills/SKILL.md)
 

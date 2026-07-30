@@ -30,14 +30,16 @@ Labcoat is for local Alkanes development. It is not described as a general Bitco
 | managed local Bitcoin devnet | Labcoat-managed regtest services. | “One binary,” “full stack,” or a hosted/testnet implication. |
 | local environment | The orchestrated development runtime. | Production environment. |
 | command system | CLI, JSON, MCP, and versioned references exposing one capability set. | “Always synchronized” without a version boundary. |
-| package-name deployment | Deployment behavior on the current main branch. | Presenting it as available in `cli-v0.1.0`. |
+| package-name deployment | Current CLI deployment behavior. | Describing an unavailable future behavior. |
 | decoded trace | Human- or machine-readable execution inspection. | Generic observability claims. |
 | developers and agents | People and automated clients using the same capabilities. | “Agent native.” |
 | early-stage / pre-1.0 | Current maturity. | Stable, production-ready, or mainnet-ready. |
 | current main branch | Public web documentation channel. | Calling it stable release documentation. |
 | installed-version reference | Output of `labcoat docs --llm`. | Assuming the website matches an installed release. |
 
-Capability statements must be classified as current-main, release-dependent, planned, or unsupported. Durable state and production mainnet controls are planned, not shipped. Windows is unsupported.
+Capability statements must be classified as current-main, release-dependent,
+planned, or unsupported. Durable state and production mainnet controls are
+planned, not available. Windows is unsupported.
 
 ## Voice and tone
 

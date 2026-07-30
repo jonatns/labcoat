@@ -14,6 +14,8 @@ Native Rust integration tests run contracts through `labcoat-test`, keeping the
 fast feedback loop outside the chain. Each `ContractHarness` has isolated
 in-memory storage that persists across calls on that harness. Use
 `storage_value` to inspect raw state or `set_storage` to seed a test fixture.
+Generated projects obtain the harness from this repository's matching
+`cli-vX.Y.Z` Git tag, so the CLI and test API advance as one release.
 
 ## Build
 

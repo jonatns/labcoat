@@ -96,15 +96,6 @@ pub async fn run() -> Vec<Check> {
             "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Linux)",
         )),
     }
-    match version_of("node", "--version") {
-        Some(v) => checks.push(ok("node", v)),
-        None => checks.push(fail(
-            "node",
-            "not found on PATH",
-            "install Node.js 20+ (the devnet JSON-RPC gateway runs on node)",
-        )),
-    }
-
     // Ports
     let config = IsomerConfig::load();
     let mut busy = Vec::new();
@@ -127,18 +118,31 @@ pub async fn run() -> Vec<Check> {
 
     // Binaries
     let infos = BinaryManager::new().check_all();
-    let missing: Vec<String> = infos
+    let problems: Vec<String> = infos
         .iter()
-        .filter(|b| matches!(b.status, isomer_core::BinaryStatus::NotInstalled))
-        .map(|b| b.service.clone())
+        .filter_map(|binary| match &binary.status {
+            isomer_core::BinaryStatus::Installed { .. } => None,
+            isomer_core::BinaryStatus::NotInstalled => {
+                Some(format!("{} is not installed", binary.service))
+            }
+            isomer_core::BinaryStatus::Invalid { reason } => {
+                Some(format!("{} is invalid: {reason}", binary.service))
+            }
+            isomer_core::BinaryStatus::Unsupported { platform } => {
+                Some(format!("{} is unsupported on {platform}", binary.service))
+            }
+        })
         .collect();
-    if missing.is_empty() {
-        checks.push(ok("service binaries", "all installed"));
+    if problems.is_empty() {
+        checks.push(ok(
+            "runtime bundle",
+            format!("{} is installed", BinaryManager::release_tag()),
+        ));
     } else {
-        checks.push(warn(
-            "service binaries",
-            format!("missing: {}", missing.join(", ")),
-            "labcoat binaries --download (or labcoat up)",
+        checks.push(fail(
+            "runtime bundle",
+            problems.join("; "),
+            "run `labcoat binaries --download`; unsupported platforms require a supported machine",
         ));
     }
 

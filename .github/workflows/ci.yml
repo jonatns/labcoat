@@ -26,7 +26,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
-              - 'runtime.json'
+              - 'crates/labcoat-cli/runtime-sources.json'
             web:
               - 'apps/web/**'
               - 'brand.json'
@@ -102,6 +102,8 @@ jobs:
           printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' \
             | ./target/debug/labcoat mcp serve | grep -q '"abi_verify"'
       - name: Rust-first project smoke
+        env:
+          LABCOAT_TEST_CRATE_PATH: ${{ github.workspace }}/crates/labcoat-test
         run: |
           PROJECT_PARENT=$(mktemp -d)
           PROJECT="$PROJECT_PARENT/project"
@@ -111,8 +113,7 @@ jobs:
           cd "$PROJECT"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
             new stateful --json | grep -q '"ok": true'
-          LABCOAT_TEST_CRATE_PATH="$GITHUB_WORKSPACE/crates/labcoat-test" \
-            "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
+          "$GITHUB_WORKSPACE/target/debug/labcoat" test --json \
             | tee "$RUNNER_TEMP/labcoat-test.json"
           grep -q '"passed": true' "$RUNNER_TEMP/labcoat-test.json"
           test ! -e build/counter.wasm
@@ -164,6 +165,7 @@ jobs:
         run: |
           node scripts/validate-brand.mjs
           node scripts/tests/release-notes-test.mjs
+          node scripts/tests/runtime-manifest-test.mjs
       - name: "Guard: no whitespace errors"
         run: |
           if git grep -nI -E '[[:blank:]]+$'; then
@@ -198,7 +200,7 @@ jobs:
           test -n "$PIN" || { echo '::error::could not read pin from TOOLCHAIN.md'; exit 1; }
           # 1) No unpinned/branch refs to alkanes-rs anywhere in the tree
           #    (Cargo git deps must use rev=, workflows must use the SHA).
-          BAD=$(grep -rn --include='*.toml' --include='*.yml' --include='*.yaml' --include='*.ts' 'alkanes-rs' \
+          BAD=$(grep -rn --include='*.toml' --include='*.json' --include='*.yml' --include='*.yaml' --include='*.ts' 'alkanes-rs' \
                  | grep -vE "$PIN" \
                  | grep -viE 'toolchain\.md|docs/|branch of record' \
                  | grep -iE 'branch *= *"|ref: *(main|develop)$|alkanes-rs(\.git)?" *\}' || true)

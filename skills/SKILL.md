@@ -19,7 +19,7 @@ logs on stderr, exit 0 whenever an envelope was printed. On any error,
 ## 1. Boot infrastructure
 
 ```bash
-labcoat up --json          # downloads binaries if missing, boots the stack
+labcoat up --json          # prepares this CLI version's runtime, boots the stack
 labcoat status --json      # poll until result.is_ready == true
 ```
 
@@ -98,7 +98,7 @@ stdio. Prefer it when a host supports MCP; the JSON envelopes above are the
 fallback.
 
 <!-- BEGIN GENERATED MCP TOOLS -->
-- `devnet_up` — Boot the managed local Alkanes devnet services (downloads binaries when missing). Returns service status and the endpoint manifest.
+- `devnet_up` — Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.
 - `devnet_down` — Stop all devnet services.
 - `devnet_status` — Devnet service health, block height, and mempool size.
 - `devnet_mine` — Mine blocks on the devnet.

@@ -8,266 +8,98 @@ Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smar
 
 > Early-stage software for local Alkanes development. Interfaces may change before 1.0; mainnet deployment controls are not production-ready.
 
-Labcoat gives contract developers one command system for the local workflow:
-
-- scaffold Rust [Alkanes](https://alkanes.build) contract projects;
-- build deployable WebAssembly;
-- run contracts in a native test harness;
-- start and control a complete Bitcoin regtest stack;
-- manage project wallets;
-- deploy, call, simulate, and trace Alkanes contracts;
-- automate every command with JSON envelopes or MCP.
-
-The supported public interface is the **`labcoat` CLI**.
+Labcoat provides one command system for scaffolding Rust contracts, native
+tests, WebAssembly builds, a managed Bitcoin regtest environment, wallets,
+deployment, calls, simulation, traces, JSON automation, and MCP.
 
 [Website](https://labcoat.sh) · [Documentation](https://labcoat.sh/docs/) ·
 [Agent index](https://labcoat.sh/llms.txt) · [Security policy](SECURITY.md)
 
-> **Release channel note:** the stable `cli-v0.1.0` release uses
-> `labcoat contract new`, `labcoat compile`, and raw-Wasm deployment. The
-> current main branch and these examples use `labcoat new`, `labcoat build`,
-> and package-name deployment. Run `labcoat docs --llm` for the reference
-> bundled with your installed version.
-
 ## Install
-
-macOS and Linux binaries are published for arm64 and x86_64. Windows CLI
-support is not available yet.
 
 ```bash
 curl -fsSL https://labcoat.sh/install | sh
-```
-
-Inspect the installer before running it if required by your security policy:
-
-```bash
-curl -fsSL https://labcoat.sh/install -o /tmp/install-labcoat.sh
-less /tmp/install-labcoat.sh
-sh /tmp/install-labcoat.sh 0.1.0
-```
-
-The installer requires `sha256sum` or `shasum`, verifies the release checksum
-automatically, and writes the binary to
-`${LABCOAT_INSTALL_DIR:-$HOME/.local/bin}`. Install a specific version with:
-
-```bash
-curl -fsSL https://labcoat.sh/install \
-  | sh -s -- 0.1.0
-```
-
-Managed Isomer devnet payloads are downloaded separately to
-`~/Library/Application Support/Labcoat/bin` on macOS or
-`${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/bin` on Linux.
-
-Contract compilation requires an LLVM Clang with a WebAssembly backend.
-
-```bash
-brew install llvm       # macOS
-sudo apt install clang wasi-libc  # Debian/Ubuntu
-```
-
-Check the complete environment with:
-
-```bash
 labcoat doctor
 ```
 
+The installer verifies the published SHA-256 checksum and writes `labcoat` to
+`${LABCOAT_INSTALL_DIR:-$HOME/.local/bin}`. Install or roll back to an exact
+version with:
+
+```bash
+curl -fsSL https://labcoat.sh/install | sh -s -- 0.1.0
+```
+
+CLI binaries are available for macOS and Linux on arm64 and x86_64. The managed
+devnet runtime currently supports macOS arm64 and Linux x86_64. Windows is not
+supported.
+
+Contract compilation requires LLVM Clang with a WebAssembly backend:
+
+```bash
+brew install llvm                    # macOS
+sudo apt install clang wasi-libc     # Debian/Ubuntu
+```
+
 See the [installation guide](https://labcoat.sh/docs/getting-started/installation/)
-for upgrades, rollback, uninstall, artifact attestation verification, supported
-platforms, and runtime limitations.
+for verification, upgrades, rollback, supported platforms, and data locations.
 
 ## Quick start
-
-Create a project and run its Rust integration test:
 
 ```bash
 labcoat init hello-alkane
 cd hello-alkane
 labcoat test
-```
 
-Run `labcoat init` without a name to enter it interactively. Initialization
-always creates a new folder and refuses an existing destination.
-
-Every new project includes a fixed Counter starter. Add another minimal
-contract from anywhere inside the project with:
-
-```bash
-labcoat new token
-```
-
-Start the local devnet and initialize the project wallet:
-
-```bash
 labcoat up
-labcoat status
 labcoat wallet init
 labcoat wallet addresses
-```
-
-Fund the displayed address, mine a block, and inspect its UTXOs:
-
-```bash
 labcoat fund <address>
 labcoat mine 1
-labcoat wallet utxos
-```
 
-Build the Counter without deploying, or deploy it directly by package name:
-
-```bash
-labcoat build counter
-labcoat deploy counter --dry-run
 labcoat deploy counter
-labcoat abi fetch counter
-labcoat abi verify counter
-```
-
-Interact with the deployed contract:
-
-```bash
 labcoat simulate counter get_count
 labcoat call counter increment
 labcoat trace <txid> --wait
 ```
 
-Call and simulation selectors may be exact ABI method names or numeric opcodes.
-Named methods accept one shell argument per ABI parameter and encode `u128`,
-`String`, and `AlkaneId` values for the deployed contract. When the generated
-local ABI belongs to the exact Wasm recorded in `labcoat.lock`, Labcoat uses it
-without an indexer metadata request. If the local build differs, Labcoat warns
-and transparently uses the deployed ABI. Numeric opcodes retain the raw
-cellpack argument format for advanced or unsupported parameter types.
+Stop the local environment with `labcoat down`. Run `labcoat --help`,
+`labcoat <command> --help`, or `labcoat docs --llm` for the complete reference
+matching your installed executable.
 
-Simulation always executes the deployed contract against live indexed chain
-state. Use `labcoat test <package>` to execute an undeployed local build in the
-isolated host test runtime.
+## Release model
 
-Stop the devnet when finished:
+Each `cli-vX.Y.Z` release is one tested compatibility unit:
 
-```bash
-labcoat down
-```
+- four native CLI executables and their checksums;
+- the exact Qubitcoin runtime assets supported by that CLI;
+- the matching `labcoat-test` source used by generated projects.
 
-## Projects and configuration
-
-`labcoat init <project-name>` creates a new folder containing:
-
-```text
-contracts/          Cargo contract packages
-tests/              Native integration tests using labcoat-test
-Cargo.toml          Host-side test package and workspace manifest
-Cargo.lock          Reproducible dependency lock (created on first build)
-labcoat.toml        Public project configuration
-AGENTS.md           Agent instructions
-SKILL.md            Agent workflow
-```
-
-Settings resolve in this order:
-
-```text
-CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
-```
-
-`labcoat.toml` supports `network`, `rpc_url`, `wallet_file`, and
-`fee_rate`. Mnemonics and passphrases are rejected from the file; use
-`LABCOAT_MNEMONIC`, mnemonic stdin, and `LABCOAT_WALLET_PASSPHRASE`.
-
-Deployments are recorded by network in `labcoat.lock`. Commit this file
-when deployments are part of the project state.
-
-Each contract is an ordinary Cargo package under `contracts/`, so normal
-crates.io, git, path dependencies, modules, and shared workspace crates work.
-The first build creates `Cargo.lock`; commit it and avoid bare `cargo update`.
-Host tests use isolated in-memory contract storage that persists across calls
-on the same `ContractHarness`.
-
-When multiple contracts need common Rust code, add a Cargo library under
-`crates/<name>/` and add `"crates/<name>"` to the root workspace `members`.
-New projects omit both the directory and its workspace glob until shared code
-is needed.
-
-Add another minimal contract package and matching host test without copying files:
-
-```bash
-labcoat new token
-```
-
-## CLI map
-
-| Area | Commands |
-|---|---|
-| Project | `init`, `new`, `doctor`, `docs` |
-| Test and build | `test`, `build` |
-| Devnet | `up`, `down`, `status`, `mine`, `fund`, `logs`, `reset`, `snapshot`, `restore`, `binaries` |
-| Wallet | `wallet init`, `wallet addresses`, `wallet utxos` |
-| Contracts | `deploy`, `call`, `simulate`, `trace`, `abi`, `lock` |
-| Automation | `mcp serve`, global `--json` |
-
-Run `labcoat --help`, `labcoat <command> --help`, or `labcoat docs --llm`
-for the full command reference.
-
-## Terminal output
-
-Labcoat defaults to concise human-readable output. Contract calls and
-simulations show the resolved method, decoded result, transaction identifiers,
-fees, and gas without dumping raw JSON. Add `--verbose` for ABI metadata,
-artifact hashes and paths, raw return bytes, and full decoded traces.
-
-```bash
-labcoat simulate counter get_count
-labcoat call counter increment --verbose
-labcoat status --color never
-```
-
-Color defaults to terminal auto-detection and honors `NO_COLOR`; use
-`--color always` or `--color never` to override it. Redirected output remains
-plain human text. Automation should request the stable JSON envelope explicitly.
-
-## Automation
-
-Every command accepts `--json` and emits a stable `labcoat/v1/*` envelope.
-Errors include a typed code, human-readable message, and recovery hint.
-
-```bash
-labcoat status --json
-labcoat deploy counter --dry-run --json
-labcoat mcp serve
-```
-
-## Support and stability
-
-Labcoat supports macOS and Linux on arm64 and x86_64. Windows, hosted
-operation, durable production state, and production mainnet controls are not
-supported. Public web documentation tracks the current `main` branch; use
-`labcoat docs --llm` for installed-version command truth.
-
-Read [SECURITY.md](SECURITY.md) before using local wallets or exposing runtime
-services. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup,
-generated-file rules, validation, and release boundaries.
+`labcoat up` downloads only the runtime bundle for the installed CLI version
+and caches it in a versioned directory. It does not look for independently
+newer runtime files. Upgrade the CLI to receive a newer runtime.
 
 ## Develop Labcoat
 
-The CLI and its runtime are a Rust workspace pinned to Rust 1.86.0.
+The workspace is pinned to Rust 1.86.0.
 
 ```bash
 cargo fmt --all -- --check
 cargo check --workspace --locked
 cargo test --workspace --locked
 cargo clippy --workspace --locked -- -D warnings
-cargo build --release -p labcoat-cli
-export PATH="$PWD/target/release:$PATH"
 ```
 
-Core layout:
+Repository layout:
 
 ```text
-crates/isomer-core/   headless devnet orchestration engine
+crates/isomer-core/   managed devnet runtime
 crates/labcoat-core/  contract, wallet, deployment, and trace operations
-crates/labcoat-cli/   labcoat command-line interface and MCP server
+crates/labcoat-cli/   CLI, MCP server, templates, and runtime build inputs
 crates/labcoat-test/  native WebAssembly contract test harness
+apps/web/             website and user documentation
 ```
 
-See [TOOLCHAIN.md](TOOLCHAIN.md) for pinned upstream revisions and build
-requirements, and [docs/RELEASING.md](docs/RELEASING.md) for the CLI release
-process.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before making changes,
+[TOOLCHAIN.md](TOOLCHAIN.md) before updating pinned upstream dependencies, and
+[docs/RELEASING.md](docs/RELEASING.md) before preparing a release.

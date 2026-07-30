@@ -73,9 +73,9 @@ enum Commands {
         /// Optional Cargo contract package whose host test should run
         package: Option<String>,
     },
-    /// Download binaries if needed and boot the full devnet stack
+    /// Prepare this CLI release's exact runtime bundle and boot the devnet
     Up {
-        /// Skip the binary download/check step
+        /// Skip runtime bundle verification and download
         #[arg(long)]
         no_download: bool,
         /// CI mode: wait (bounded) for full readiness, then emit the
@@ -128,7 +128,7 @@ enum Commands {
     },
     /// Restore a devnet snapshot (stops services first)
     Restore { name: String },
-    /// Check (and with --download, fetch) service binaries
+    /// Inspect (and with --download, repair) this CLI release's runtime bundle
     Binaries {
         #[arg(long)]
         download: bool,
