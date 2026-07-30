@@ -11,3 +11,4 @@ playwright-report/
 test-results/
 .pnpm-store/
 .vercel
+my-counter

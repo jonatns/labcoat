@@ -8,7 +8,11 @@ use alkanes_cli_common::alkanes::types::{
     EnhancedExecuteParams, EnhancedExecuteResult, OrdinalsStrategy, UtxoDataSource,
 };
 use alkanes_cli_common::provider::ConcreteProvider;
+use alkanes_cli_common::traits::{BitcoinRpcProvider, WalletProvider};
 use serde::Serialize;
+use std::str::FromStr;
+
+const POST_BROADCAST_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +61,11 @@ pub async fn run(
         })?;
 
     let mine_enabled = config.normalized_network() == "regtest";
+    let excluded_utxos = if mine_enabled {
+        immature_coinbase_outpoints(provider).await?
+    } else {
+        Vec::new()
+    };
 
     let params = EnhancedExecuteParams {
         fee_rate: fee_rate.or(config.fee_rate),
@@ -68,25 +77,86 @@ pub async fn run(
         protostones,
         envelope_data,
         raw_output: true,
-        trace_enabled: true,
-        mine_enabled,
+        // Labcoat owns the regtest mine/sync/trace sequence. Upstream traces
+        // through bitcoind getrawtransaction, but Qubitcoin intentionally
+        // serves historical transaction hex through its Esplora secondary.
+        trace_enabled: false,
+        mine_enabled: false,
         auto_confirm: true,
         ordinals_strategy: OrdinalsStrategy::default(),
         mempool_indexer: false,
         split_transactions: false,
         known_pending_tx_hexes: Vec::new(),
         prefetched_utxos: Vec::new(),
-        excluded_utxos: Vec::new(),
+        excluded_utxos,
         skip_diesel_mint: false,
         max_indexed_height,
         utxo_source: UtxoDataSource::default(),
     };
 
-    let mut executor = EnhancedAlkanesExecutor::new(provider);
-    executor
-        .execute_full(params)
+    let result = {
+        let mut executor = EnhancedAlkanesExecutor::new(provider);
+        executor
+            .execute_full(params)
+            .await
+            .map_err(|e| LabcoatError::classify(e.into()))?
+    };
+
+    if mine_enabled {
+        provider
+            .generate_to_address(1, &regtest_mining_address())
+            .await
+            .map_err(|e| LabcoatError::classify(e.into()))?;
+        crate::sync::wait_for_indexer(provider, POST_BROADCAST_SYNC_TIMEOUT).await?;
+    }
+
+    Ok(result)
+}
+
+/// Qubitcoin's Esplora transaction shape can omit the coinbase marker. Confirm
+/// recent wallet outputs against gettxout so retries never select an immature
+/// block reward, even if the secondary index misclassified it.
+async fn immature_coinbase_outpoints(provider: &ConcreteProvider) -> Result<Vec<String>> {
+    let utxos = WalletProvider::get_utxos(provider, true, None)
         .await
-        .map_err(|e| LabcoatError::classify(e.into()))
+        .map_err(|e| LabcoatError::classify(e.into()))?;
+    let mut excluded = Vec::new();
+
+    for (outpoint, info) in utxos {
+        if info.confirmations >= 100 {
+            continue;
+        }
+        let txout = BitcoinRpcProvider::get_tx_out(
+            provider,
+            &outpoint.txid.to_string(),
+            outpoint.vout,
+            true,
+        )
+        .await
+        .map_err(|e| LabcoatError::classify(e.into()))?;
+        if txout.is_null()
+            || info.is_coinbase
+            || txout.get("coinbase").and_then(|v| v.as_bool()) == Some(true)
+        {
+            excluded.push(outpoint.to_string());
+        }
+    }
+
+    Ok(excluded)
+}
+
+/// Mine confirmations away from the project wallet. The public key is the
+/// secp256k1 generator point; this is only a regtest block-reward sink.
+fn regtest_mining_address() -> String {
+    let public_key = bitcoin::secp256k1::PublicKey::from_str(
+        "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    )
+    .expect("fixed compressed public key");
+    bitcoin::Address::p2wpkh(
+        &bitcoin::CompressedPublicKey(public_key),
+        bitcoin::Network::Regtest,
+    )
+    .to_string()
 }
 
 /// Extract `block:tx` of a newly created alkane from trace events.
@@ -221,9 +291,20 @@ pub fn decode_revert_reason(hex_str: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn serde_json_preserves_full_u128_cellpack_values() {
         let value = serde_json::json!(u128::MAX);
         assert_eq!(value.to_string(), u128::MAX.to_string());
+    }
+
+    #[test]
+    fn regtest_confirmation_mining_uses_a_valid_non_wallet_address() {
+        let address = bitcoin::Address::from_str(&regtest_mining_address())
+            .unwrap()
+            .require_network(bitcoin::Network::Regtest)
+            .unwrap();
+        assert_eq!(address.to_string(), regtest_mining_address());
     }
 }
