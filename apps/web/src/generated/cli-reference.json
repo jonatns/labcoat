@@ -69,7 +69,7 @@
             "required": false
           }
         ],
-        "description": "Prepare this CLI release's exact runtime bundle and boot the devnet",
+        "description": "Prepare this CLI release's exact runtime bundle and boot Labcoat Network",
         "name": "up",
         "path": "labcoat up",
         "subcommands": [],
@@ -77,7 +77,7 @@
       },
       {
         "arguments": [],
-        "description": "Stop all devnet services",
+        "description": "Stop all Labcoat Network services",
         "name": "down",
         "path": "labcoat down",
         "subcommands": [],
@@ -85,7 +85,7 @@
       },
       {
         "arguments": [],
-        "description": "Show devnet status (services, block height, mempool)",
+        "description": "Show Labcoat Network status (services, block height, mempool)",
         "name": "status",
         "path": "labcoat status",
         "subcommands": [],
@@ -106,7 +106,7 @@
             "required": false
           }
         ],
-        "description": "Mine blocks on the devnet",
+        "description": "Mine blocks on Labcoat Network",
         "name": "mine",
         "path": "labcoat mine",
         "subcommands": [],
@@ -192,7 +192,7 @@
             "required": false
           }
         ],
-        "description": "Snapshot the devnet data directory (stops services first)",
+        "description": "Snapshot the Labcoat Network data directory (stops services first)",
         "name": "snapshot",
         "path": "labcoat snapshot",
         "subcommands": [],
@@ -207,7 +207,7 @@
             "required": true
           }
         ],
-        "description": "Restore a devnet snapshot (stops services first)",
+        "description": "Restore a Labcoat Network snapshot (stops services first)",
         "name": "restore",
         "path": "labcoat restore",
         "subcommands": [],
@@ -563,8 +563,13 @@
       "labcoat trace <txid> --wait",
       "labcoat down"
     ],
-    "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.",
+    "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.",
     "errorCodes": [
+      {
+        "code": "LABCOAT_NETWORK_ERROR",
+        "meaning": "a Labcoat Network operation failed",
+        "recovery": "run `labcoat status` and inspect `labcoat logs`"
+      },
       {
         "code": "CONFIG_INVALID",
         "meaning": "configuration is invalid",
@@ -637,7 +642,7 @@
       },
       {
         "code": "BINARY_CRASH",
-        "meaning": "a managed devnet service exited",
+        "meaning": "a Labcoat Network service exited",
         "recovery": "inspect `labcoat logs`"
       }
     ],
@@ -645,7 +650,7 @@
     "mcpProtocolVersion": "2024-11-05",
     "mcpTools": [
       {
-        "description": "Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
+        "description": "Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
         "inputSchema": {
           "properties": {
             "noDownload": {
@@ -656,28 +661,28 @@
           "required": [],
           "type": "object"
         },
-        "name": "devnet_up"
+        "name": "network_up"
       },
       {
-        "description": "Stop all devnet services.",
+        "description": "Stop all Labcoat Network services.",
         "inputSchema": {
           "properties": {},
           "required": [],
           "type": "object"
         },
-        "name": "devnet_down"
+        "name": "network_down"
       },
       {
-        "description": "Devnet service health, block height, and mempool size.",
+        "description": "Labcoat Network service health, block height, and mempool size.",
         "inputSchema": {
           "properties": {},
           "required": [],
           "type": "object"
         },
-        "name": "devnet_status"
+        "name": "network_status"
       },
       {
-        "description": "Mine blocks on the devnet.",
+        "description": "Mine blocks on Labcoat Network.",
         "inputSchema": {
           "properties": {
             "address": {
@@ -694,10 +699,10 @@
           ],
           "type": "object"
         },
-        "name": "devnet_mine"
+        "name": "network_mine"
       },
       {
-        "description": "Send BTC from the devnet faucet wallet to an address.",
+        "description": "Send BTC from the Labcoat Network faucet wallet to an address.",
         "inputSchema": {
           "properties": {
             "address": {
@@ -713,19 +718,19 @@
           ],
           "type": "object"
         },
-        "name": "devnet_fund"
+        "name": "network_fund"
       },
       {
-        "description": "Stop services and wipe all devnet chain data.",
+        "description": "Stop services and wipe all Labcoat Network chain data.",
         "inputSchema": {
           "properties": {},
           "required": [],
           "type": "object"
         },
-        "name": "devnet_reset"
+        "name": "network_reset"
       },
       {
-        "description": "Recent devnet service logs.",
+        "description": "Recent Labcoat Network service logs.",
         "inputSchema": {
           "properties": {
             "limit": {
@@ -741,7 +746,7 @@
           "required": [],
           "type": "object"
         },
-        "name": "devnet_logs"
+        "name": "network_logs"
       },
       {
         "description": "Create or load the project wallet keystore. Optional mnemonic (else generated).",

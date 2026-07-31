@@ -67,10 +67,10 @@ jobs:
       - run: cargo check --workspace --locked
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --locked -- -D warnings
-      - name: Devnet smoke test (protocol stubs)
+      - name: Labcoat Network smoke test (protocol stubs)
         run: |
           cargo build --locked -p labcoat-cli
-          ./scripts/devnet-smoke/install-stubs.sh
+          ./scripts/network-smoke/install-stubs.sh
           trap './target/debug/labcoat down --json || true' EXIT
           ./target/debug/labcoat up --no-download
           for attempt in {1..10}; do
@@ -82,6 +82,8 @@ jobs:
             sleep 1
           done
           grep -q '"is_ready": true' "$RUNNER_TEMP/labcoat-status.json"
+          grep -q '"network": "labcoat"' "$RUNNER_TEMP/labcoat-status.json"
+          grep -q '"bitcoin_network": "regtest"' "$RUNNER_TEMP/labcoat-status.json"
           ./target/debug/labcoat fund \
             bcrt1q9zuctyd46l7sdedccdk47335lzsmjz2wngdv3u 1 --json \
             | tee "$RUNNER_TEMP/labcoat-fund.json"

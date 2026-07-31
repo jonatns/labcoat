@@ -1,7 +1,7 @@
 {
   "name": "labcoat-monorepo",
   "private": true,
-  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.",
+  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.",
   "license": "MIT",
   "author": "Jonathan P. Navarrete <jonatns@gmail.com>",
   "packageManager": "pnpm@11.13.0",

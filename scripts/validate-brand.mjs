@@ -12,9 +12,9 @@ const assert = (condition, message) => {
 const brand = JSON.parse(await read('brand.json'));
 const requiredStrings = {
   tagline: 'From Rust source to decoded trace.',
-  description: 'Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.',
+  description: 'Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.',
   metaTitle: 'Labcoat — Rust-native Alkanes development',
-  metaDescription: 'Build, test, deploy, simulate, and trace Alkanes smart contracts with one CLI and a managed local Bitcoin devnet.',
+  metaDescription: 'Build, test, deploy, simulate, and trace Alkanes smart contracts with one CLI and Labcoat Network, a managed local Bitcoin regtest.',
   maturityNotice: 'Early-stage software for local Alkanes development. Interfaces may change before 1.0; mainnet deployment controls are not production-ready.',
 };
 
@@ -25,6 +25,10 @@ for (const [key, expected] of Object.entries(requiredStrings)) {
 assert(brand.name === 'Labcoat', 'brand.json name must be Labcoat');
 assert(brand.interfaceName === 'Labcoat CLI', 'brand.json interfaceName must be Labcoat CLI');
 assert(brand.executable === 'labcoat', 'brand.json executable must be labcoat');
+assert(brand.localNetwork?.name === 'Labcoat Network', 'brand.json local network name must be Labcoat Network');
+assert(brand.localNetwork?.selector === 'labcoat', 'brand.json local network selector must be labcoat');
+assert(brand.localNetwork?.bitcoinNetwork === 'regtest', 'brand.json Labcoat Network must disclose Bitcoin regtest');
+assert(brand.localNetwork?.scope === 'local/private', 'brand.json Labcoat Network scope must be local/private');
 assert(!('stableRelease' in brand), 'brand.json must not duplicate mutable stable release metadata');
 
 const directConsumers = [

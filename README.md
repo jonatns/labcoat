@@ -4,13 +4,16 @@
 
 **From Rust source to decoded trace.**
 
-Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.
+Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.
 
 > Early-stage software for local Alkanes development. Interfaces may change before 1.0; mainnet deployment controls are not production-ready.
 
 Labcoat provides one command system for scaffolding Rust contracts, native
-tests, WebAssembly builds, a managed Bitcoin regtest environment, wallets,
+tests, WebAssembly builds, Labcoat Network, wallets,
 deployment, calls, simulation, traces, JSON automation, and MCP.
+
+**Labcoat Network is Labcoat's local, private, resettable Alkanes network. It
+runs Bitcoin regtest under the hood. It is not Signet.**
 
 [Website](https://labcoat.sh) · [Documentation](https://labcoat.sh/docs/) ·
 [Agent index](https://labcoat.sh/llms.txt) · [Security policy](SECURITY.md)
@@ -30,8 +33,8 @@ version with:
 curl -fsSL https://labcoat.sh/install | sh -s -- 0.1.0
 ```
 
-CLI binaries are available for macOS and Linux on arm64 and x86_64. The managed
-devnet runtime currently supports macOS arm64 and Linux x86_64. Windows is not
+CLI binaries are available for macOS and Linux on arm64 and x86_64. The Labcoat
+Network runtime currently supports macOS arm64 and Linux x86_64. Windows is not
 supported.
 
 Contract compilation requires LLVM Clang with a WebAssembly backend:
@@ -93,7 +96,7 @@ cargo clippy --workspace --locked -- -D warnings
 Repository layout:
 
 ```text
-crates/isomer-core/   managed devnet runtime
+crates/isomer-core/   managed Labcoat Network runtime
 crates/labcoat-core/  contract, wallet, deployment, and trace operations
 crates/labcoat-cli/   CLI, MCP server, templates, and runtime build inputs
 crates/labcoat-test/  native WebAssembly contract test harness

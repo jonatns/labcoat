@@ -1,4 +1,4 @@
-//! Execute (call) and deploy against a devnet/network, via the pinned
+//! Execute (call) and deploy against Labcoat Network or an external network, via the pinned
 //! alkanes-rs executor — commit/reveal envelope deploys included.
 
 use crate::error::{LabcoatError, Result};
@@ -60,7 +60,7 @@ pub async fn run(
             )
         })?;
 
-    let mine_enabled = config.normalized_network() == "regtest";
+    let mine_enabled = config.network.uses_regtest();
     let excluded_utxos = if mine_enabled {
         immature_coinbase_outpoints(provider).await?
     } else {

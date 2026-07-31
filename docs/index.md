@@ -2,7 +2,7 @@
 
 Labcoat is a native Rust CLI for developing Alkanes smart contracts on
 Bitcoin. It owns project scaffolding, contract testing, compilation,
-wallets, the local devnet, deployment, calls, simulation, and tracing.
+wallets, Labcoat Network, deployment, calls, simulation, and tracing.
 
 ## Start here
 
@@ -21,7 +21,7 @@ labcoat docs --llm
 ## Architecture
 
 ```text
-crates/isomer-core   headless devnet process and chain control
+crates/isomer-core   headless Labcoat Network process and chain control
 crates/labcoat-core  contract toolkit on pinned alkanes-rs
 crates/labcoat-cli   CLI, JSON envelopes, and MCP server
 crates/labcoat-test  native WebAssembly contract test harness

@@ -50,7 +50,7 @@ the first verified download. Updating the CLI is the explicit runtime upgrade.
 Current:
 
 - CLI on macOS and Linux, arm64 and x86_64;
-- managed devnet runtime on macOS arm64 and Linux x86_64;
+- Labcoat Network runtime on macOS arm64 and Linux x86_64;
 - Rust contract scaffolding, native Wasm tests, and package builds;
 - local wallets, deployment, calls, simulation, traces, JSON, and MCP.
 
@@ -63,8 +63,8 @@ Planned, not available:
 Unsupported:
 
 - Windows;
-- managed devnet runtime on macOS x86_64 or Linux arm64;
-- treating the local devnet or its wallet defaults as a production security
+- Labcoat Network runtime on macOS x86_64 or Linux arm64;
+- treating Labcoat Network or its wallet defaults as a production security
   boundary;
 - assuming website examples match an older unpinned executable.
 

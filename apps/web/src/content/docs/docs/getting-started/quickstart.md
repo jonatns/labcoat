@@ -67,7 +67,7 @@ and uses deployed metadata. Numeric opcodes remain available when you need to
 provide raw cellpack arguments. Simulation always uses deployed code and live
 indexed state; use `labcoat test counter` for an undeployed local build.
 
-Finish by stopping the shared local devnet:
+Finish by stopping the shared Labcoat Network:
 
 ```bash
 labcoat down

@@ -1,6 +1,6 @@
 ---
 name: labcoat
-description: Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet. Use when working in a Labcoat project or developing Alkanes contracts.
+description: Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest. Use when working in a Labcoat project or developing Alkanes contracts.
 ---
 
 # Labcoat: the Alkanes contract workflow
@@ -36,7 +36,8 @@ labcoat mine 1 --json                      # confirm it
 labcoat wallet utxos --json                # verify spendable balance
 ```
 
-Secrets: `LABCOAT_WALLET_PASSPHRASE` env (regtest has a dev default);
+Secrets: `LABCOAT_WALLET_PASSPHRASE` env (Labcoat Network and custom regtest
+have a development default);
 mnemonic via `LABCOAT_MNEMONIC` env or `wallet init --mnemonic-stdin`.
 Never place either on argv.
 
@@ -98,13 +99,13 @@ stdio. Prefer it when a host supports MCP; the JSON envelopes above are the
 fallback.
 
 <!-- BEGIN GENERATED MCP TOOLS -->
-- `devnet_up` — Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.
-- `devnet_down` — Stop all devnet services.
-- `devnet_status` — Devnet service health, block height, and mempool size.
-- `devnet_mine` — Mine blocks on the devnet.
-- `devnet_fund` — Send BTC from the devnet faucet wallet to an address.
-- `devnet_reset` — Stop services and wipe all devnet chain data.
-- `devnet_logs` — Recent devnet service logs.
+- `network_up` — Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.
+- `network_down` — Stop all Labcoat Network services.
+- `network_status` — Labcoat Network service health, block height, and mempool size.
+- `network_mine` — Mine blocks on Labcoat Network.
+- `network_fund` — Send BTC from the Labcoat Network faucet wallet to an address.
+- `network_reset` — Stop services and wipe all Labcoat Network chain data.
+- `network_logs` — Recent Labcoat Network service logs.
 - `wallet_init` — Create or load the project wallet keystore. Optional mnemonic (else generated).
 - `wallet_addresses` — Wallet receive addresses per script type.
 - `wallet_utxos` — Spendable wallet UTXOs.
@@ -120,7 +121,7 @@ fallback.
 
 ## Ground rules
 
-- One devnet per machine: `up`/`down`/`reset` manage shared local state.
+- One Labcoat Network per machine: `up`/`down`/`reset` manage shared local state.
 - `reset -y` wipes the chain — deployments in labcoat.lock become stale;
   redeploy after a reset.
 - alkanes-rs is pinned (TOOLCHAIN.md). Never point anything at a branch.

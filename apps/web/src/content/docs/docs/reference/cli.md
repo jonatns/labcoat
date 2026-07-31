@@ -6,7 +6,7 @@ editUrl: false
 
 > Generated from Labcoat 0.1.0. Run `pnpm sync:reference` after changing CLI or MCP metadata.
 
-Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.
+Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.
 
 ## Install
 
@@ -84,7 +84,7 @@ Arguments and options:
 
 ### `labcoat up`
 
-Prepare this CLI release's exact runtime bundle and boot the devnet
+Prepare this CLI release's exact runtime bundle and boot Labcoat Network
 
 ```text
 up [OPTIONS]
@@ -97,7 +97,7 @@ Arguments and options:
 
 ### `labcoat down`
 
-Stop all devnet services
+Stop all Labcoat Network services
 
 ```text
 down
@@ -105,7 +105,7 @@ down
 
 ### `labcoat status`
 
-Show devnet status (services, block height, mempool)
+Show Labcoat Network status (services, block height, mempool)
 
 ```text
 status
@@ -113,7 +113,7 @@ status
 
 ### `labcoat mine`
 
-Mine blocks on the devnet
+Mine blocks on Labcoat Network
 
 ```text
 mine [OPTIONS] [COUNT]
@@ -164,7 +164,7 @@ Arguments and options:
 
 ### `labcoat snapshot`
 
-Snapshot the devnet data directory (stops services first)
+Snapshot the Labcoat Network data directory (stops services first)
 
 ```text
 snapshot [OPTIONS] [NAME]
@@ -177,7 +177,7 @@ Arguments and options:
 
 ### `labcoat restore`
 
-Restore a devnet snapshot (stops services first)
+Restore a Labcoat Network snapshot (stops services first)
 
 ```text
 restore <NAME>
@@ -402,13 +402,13 @@ doctor
 
 | Tool | Description |
 |---|---|
-| `devnet_up` | Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest. |
-| `devnet_down` | Stop all devnet services. |
-| `devnet_status` | Devnet service health, block height, and mempool size. |
-| `devnet_mine` | Mine blocks on the devnet. |
-| `devnet_fund` | Send BTC from the devnet faucet wallet to an address. |
-| `devnet_reset` | Stop services and wipe all devnet chain data. |
-| `devnet_logs` | Recent devnet service logs. |
+| `network_up` | Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest. |
+| `network_down` | Stop all Labcoat Network services. |
+| `network_status` | Labcoat Network service health, block height, and mempool size. |
+| `network_mine` | Mine blocks on Labcoat Network. |
+| `network_fund` | Send BTC from the Labcoat Network faucet wallet to an address. |
+| `network_reset` | Stop services and wipe all Labcoat Network chain data. |
+| `network_logs` | Recent Labcoat Network service logs. |
 | `wallet_init` | Create or load the project wallet keystore. Optional mnemonic (else generated). |
 | `wallet_addresses` | Wallet receive addresses per script type. |
 | `wallet_utxos` | Spendable wallet UTXOs. |
@@ -425,6 +425,7 @@ doctor
 
 | Code | Meaning | Recovery |
 |---|---|---|
+| `LABCOAT_NETWORK_ERROR` | a Labcoat Network operation failed | run `labcoat status` and inspect `labcoat logs` |
 | `CONFIG_INVALID` | configuration is invalid | run `labcoat doctor` |
 | `WALLET_MISSING` | the project wallet does not exist | run `labcoat wallet init` |
 | `WALLET_LOCKED` | the keystore could not be unlocked | set `LABCOAT_WALLET_PASSPHRASE` |
@@ -439,7 +440,7 @@ doctor
 | `ABI_MISMATCH` | local and deployed __meta output differ | build the deployed source revision and verify the contract ID |
 | `CONTRACT_NOT_FOUND` | a contract name or ID could not be resolved | run `labcoat lock show` |
 | `TOOLKIT_ERROR` | the underlying contract toolkit failed | read the error hint |
-| `BINARY_CRASH` | a managed devnet service exited | inspect `labcoat logs` |
+| `BINARY_CRASH` | a Labcoat Network service exited | inspect `labcoat logs` |
 
 ## Protocol cheatsheet
 

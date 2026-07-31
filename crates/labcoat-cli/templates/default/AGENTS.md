@@ -1,7 +1,7 @@
 # Working in this Labcoat project
 
 The Rust `labcoat` CLI owns compilation, testing, wallet operations,
-deployment, calls, simulation, tracing, and the local devnet.
+deployment, calls, simulation, tracing, and Labcoat Network.
 
 - Contracts: Cargo packages under `contracts/*/`
 - Shared contract libraries: Cargo packages under `crates/*/`; add each package

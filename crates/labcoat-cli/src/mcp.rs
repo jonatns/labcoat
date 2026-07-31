@@ -1,12 +1,12 @@
 //! `labcoat mcp serve` — a Model Context Protocol server over stdio.
 //!
-//! Exposes devnet control (isomer-core) and contract ops (labcoat-core)
+//! Exposes Labcoat Network control (isomer-core) and contract ops (labcoat-core)
 //! as MCP tools. Same typed functions as the CLI subcommands — no new
 //! logic, just a JSON-RPC 2.0 shell (newline-delimited, per the MCP
 //! stdio transport).
 
 use crate::contract::{self, Ctx};
-use isomer_core::Devnet;
+use isomer_core::LabcoatNetwork;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -30,16 +30,16 @@ pub(crate) fn tools() -> Vec<Value> {
         "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)"
     });
     vec![
-        tool("devnet_up", "Boot the managed local Alkanes devnet using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
+        tool("network_up", "Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
             json!({"noDownload": {"type": "boolean", "description": "skip the binary check/download"}}), &[]),
-        tool("devnet_down", "Stop all devnet services.", json!({}), &[]),
-        tool("devnet_status", "Devnet service health, block height, and mempool size.", json!({}), &[]),
-        tool("devnet_mine", "Mine blocks on the devnet.",
+        tool("network_down", "Stop all Labcoat Network services.", json!({}), &[]),
+        tool("network_status", "Labcoat Network service health, block height, and mempool size.", json!({}), &[]),
+        tool("network_mine", "Mine blocks on Labcoat Network.",
             json!({"count": {"type": "integer", "minimum": 1, "maximum": 1000}, "address": {"type": "string"}}), &["count"]),
-        tool("devnet_fund", "Send BTC from the devnet faucet wallet to an address.",
+        tool("network_fund", "Send BTC from the Labcoat Network faucet wallet to an address.",
             json!({"address": {"type": "string"}, "amount": {"type": "number", "description": "BTC, defaults to 1"}}), &["address"]),
-        tool("devnet_reset", "Stop services and wipe all devnet chain data.", json!({}), &[]),
-        tool("devnet_logs", "Recent devnet service logs.",
+        tool("network_reset", "Stop services and wipe all Labcoat Network chain data.", json!({}), &[]),
+        tool("network_logs", "Recent Labcoat Network service logs.",
             json!({"service": {"type": "string", "enum": ["qubitcoind"]}, "limit": {"type": "integer"}}), &[]),
         tool("wallet_init", "Create or load the project wallet keystore. Optional mnemonic (else generated).",
             json!({"mnemonic": {"type": "string"}}), &[]),
@@ -98,78 +98,95 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
         |e: contract::EnvelopeError| (format!("[{}] {}", e.code, e.message), e.hint.to_string());
 
     match name {
-        "devnet_up" => {
-            let mut devnet = Devnet::new();
+        "network_up" => {
+            let mut network = LabcoatNetwork::new();
             if !args
                 .get("noDownload")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
             {
-                devnet
+                network
                     .ensure_binaries(|_, _| {})
                     .await
                     .map_err(|e| (e, "check network access to the binary hosts".into()))?;
             }
-            devnet
+            network
                 .start()
-                .map_err(|e| (e, "see devnet_logs for the failing service".into()))?;
-            let status = devnet.status().await;
-            let endpoints = devnet.endpoints();
-            std::mem::forget(devnet); // services must outlive this process
+                .map_err(|e| (e, "see network_logs for the failing service".into()))?;
+            let status = network.status().await;
+            let endpoints = network.endpoints();
+            std::mem::forget(network); // services must outlive this process
             Ok(json!({ "status": status, "endpoints": endpoints }))
         }
-        "devnet_down" => {
-            let mut devnet = Devnet::new();
-            devnet
+        "network_down" => {
+            let mut network = LabcoatNetwork::new();
+            network
                 .stop()
-                .map_err(|e| (e, "check devnet_status".into()))?;
-            Ok(json!({ "stopped": true }))
+                .map_err(|e| (e, "check network_status".into()))?;
+            Ok(json!({
+                "network": "labcoat",
+                "bitcoin_network": "regtest",
+                "stopped": true
+            }))
         }
-        "devnet_status" => {
-            let mut devnet = Devnet::new();
-            Ok(serde_json::to_value(devnet.status().await).unwrap())
+        "network_status" => {
+            let mut network = LabcoatNetwork::new();
+            Ok(serde_json::to_value(network.status().await).unwrap())
         }
-        "devnet_mine" => {
-            let devnet = Devnet::new();
+        "network_mine" => {
+            let network = LabcoatNetwork::new();
             let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
             let address = args
                 .get("address")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            let height = devnet
+            let height = network
                 .mine(count, address)
                 .await
-                .map_err(|e| (e, "is the devnet up? try devnet_status".into()))?;
-            Ok(json!({ "mined": count, "height": height }))
+                .map_err(|e| (e, "is Labcoat Network up? try network_status".into()))?;
+            Ok(json!({
+                "network": "labcoat",
+                "bitcoin_network": "regtest",
+                "mined": count,
+                "height": height
+            }))
         }
-        "devnet_fund" => {
-            let devnet = Devnet::new();
+        "network_fund" => {
+            let network = LabcoatNetwork::new();
             let address = args
                 .get("address")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
             let amount = args.get("amount").and_then(|v| v.as_f64()).unwrap_or(1.0);
-            let txid = devnet
+            let txid = network
                 .fund(address, amount)
                 .await
-                .map_err(|e| (e, "is the devnet up? try devnet_status".into()))?;
-            Ok(json!({ "txid": txid }))
+                .map_err(|e| (e, "is Labcoat Network up? try network_status".into()))?;
+            Ok(json!({
+                "network": "labcoat",
+                "bitcoin_network": "regtest",
+                "txid": txid
+            }))
         }
-        "devnet_reset" => {
-            let mut devnet = Devnet::new();
-            devnet
+        "network_reset" => {
+            let mut network = LabcoatNetwork::new();
+            network
                 .reset()
-                .map_err(|e| (e, "check devnet_logs".into()))?;
-            Ok(json!({ "reset": true }))
+                .map_err(|e| (e, "check network_logs".into()))?;
+            Ok(json!({
+                "network": "labcoat",
+                "bitcoin_network": "regtest",
+                "reset": true
+            }))
         }
-        "devnet_logs" => {
-            let devnet = Devnet::new();
+        "network_logs" => {
+            let network = LabcoatNetwork::new();
             let service = args
                 .get("service")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
-            Ok(serde_json::to_value(devnet.logs(service, limit)).unwrap())
+            Ok(serde_json::to_value(network.logs(service, limit)).unwrap())
         }
         "wallet_init" => {
             let mnemonic = args
@@ -406,6 +423,29 @@ mod tests {
             named("simulate")["inputSchema"]["properties"]["opcode"]["description"],
             "exact ABI method name or decimal opcode"
         );
+    }
+
+    #[test]
+    fn labcoat_network_tools_use_only_the_new_identifiers() {
+        let registered_tools = tools();
+        let names: Vec<&str> = registered_tools
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        for name in [
+            "network_up",
+            "network_down",
+            "network_status",
+            "network_mine",
+            "network_fund",
+            "network_reset",
+            "network_logs",
+        ] {
+            assert!(names.contains(&name), "missing MCP tool {name}");
+        }
+        assert!(!names
+            .iter()
+            .any(|name| name.starts_with(concat!("dev", "net_"))));
     }
 
     #[test]

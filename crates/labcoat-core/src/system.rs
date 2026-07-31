@@ -8,13 +8,89 @@
 use crate::error::{LabcoatError, Result};
 use alkanes_cli_common::provider::ConcreteProvider;
 use std::path::PathBuf;
+use std::str::FromStr;
+
+/// A user-facing Labcoat deployment target.
+///
+/// `Labcoat` is the managed local network identity. It deliberately maps to
+/// Bitcoin regtest only at protocol boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkTarget {
+    Labcoat,
+    Regtest,
+    Signet,
+    Testnet,
+    Mainnet,
+}
+
+impl NetworkTarget {
+    pub const ALLOWED: &'static str = "labcoat, regtest, signet, testnet, mainnet";
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Labcoat => "labcoat",
+            Self::Regtest => "regtest",
+            Self::Signet => "signet",
+            Self::Testnet => "testnet",
+            Self::Mainnet => "mainnet",
+        }
+    }
+
+    /// The Bitcoin network parameters used by the provider and wallet.
+    pub fn bitcoin_network_id(self) -> &'static str {
+        match self {
+            Self::Labcoat | Self::Regtest => "regtest",
+            Self::Signet => "signet",
+            Self::Testnet => "testnet",
+            Self::Mainnet => "mainnet",
+        }
+    }
+
+    pub fn uses_regtest(self) -> bool {
+        self.bitcoin_network_id() == "regtest"
+    }
+}
+
+impl Default for NetworkTarget {
+    fn default() -> Self {
+        Self::Labcoat
+    }
+}
+
+impl std::fmt::Display for NetworkTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.id())
+    }
+}
+
+impl FromStr for NetworkTarget {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "labcoat" => Ok(Self::Labcoat),
+            "regtest" => Ok(Self::Regtest),
+            "signet" => Ok(Self::Signet),
+            "testnet" => Ok(Self::Testnet),
+            "mainnet" => Ok(Self::Mainnet),
+            "oylnet" => {
+                tracing::warn!("network 'oylnet' is deprecated; treating as 'regtest'");
+                Ok(Self::Regtest)
+            }
+            other => Err(format!(
+                "unknown network '{}'; use one of: {}",
+                other,
+                Self::ALLOWED
+            )),
+        }
+    }
+}
 
 /// Connection + wallet settings for the toolkit.
 #[derive(Debug, Clone)]
 pub struct ToolkitConfig {
-    /// Network name: regtest | signet | mainnet | testnet.
-    /// ("oylnet" is accepted as a deprecated alias for regtest.)
-    pub network: String,
+    /// Deployment target. Labcoat Network uses Bitcoin regtest underneath.
+    pub network: NetworkTarget,
     /// Direct Qubitcoin RPC endpoint.
     pub rpc_url: String,
     /// Keystore path (project-local by default).
@@ -26,7 +102,7 @@ pub struct ToolkitConfig {
 impl Default for ToolkitConfig {
     fn default() -> Self {
         Self {
-            network: "regtest".to_string(),
+            network: NetworkTarget::Labcoat,
             rpc_url: "http://127.0.0.1:18443".to_string(),
             wallet_file: PathBuf::from(".labcoat/wallet.json"),
             fee_rate: Some(2.0),
@@ -35,19 +111,17 @@ impl Default for ToolkitConfig {
 }
 
 impl ToolkitConfig {
-    /// Normalize deprecated network aliases.
-    pub fn normalized_network(&self) -> String {
-        if self.network == "oylnet" {
-            tracing::warn!("network 'oylnet' is deprecated; treating as 'regtest'");
-            "regtest".to_string()
-        } else {
-            self.network.clone()
-        }
+    pub fn network_id(&self) -> &'static str {
+        self.network.id()
+    }
+
+    pub fn bitcoin_network_id(&self) -> &'static str {
+        self.network.bitcoin_network_id()
     }
 
     /// Refuse footgun setups: mainnet/signet require an explicit passphrase.
     pub fn require_passphrase_policy(&self, passphrase: &Option<String>) -> Result<()> {
-        let net = self.normalized_network();
+        let net = self.network_id();
         if passphrase.is_none() && (net == "mainnet" || net == "signet") {
             return Err(LabcoatError::new(
                 "WALLET_LOCKED",
@@ -67,15 +141,15 @@ pub async fn connect(
     passphrase: Option<String>,
     wallet_needed: bool,
 ) -> Result<ConcreteProvider> {
-    let network = config.normalized_network();
+    let network = config.bitcoin_network_id();
 
     // Network params + process-global network (address derivation/signing).
     let params =
-        alkanes_cli_common::network::NetworkParams::from_network_str(&network).map_err(|e| {
+        alkanes_cli_common::network::NetworkParams::from_network_str(network).map_err(|e| {
             LabcoatError::new(
                 "CONFIG_INVALID",
-                format!("unknown network '{}': {}", network, e),
-                "use one of: regtest, signet, testnet, mainnet",
+                format!("unknown Bitcoin network '{}': {}", network, e),
+                "use one of: labcoat, regtest, signet, testnet, mainnet",
             )
         })?;
     alkanes_cli_common::network::set_network(params);
@@ -100,7 +174,7 @@ pub async fn connect(
         None,
         None,
         None,
-        network,
+        network.to_string(),
         Some(config.wallet_file.clone()),
         Vec::new(),
     )
@@ -165,5 +239,48 @@ mod tests {
     #[test]
     fn toolkit_defaults_to_local_qubitcoin_rpc() {
         assert_eq!(ToolkitConfig::default().rpc_url, "http://127.0.0.1:18443");
+    }
+
+    #[test]
+    fn labcoat_target_maps_to_regtest_only_at_protocol_boundaries() {
+        let config = ToolkitConfig::default();
+        assert_eq!(config.network_id(), "labcoat");
+        assert_eq!(config.bitcoin_network_id(), "regtest");
+        assert!(config.network.uses_regtest());
+    }
+
+    #[test]
+    fn parses_supported_targets_and_deprecated_oylnet() {
+        assert_eq!(
+            NetworkTarget::from_str("labcoat").unwrap(),
+            NetworkTarget::Labcoat
+        );
+        assert_eq!(
+            NetworkTarget::from_str("regtest").unwrap(),
+            NetworkTarget::Regtest
+        );
+        assert_eq!(
+            NetworkTarget::from_str("oylnet").unwrap(),
+            NetworkTarget::Regtest
+        );
+        assert!(NetworkTarget::from_str("unknown").is_err());
+    }
+
+    #[test]
+    fn passphrase_policy_distinguishes_local_and_public_targets() {
+        let mut config = ToolkitConfig::default();
+        assert!(config.require_passphrase_policy(&None).is_ok());
+
+        config.network = NetworkTarget::Regtest;
+        assert!(config.require_passphrase_policy(&None).is_ok());
+
+        config.network = NetworkTarget::Signet;
+        assert!(config.require_passphrase_policy(&None).is_err());
+        assert!(config
+            .require_passphrase_policy(&Some("secret".to_string()))
+            .is_ok());
+
+        config.network = NetworkTarget::Mainnet;
+        assert!(config.require_passphrase_policy(&None).is_err());
     }
 }

@@ -1,4 +1,4 @@
-//! Shared devnet state types
+//! Shared Labcoat Network state types
 //!
 //! Pure serde types describing services, accounts, and system status.
 
@@ -29,6 +29,8 @@ pub struct ServiceInfo {
 /// Overall system status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemStatus {
+    pub network: String,
+    pub bitcoin_network: String,
     pub services: Vec<ServiceInfo>,
     pub block_height: u64,
     pub mempool_size: usize,

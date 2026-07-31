@@ -15,7 +15,7 @@ Include the affected Labcoat version, operating system, reproduction steps, pote
 ## Threat boundaries
 
 - Labcoat downloads and orchestrates several local services. A single CLI entry point does not make those services one process or one trust boundary.
-- The local regtest environment and its default credentials are development conveniences. Do not expose its ports to untrusted networks.
+- Labcoat Network uses Bitcoin regtest and fixed development credentials. It is local/private, not Signet; do not expose its ports to untrusted networks.
 - Labcoat wallet material is for local development. Do not import production seed phrases or fund generated addresses with real bitcoin.
 - The installer requires `sha256sum` or `shasum` and verifies published checksums automatically. Users who need stronger provenance should also verify GitHub artifact attestations.
 - Node.js is required by the local gateway. Dependencies and pinned upstream revisions remain part of the runtime supply-chain boundary.

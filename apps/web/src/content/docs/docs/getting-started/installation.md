@@ -4,7 +4,7 @@ description: Install the Labcoat CLI and its matching managed runtime.
 ---
 
 Labcoat publishes CLI executables for macOS and Linux on arm64 and x86_64.
-Windows is not supported. The managed devnet runtime currently supports macOS
+Windows is not supported. The Labcoat Network runtime currently supports macOS
 arm64 and Linux x86_64.
 
 ## Inspect and install
@@ -125,10 +125,10 @@ data directory before removing that data manually.
 
 ## Runtime and security boundaries
 
-The managed environment consists of one Qubitcoin process with Alkanes and
-Esplorashrew indexer modules. Its unauthenticated regtest RPC endpoint binds to
-loopback. Keep it local and never use production wallet seed phrases with
-Labcoat.
+Labcoat Network consists of one Qubitcoin process with Alkanes and
+Esplorashrew indexer modules. It is local/private and uses an unauthenticated
+Bitcoin regtest RPC endpoint bound to loopback; it is not Signet. Keep it local
+and never use production wallet seed phrases with Labcoat.
 
 Labcoat is early-stage software for local Alkanes development. Interfaces may
 change before 1.0; mainnet deployment controls are not production-ready. Read

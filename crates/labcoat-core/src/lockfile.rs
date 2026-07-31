@@ -68,3 +68,33 @@ pub fn get(dir: &Path, network: &str, contract: &str) -> Option<Deployment> {
         .and_then(|n| n.get(contract))
         .cloned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn labcoat_target_does_not_fall_back_to_regtest_records() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-lockfile-target-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        record(
+            &root,
+            "regtest",
+            "counter",
+            Deployment {
+                alkanes_id: "2:1".to_string(),
+                wasm_sha256: None,
+                txid: "00".repeat(32),
+                block: None,
+                status: "success".to_string(),
+                deployed_at: 0,
+            },
+        )
+        .unwrap();
+
+        assert!(get(&root, "regtest", "counter").is_some());
+        assert!(get(&root, "labcoat", "counter").is_none());
+        std::fs::remove_dir_all(root).ok();
+    }
+}

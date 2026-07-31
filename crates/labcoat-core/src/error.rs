@@ -50,7 +50,7 @@ impl LabcoatError {
         {
             (
                 "RPC_UNREACHABLE",
-                "is the devnet running? try `labcoat up` / `labcoat status`",
+                "is Labcoat Network running? try `labcoat up` / `labcoat status`",
             )
         } else if lower.contains("insufficient") || lower.contains("not enough") {
             (

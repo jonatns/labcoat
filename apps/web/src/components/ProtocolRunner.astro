@@ -23,9 +23,9 @@ const stages = [
     number: '03',
     label: 'up',
     command: 'labcoat up --json',
-    detail: 'Bitcoin regtest stack is ready',
+    detail: 'Labcoat Network is ready on Bitcoin regtest',
     schema: 'labcoat/v1/up',
-    result: '{ "isReady": true, "rpc": ":18443" }',
+    result: '{ "network": "labcoat", "bitcoin_network": "regtest", "is_ready": true }',
   },
   {
     id: 'deploy',
@@ -51,7 +51,7 @@ const stages = [
 <section class="protocol-runner" aria-labelledby="runner-title">
   <div class="runner-bar">
     <div class="runner-lights" aria-hidden="true"><i></i><i></i><i></i></div>
-    <p id="runner-title">LOCAL PROTOCOL / REGTEST</p>
+    <p id="runner-title">LABCOAT NETWORK / LOCAL REGTEST</p>
     <span class="runner-live"><i></i> READY</span>
   </div>
   <div class="runner-body">

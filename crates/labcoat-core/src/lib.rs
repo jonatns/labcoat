@@ -20,7 +20,7 @@ pub mod wallet;
 pub mod workspace;
 
 pub use error::{LabcoatError, Result};
-pub use system::ToolkitConfig;
+pub use system::{NetworkTarget, ToolkitConfig};
 
 // Re-exports from the pinned alkanes-rs for downstream use.
 pub use alkanes_cli_common::provider::ConcreteProvider;

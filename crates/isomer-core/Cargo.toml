@@ -2,7 +2,7 @@
 name = "isomer-core"
 version.workspace = true
 publish = false
-description = "Headless Alkanes devnet engine: binary management, service orchestration, chain control"
+description = "Headless Labcoat Network engine: binary management, service orchestration, chain control"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -110,10 +110,10 @@ pub async fn deploy_in(
 
     if let (Some(id), Some(name)) = (&alkanes_id, &contract_name) {
         use sha2::Digest;
-        let network = config.normalized_network();
+        let network = config.network_id();
         lockfile::record(
             deployment_root,
-            &network,
+            network,
             name,
             lockfile::Deployment {
                 alkanes_id: id.clone(),
@@ -221,8 +221,8 @@ pub async fn trace(
 /// Resolve a contract's alkanes id from the lockfile.
 pub fn resolve_contract(config: &ToolkitConfig, name: &str) -> Result<(u128, u128)> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    let network = config.normalized_network();
-    let dep = lockfile::get(&cwd, &network, name).ok_or_else(|| {
+    let network = config.network_id();
+    let dep = lockfile::get(&cwd, network, name).ok_or_else(|| {
         LabcoatError::new(
             "CONTRACT_NOT_FOUND",
             format!("no deployment of '{}' on {} in labcoat.lock", name, network),

@@ -2,7 +2,7 @@
 //! labcoat_core::toolkit, sharing the CLI's JSON envelope conventions.
 
 use clap::Subcommand;
-use labcoat_core::{toolkit, ToolkitConfig};
+use labcoat_core::{toolkit, NetworkTarget, ToolkitConfig};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -56,10 +56,15 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    pub fn new(network: &str, rpc_url: &str, wallet_file: &str, fee_rate: Option<f32>) -> Self {
+    pub fn new(
+        network: NetworkTarget,
+        rpc_url: &str,
+        wallet_file: &str,
+        fee_rate: Option<f32>,
+    ) -> Self {
         Self {
             config: ToolkitConfig {
-                network: network.to_string(),
+                network,
                 rpc_url: rpc_url.to_string(),
                 wallet_file: PathBuf::from(wallet_file),
                 fee_rate: fee_rate.or(Some(2.0)),
@@ -83,8 +88,8 @@ impl Ctx {
         match std::env::var("LABCOAT_WALLET_PASSPHRASE") {
             Ok(p) if !p.is_empty() => Some(p),
             _ => {
-                if self.config.normalized_network() == "regtest" {
-                    self.warn("LABCOAT_WALLET_PASSPHRASE not set — using the fixed dev passphrase (regtest only)");
+                if self.config.network.uses_regtest() {
+                    self.warn("LABCOAT_WALLET_PASSPHRASE not set — using the fixed development passphrase (Labcoat Network and custom regtest only)");
                     Some("labcoat-dev".to_string())
                 } else {
                     None
@@ -246,7 +251,7 @@ fn named_deployment(
         return None;
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    labcoat_core::lockfile::get(&cwd, &config.normalized_network(), contract)
+    labcoat_core::lockfile::get(&cwd, config.network_id(), contract)
 }
 
 fn local_build_status(
@@ -560,7 +565,8 @@ pub fn deploy_dry_run(
         use sha2::Digest;
         Ok(serde_json::json!({
             "dryRun": true,
-            "network": ctx.config.normalized_network(),
+            "network": ctx.config.network_id(),
+            "bitcoinNetwork": ctx.config.bitcoin_network_id(),
             "package": artifact.package,
             "wasm": artifact.wasm_path.display().to_string(),
             "wasmBytes": bytes.len(),
@@ -679,7 +685,8 @@ pub async fn call_dry_run(
             resolve_invocation(ctx, contract, selector, args, "call").await?;
         Ok(serde_json::json!({
             "dryRun": true,
-            "network": ctx.config.normalized_network(),
+            "network": ctx.config.network_id(),
+            "bitcoinNetwork": ctx.config.bitcoin_network_id(),
             "target": invocation.target,
             "targetRevision": "deployed",
             "selector": selector,

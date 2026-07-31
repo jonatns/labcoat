@@ -7,7 +7,7 @@ test('homepage navigation and interactive protocol runner are keyboard accessibl
   await expect(page.getByRole('link', { name: /Run the quick start/ })).toHaveAttribute('href', '/docs/getting-started/quickstart/');
   await expect(page.getByRole('link', { name: /View source/ })).toHaveAttribute('href', 'https://github.com/jonatns/labcoat');
   await expect(page.getByLabel('Stable release compatibility')).toHaveCount(0);
-  for (const label of ['Scaffold', 'Test', 'Run the devnet', 'Deploy & inspect']) {
+  for (const label of ['Scaffold', 'Test', 'Run Labcoat Network', 'Deploy & inspect']) {
     await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
   }
 
@@ -55,7 +55,7 @@ test('documentation and agent surfaces are published', async ({ page, request })
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
 
-  for (const route of ['/llms.txt', '/llms-full.txt', '/docs/index.md.txt', '/docs/reference/stability/', '/reference/cli.json', '/skill.md', '/install', '/og.svg', '/og.png']) {
+  for (const route of ['/llms.txt', '/llms-full.txt', '/docs/index.md.txt', '/docs/labcoat-network/', '/docs/reference/stability/', '/reference/cli.json', '/skill.md', '/install', '/og.svg', '/og.png']) {
     const response = await request.get(route);
     expect(response.ok(), route).toBeTruthy();
   }

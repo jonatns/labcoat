@@ -7,6 +7,7 @@ JSON errors use stable codes and always include a next-step hint.
 
 | Code | Meaning | First response |
 | --- | --- | --- |
+| `LABCOAT_NETWORK_ERROR` | A Labcoat Network operation failed | Run `labcoat status` and inspect `labcoat logs` |
 | `CONFIG_INVALID` | Project or environment configuration is invalid | Run `labcoat doctor` |
 | `WALLET_MISSING` | No project wallet exists | Run `labcoat wallet init` |
 | `WALLET_LOCKED` | Passphrase is missing or incorrect | Set `LABCOAT_WALLET_PASSPHRASE` |
@@ -17,7 +18,7 @@ JSON errors use stable codes and always include a next-step hint.
 | `TRACE_TIMEOUT` | A decoded trace did not arrive in time | Retry `labcoat trace --wait` |
 | `COMPILE_FAILED` | Rust or Wasm compilation failed | Read stderr and run `labcoat doctor` |
 | `CONTRACT_NOT_FOUND` | Name or ID could not be resolved | Run `labcoat lock show` |
-| `BINARY_CRASH` | A managed devnet process exited | Inspect service logs |
+| `BINARY_CRASH` | A Labcoat Network process exited | Inspect service logs |
 
 Do not parse the human message to branch automation. Branch on `error.code` and
 surface `error.hint` to the operator or agent.

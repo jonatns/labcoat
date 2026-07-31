@@ -1,4 +1,4 @@
-//! The headless devnet facade
+//! The headless Labcoat Network facade
 //!
 //! One handle over binaries, processes, and chain RPC, used by the
 //! `labcoat` CLI and other engine consumers.
@@ -9,19 +9,22 @@ use crate::process_manager::{LogEntry, ProcessManager, ServiceId};
 use crate::state::{ServiceInfo, SystemStatus};
 use std::path::PathBuf;
 
-/// A headless devnet instance.
+pub const NETWORK_ID: &str = "labcoat";
+pub const BITCOIN_NETWORK_ID: &str = "regtest";
+
+/// A headless Labcoat Network instance.
 ///
-/// A `Devnet` is typically short-lived: `labcoat up` starts services that
+/// A `LabcoatNetwork` is typically short-lived: `labcoat up` starts services that
 /// outlive the process, and later invocations observe or control them via
 /// ports, log files, and process names. Construction never kills existing
 /// processes.
-pub struct Devnet {
+pub struct LabcoatNetwork {
     pub config: IsomerConfig,
     process_manager: ProcessManager,
 }
 
-impl Devnet {
-    /// Create a devnet handle with config loaded from disk.
+impl LabcoatNetwork {
+    /// Create a Labcoat Network handle with config loaded from disk.
     pub fn new() -> Self {
         Self::with_config(IsomerConfig::load())
     }
@@ -93,6 +96,8 @@ impl Devnet {
         let is_ready = services.iter().all(|s| s.status == "running");
 
         let mut status = SystemStatus {
+            network: NETWORK_ID.to_string(),
+            bitcoin_network: BITCOIN_NETWORK_ID.to_string(),
             services,
             block_height: 0,
             mempool_size: 0,
@@ -183,13 +188,15 @@ impl Devnet {
         crate::config::get_data_dir().join("snapshots-v2")
     }
 
-    /// Snapshot the devnet data directory under the given name.
-    /// Services must be stopped first (call [`Devnet::stop`]).
+    /// Snapshot the Labcoat Network data directory under the given name.
+    /// Services must be stopped first (call [`LabcoatNetwork::stop`]).
     pub fn snapshot(&mut self, name: &str) -> Result<PathBuf, String> {
         validate_snapshot_name(name)?;
         let src = get_runtime_dir();
         if !src.exists() {
-            return Err("No devnet data to snapshot (data directory is empty)".to_string());
+            return Err(
+                "No Labcoat Network data to snapshot (data directory is empty)".to_string(),
+            );
         }
         let dest = Self::snapshots_dir().join(name);
         if dest.exists() {
@@ -200,8 +207,8 @@ impl Devnet {
         Ok(dest)
     }
 
-    /// Replace the devnet data directory with a snapshot.
-    /// Services are stopped; restart with [`Devnet::start`].
+    /// Replace the Labcoat Network data directory with a snapshot.
+    /// Services are stopped; restart with [`LabcoatNetwork::start`].
     pub fn restore(&mut self, name: &str) -> Result<(), String> {
         validate_snapshot_name(name)?;
         let src = Self::snapshots_dir().join(name);
@@ -233,7 +240,7 @@ impl Devnet {
     }
 }
 
-impl Default for Devnet {
+impl Default for LabcoatNetwork {
     fn default() -> Self {
         Self::new()
     }
@@ -261,7 +268,7 @@ fn copy_dir(src: &PathBuf, dest: &PathBuf) -> std::io::Result<()> {
         } else if ty.is_file() {
             std::fs::copy(entry.path(), &to)?;
         }
-        // symlinks are skipped (none are expected in devnet data dirs)
+        // symlinks are skipped (none are expected in Labcoat Network data dirs)
     }
     Ok(())
 }
@@ -280,10 +287,16 @@ mod tests {
 
     #[test]
     fn endpoint_manifest_exposes_only_qubitcoin() {
-        let endpoints = Devnet::with_config(IsomerConfig::default()).endpoints();
+        let endpoints = LabcoatNetwork::with_config(IsomerConfig::default()).endpoints();
         assert_eq!(
             endpoints,
             serde_json::json!({"qubitcoin_rpc": "http://127.0.0.1:18443"})
         );
+    }
+
+    #[test]
+    fn identity_distinguishes_target_from_bitcoin_mode() {
+        assert_eq!(NETWORK_ID, "labcoat");
+        assert_eq!(BITCOIN_NETWORK_ID, "regtest");
     }
 }

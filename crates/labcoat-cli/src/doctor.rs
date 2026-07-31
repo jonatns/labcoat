@@ -106,13 +106,13 @@ pub async fn run() -> Vec<Check> {
         }
     }
     if busy.is_empty() {
-        checks.push(ok("ports", "all devnet ports are free"));
+        checks.push(ok("ports", "all Labcoat Network ports are free"));
     } else {
-        // Occupied ports are fine when it's our own devnet — report as warn.
+        // Occupied ports are fine when they belong to Labcoat Network — report as warn.
         checks.push(warn(
             "ports",
             format!("in use: {}", busy.join(", ")),
-            "if this isn't a running labcoat devnet, stop the other process or change the devnet ports",
+            "if this isn't Labcoat Network, stop the other process or change the Labcoat Network ports",
         ));
     }
 

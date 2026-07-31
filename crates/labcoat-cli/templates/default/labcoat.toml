@@ -1,4 +1,4 @@
-network = "regtest"
+network = "labcoat"
 rpc_url = "http://127.0.0.1:18443"
 wallet_file = ".labcoat/wallet.json"
 fee_rate = 2.0
