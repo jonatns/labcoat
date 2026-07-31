@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 const FILES: &[(&str, &str)] = &[
     (
         "Cargo.toml",
-        include_str!("../templates/default/Cargo.toml"),
+        include_str!("../templates/default/Cargo.toml.template"),
     ),
     (
         "src/lib.rs",
@@ -13,7 +13,7 @@ const FILES: &[(&str, &str)] = &[
     ),
     (
         "contracts/counter/Cargo.toml",
-        include_str!("../templates/default/contracts/counter/Cargo.toml"),
+        include_str!("../templates/default/contracts/counter/Cargo.toml.template"),
     ),
     (
         "contracts/counter/src/lib.rs",
@@ -32,7 +32,7 @@ const FILES: &[(&str, &str)] = &[
     ("SKILL.md", include_str!("../templates/default/SKILL.md")),
 ];
 
-const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml");
+const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml.template");
 const CONTRACT_SOURCE: &str = include_str!("../templates/contract/src/lib.rs");
 const CONTRACT_TEST: &str = include_str!("../templates/contract/test.rs");
 
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn template_pins_match_the_core_toolchain() {
-        let manifest = include_str!("../templates/default/Cargo.toml");
+        let manifest = include_str!("../templates/default/Cargo.toml.template");
         assert!(manifest.contains(labcoat_core::compile::ALKANES_RS_REV));
         assert!(manifest.contains(
             "metashrew-support = { git = \"https://github.com/kungfuflex/metashrew\", tag = \"v9.0.5-rc.8\" }"
@@ -356,7 +356,7 @@ mod tests {
         assert!(!manifest.contains("sandshrewmetaprotocols/metashrew"));
         assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));
         assert!(manifest.contains("time = { version = \"=0.3.44\""));
-        let contract = include_str!("../templates/default/contracts/counter/Cargo.toml");
+        let contract = include_str!("../templates/default/contracts/counter/Cargo.toml.template");
         assert!(contract.contains("serde_with.workspace = true"));
         assert!(contract.contains("time.workspace = true"));
         let workspace_manifest = include_str!("../../../Cargo.toml");

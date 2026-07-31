@@ -4,6 +4,10 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+### Fixed
+
+- prevent Cargo from parsing scaffold templates as packages and printing placeholder package-name errors during contract builds and deploys
+
 ## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-31
 
 ### Breaking changes

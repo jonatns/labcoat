@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '../..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
@@ -17,6 +17,19 @@ function fail(message) {
 function cargoPackage(path) {
   const source = read(path);
   return source.match(/\[package\]([\s\S]*?)(?=\n\[|$)/)?.[1] ?? '';
+}
+
+function findCargoManifests(directory) {
+  const manifests = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      manifests.push(...findCargoManifests(path));
+    } else if (entry.isFile() && entry.name === 'Cargo.toml') {
+      manifests.push(path);
+    }
+  }
+  return manifests;
 }
 
 function workspaceVersion() {
@@ -39,7 +52,17 @@ function validateCargo() {
     }
   }
 
-  const template = read('crates/labcoat-cli/templates/default/Cargo.toml');
+  const templateManifests = findCargoManifests(
+    resolve(root, 'crates/labcoat-cli/templates'),
+  );
+  if (templateManifests.length > 0) {
+    const paths = templateManifests.map((path) => path.slice(root.length + 1));
+    fail(
+      `scaffold templates must not be named Cargo.toml because Cargo parses Git sources recursively: ${paths.join(', ')}`,
+    );
+  }
+
+  const template = read('crates/labcoat-cli/templates/default/Cargo.toml.template');
   if (!template.includes('labcoat-test = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }')) {
     fail('project template must pin labcoat-test to the matching Labcoat release tag');
   }
