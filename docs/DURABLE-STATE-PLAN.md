@@ -1,6 +1,6 @@
 # Durable state and declarative deployment plan
 
-Status: proposed
+Status: proposed design; not implemented or part of the supported product
 
 ## Summary
 

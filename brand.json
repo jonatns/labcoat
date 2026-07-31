@@ -21,10 +21,5 @@
     "agents": "One interface for developers and agents"
   },
   "maturityNotice": "Early-stage software for local Alkanes development. Interfaces may change before 1.0; mainnet deployment controls are not production-ready.",
-  "docsChannelNotice": "These docs track the current main branch. Run `labcoat docs --llm` for the reference bundled with your installed version.",
-  "stableRelease": {
-    "tag": "cli-v0.1.0",
-    "version": "0.1.0",
-    "compatibilityNotice": "The stable cli-v0.1.0 release uses `labcoat contract new`, `labcoat compile`, and raw-Wasm deployment. The current main branch uses `labcoat new`, `labcoat build`, and package-name deployment."
-  }
+  "docsChannelNotice": "These docs track the current main branch. Run `labcoat docs --llm` for the reference bundled with your installed version."
 }

@@ -11,6 +11,9 @@ pub fn run(package: Option<&str>) -> CmdResult {
     if package.is_some() {
         labcoat_core::workspace::select(&workspace, package).map_err(core_error)?;
     }
+    let _local_harness =
+        labcoat_core::compile::explicit_local_labcoat_test_override(&workspace.root)
+            .map_err(core_error)?;
     let artifact_dir = workspace.root.join(".labcoat/test-artifacts");
     std::fs::create_dir_all(&artifact_dir).map_err(io_error)?;
     let artifacts = labcoat_core::compile::compile_packages(
@@ -27,9 +30,9 @@ pub fn run(package: Option<&str>) -> CmdResult {
             .to_string_lossy()
             .replace('\\', "\\\\")
             .replace('"', "\\\"");
-        command
-            .arg("--config")
-            .arg(format!("patch.crates-io.labcoat-test.path=\"{escaped}\""));
+        command.arg("--config").arg(format!(
+            "patch.'https://github.com/jonatns/labcoat'.labcoat-test.path=\"{escaped}\""
+        ));
     }
     command.arg("test");
     if let Some(package) = package {
@@ -81,11 +84,12 @@ fn core_error(error: labcoat_core::LabcoatError) -> EnvelopeError {
 /// Resolve the unpublished test harness while developing Labcoat from source.
 ///
 /// Release builds normally return `None` because their build checkout no longer
-/// exists, so generated projects resolve the version pinned in Cargo.toml from
-/// crates.io. `LABCOAT_TEST_CRATE_PATH` remains available for CI and packagers.
+/// exists, so generated projects resolve the harness from their matching
+/// `cli-vX.Y.Z` Git tag. `LABCOAT_TEST_CRATE_PATH` remains available for CI and
+/// packagers.
 fn local_labcoat_test_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("LABCOAT_TEST_CRATE_PATH") {
-        return Some(PathBuf::from(path));
+    if std::env::var_os("LABCOAT_TEST_CRATE_PATH").is_some() {
+        return None;
     }
 
     sibling_test_crate(Path::new(env!("CARGO_MANIFEST_DIR")))

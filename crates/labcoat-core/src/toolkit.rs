@@ -50,14 +50,14 @@ pub async fn deploy_in(
                 "{} looks gzipped — deploy wants the raw .wasm (the reveal envelope compresses internally)",
                 wasm_path.display()
             ),
-            "pass the .wasm produced by `labcoat compile`",
+            "pass the .wasm produced by `labcoat build`",
         ));
     }
     let wasm = std::fs::read(wasm_path).map_err(|e| {
         LabcoatError::new(
             "CONFIG_INVALID",
             format!("cannot read {}: {}", wasm_path.display(), e),
-            "run `labcoat compile` first",
+            "run `labcoat build` first",
         )
     })?;
     // A gzip magic check catches renamed files too.
@@ -65,7 +65,7 @@ pub async fn deploy_in(
         return Err(LabcoatError::new(
             "ENVELOPE_INVALID",
             "wasm payload is gzip-compressed; deploy wants the raw .wasm".to_string(),
-            "pass the .wasm produced by `labcoat compile`",
+            "pass the .wasm produced by `labcoat build`",
         ));
     }
 

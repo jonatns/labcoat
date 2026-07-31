@@ -51,11 +51,9 @@ test('brand, agent, release, and generated asset contracts are synchronized', as
   const skillTools = [...generatedBlock.matchAll(/^- `([^`]+)`/gm)].map((match) => match[1]);
   expect(skillTools).toEqual(cliReference.result.mcpTools.map((tool: { name: string }) => tool.name));
 
+  expect(JSON.parse(await readRepo('brand.json'))).not.toHaveProperty('stableRelease');
   for (const file of ['README.md', 'apps/web/src/content/docs/docs/getting-started/installation.md', 'apps/web/src/content/docs/docs/reference/stability.md']) {
-    const source = await readRepo(file);
-    expect(source).toContain('cli-v0.1.0');
-    expect(source).toContain('labcoat compile');
-    expect(source).toContain('labcoat build');
+    expect(await readRepo(file)).not.toContain('Stable versus main');
   }
 
   const metadata = await sharp(path.join(webRoot, 'public/og.png')).metadata();

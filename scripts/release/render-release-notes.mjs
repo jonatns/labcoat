@@ -60,7 +60,7 @@ gh attestation verify ./labcoat-* --repo jonatns/labcoat
 ## Known limitations
 
 - ${maturity}
-- Supported release binaries target macOS and Linux on arm64 and x86_64. Windows is unsupported.
+- CLI executables target macOS and Linux on arm64 and x86_64. The managed devnet runtime supports macOS arm64 and Linux x86_64. Windows is unsupported.
 - The website tracks the current main branch; \`labcoat docs --llm\` is the installed-version reference.
 - The local devnet runs one Qubitcoin process with its two indexers loaded in-process; Docker and Node.js are not runtime prerequisites.
 

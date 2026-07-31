@@ -25,7 +25,7 @@ for (const [key, expected] of Object.entries(requiredStrings)) {
 assert(brand.name === 'Labcoat', 'brand.json name must be Labcoat');
 assert(brand.interfaceName === 'Labcoat CLI', 'brand.json interfaceName must be Labcoat CLI');
 assert(brand.executable === 'labcoat', 'brand.json executable must be labcoat');
-assert(brand.stableRelease?.tag === 'cli-v0.1.0', 'brand.json must identify the current stable release');
+assert(!('stableRelease' in brand), 'brand.json must not duplicate mutable stable release metadata');
 
 const directConsumers = [
   'apps/web/src/pages/index.astro',
@@ -59,18 +59,6 @@ assert(skill.includes(`description: ${brand.description}`), 'canonical skill des
 assert(templateSkill.includes(`description: ${brand.description}`), 'project template skill description must match brand.json');
 assert(normalize(docsOverview).includes(brand.description), 'docs overview must contain the canonical description');
 assert(normalize(docsOverview).includes(brand.maturityNotice), 'docs overview must contain the canonical maturity notice');
-
-const compatibilityFiles = [
-  'README.md',
-  'apps/web/src/content/docs/docs/getting-started/installation.md',
-  'apps/web/src/content/docs/docs/reference/stability.md',
-];
-for (const file of compatibilityFiles) {
-  const source = await read(file);
-  for (const command of ['labcoat contract new', 'labcoat compile', 'labcoat new', 'labcoat build']) {
-    assert(source.includes(command), `${file} must explain stable/main command compatibility (${command})`);
-  }
-}
 
 for (const link of ['SECURITY.md', 'CONTRIBUTING.md']) {
   assert(readme.includes(link), `README.md must link ${link}`);
