@@ -41,7 +41,7 @@ jobs:
       esplorashrew_ref: ${{ steps.release.outputs.esplorashrew_ref }}
       qubitcoin_metashrew_ref: ${{ steps.release.outputs.qubitcoin_metashrew_ref }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
@@ -118,18 +118,18 @@ jobs:
             suffix: darwin-x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.sha }}
       - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ github.token }}
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d8 # stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.86.0
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@v2
       - name: Build and verify CLI version
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
@@ -150,7 +150,7 @@ jobs:
           else
             (cd dist && sha256sum "labcoat-$SUFFIX" > "labcoat-$SUFFIX.sha256")
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: cli-${{ matrix.suffix }}
           path: dist/*
@@ -168,12 +168,12 @@ jobs:
             suffix: linux-x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           repository: ${{ needs.metadata.outputs.qubitcoin_repo }}
           ref: ${{ needs.metadata.outputs.qubitcoin_ref }}
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d8 # stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install build dependencies
         run: ${{ runner.os == 'macOS' && 'brew install protobuf' || 'sudo apt-get update && sudo apt-get install -y clang protobuf-compiler' }}
       - name: Pin Qubitcoin-compatible Metashrew
@@ -182,7 +182,7 @@ jobs:
         run: cargo update -p metashrew-runtime --precise "$METASHREW_REV"
       - run: cargo build --locked --release -p qubitcoind
       - run: cp target/release/qubitcoind qubitcoind-${{ matrix.suffix }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: runtime-qubitcoind-${{ matrix.suffix }}
           path: qubitcoind-${{ matrix.suffix }}
@@ -192,18 +192,18 @@ jobs:
     needs: metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           repository: ${{ needs.metadata.outputs.alkanes_repo }}
           ref: ${{ needs.metadata.outputs.alkanes_ref }}
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d8 # stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y clang protobuf-compiler
       - run: cargo build --locked --release --target wasm32-unknown-unknown --features regtest -p alkanes
       - run: cp target/wasm32-unknown-unknown/release/alkanes.wasm alkanes.wasm
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: runtime-alkanes-wasm
           path: alkanes.wasm
@@ -213,14 +213,14 @@ jobs:
     needs: metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           repository: ${{ needs.metadata.outputs.esplorashrew_repo }}
           ref: ${{ needs.metadata.outputs.esplorashrew_ref }}
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d8 # stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Build Esplorashrew WASM
         env:
@@ -247,7 +247,7 @@ jobs:
             throw new Error(`unexpected Esplorashrew imports: ${actual.join(', ')}`);
           }
           NODE
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: runtime-esplorashrew-wasm
           path: esplorashrew.wasm
@@ -262,10 +262,10 @@ jobs:
       - build-esplorashrew-wasm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.sha }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -286,7 +286,7 @@ jobs:
             --version "$VERSION" \
             --directory dist
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 13
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: labcoat-release-${{ needs.metadata.outputs.version }}
           path: dist/*
@@ -299,18 +299,18 @@ jobs:
       LABCOAT_DATA_HOME: ${{ runner.temp }}/labcoat-data
       LABCOAT_TEST_CRATE_PATH: ${{ github.workspace }}/crates/labcoat-test
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.sha }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@v8
         with:
           name: labcoat-release-${{ needs.metadata.outputs.version }}
           path: dist
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d8 # stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.86.0
           targets: wasm32-wasip1
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y clang protobuf-compiler wasi-libc
       - name: Install the exact local release bundle
         env:
@@ -359,10 +359,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.sha }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@v8
         with:
           name: labcoat-release-${{ needs.metadata.outputs.version }}
           path: dist
@@ -393,7 +393,7 @@ jobs:
             gh release upload "$TAG" dist/* --clobber
           fi
       - name: Attest all Labcoat artifacts
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
       - name: Publish and verify the product release
