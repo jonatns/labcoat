@@ -453,7 +453,10 @@ async fn run(cli: Cli) -> i32 {
             let mut network = LabcoatNetwork::new();
             let progress = output::Progress::new("Preparing Labcoat Network…", !json);
             if !no_download {
-                if let Err(e) = network.ensure_binaries(progress_logger(!json && !ci)).await {
+                if let Err(e) = network
+                    .ensure_binaries(progress.service_logger(!json && !ci))
+                    .await
+                {
                     progress.finish();
                     return output::finish(json, "up", Err(e), output_options);
                 }

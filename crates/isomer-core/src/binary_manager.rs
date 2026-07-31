@@ -299,24 +299,42 @@ impl BinaryManager {
             "https://github.com/{RUNTIME_REPOSITORY}/releases/download/{}",
             Self::release_tag()
         );
-        for (remote_name, asset, local_name) in Self::required_assets(&manifest, &platform)? {
+        let missing_assets = Self::required_assets(&manifest, &platform)?
+            .into_iter()
+            .filter(|(_, asset, local_name)| {
+                let path = get_bin_dir().join(local_name);
+                std::fs::read(path)
+                    .ok()
+                    .is_none_or(|bytes| Self::verify_asset(&bytes, asset, local_name).is_err())
+            })
+            .collect::<Vec<_>>();
+        let asset_count = missing_assets.len();
+        for (asset_index, (remote_name, asset, local_name)) in
+            missing_assets.into_iter().enumerate()
+        {
             let path = get_bin_dir().join(local_name);
-            if std::fs::read(&path)
-                .ok()
-                .is_some_and(|bytes| Self::verify_asset(&bytes, asset, local_name).is_ok())
-            {
-                continue;
-            }
             let callback = progress.clone();
             Self::download_file(
                 &format!("{base}/{remote_name}"),
                 &path,
                 asset,
-                move |value| callback(ServiceId::Qubitcoind, value),
+                move |value| {
+                    callback(
+                        ServiceId::Qubitcoind,
+                        Self::bundle_progress(asset_index, asset_count, value),
+                    )
+                },
             )
             .await?;
         }
         Ok(())
+    }
+
+    fn bundle_progress(asset_index: usize, asset_count: usize, asset_progress: f32) -> f32 {
+        if asset_count == 0 {
+            return 1.0;
+        }
+        (asset_index as f32 + asset_progress.clamp(0.0, 1.0)) / asset_count as f32
     }
 
     pub fn check_all(&self) -> Vec<BinaryInfo> {
@@ -428,10 +446,17 @@ impl BinaryManager {
         })?;
         #[cfg(target_os = "macos")]
         if executable {
-            let _ = std::process::Command::new("codesign")
-                .args(["-s", "-", "-f"])
+            let signature_is_valid = std::process::Command::new("codesign")
+                .args(["--verify", "--strict"])
                 .arg(path)
-                .status();
+                .output()
+                .is_ok_and(|output| output.status.success());
+            if !signature_is_valid {
+                let _ = std::process::Command::new("codesign")
+                    .args(["-s", "-", "-f"])
+                    .arg(path)
+                    .output();
+            }
         }
         Ok(())
     }
@@ -530,6 +555,24 @@ mod tests {
         assert_eq!(assets[1].2, "alkanes.wasm");
         assert_eq!(assets[2].2, "esplorashrew.wasm");
         assert!(BinaryManager::required_assets(&fixture, "linux-arm64").is_err());
+    }
+
+    #[test]
+    fn bundle_progress_is_monotonic_across_runtime_assets() {
+        let updates = [
+            BinaryManager::bundle_progress(0, 3, 0.0),
+            BinaryManager::bundle_progress(0, 3, 0.9),
+            BinaryManager::bundle_progress(0, 3, 1.0),
+            BinaryManager::bundle_progress(1, 3, 0.0),
+            BinaryManager::bundle_progress(1, 3, 0.9),
+            BinaryManager::bundle_progress(1, 3, 1.0),
+            BinaryManager::bundle_progress(2, 3, 0.0),
+            BinaryManager::bundle_progress(2, 3, 0.9),
+            BinaryManager::bundle_progress(2, 3, 1.0),
+        ];
+        assert!(updates.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(updates.first(), Some(&0.0));
+        assert_eq!(updates.last(), Some(&1.0));
     }
 
     #[test]

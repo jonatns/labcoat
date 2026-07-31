@@ -70,6 +70,7 @@ impl Document {
 
 pub struct Progress {
     bar: ProgressBar,
+    message: String,
 }
 
 impl Progress {
@@ -87,7 +88,27 @@ impl Progress {
         );
         bar.set_message(message.to_owned());
         bar.enable_steady_tick(Duration::from_millis(90));
-        Self { bar }
+        Self {
+            bar,
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn service_logger(
+        &self,
+        enabled: bool,
+    ) -> impl Fn(isomer_core::ServiceId, f32) + Send + Clone + 'static {
+        let bar = self.bar.clone();
+        let message = self.message.clone();
+        move |service, progress| {
+            if enabled {
+                bar.set_message(format!(
+                    "{message}  {} {:.0}%",
+                    service.display_name(),
+                    progress.clamp(0.0, 1.0) * 100.0
+                ));
+            }
+        }
     }
 
     pub fn finish(self) {
@@ -1191,6 +1212,17 @@ fn indent(value: &str, depth: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn service_progress_updates_the_spinner_message() {
+        let progress = Progress::new("Preparing Labcoat Network…", false);
+        let logger = progress.service_logger(true);
+        logger(isomer_core::ServiceId::Qubitcoind, 0.5);
+        assert_eq!(
+            progress.bar.message(),
+            "Preparing Labcoat Network…  Qubitcoin 50%"
+        );
+    }
 
     #[test]
     fn simulation_is_concise_and_formats_gas() {
