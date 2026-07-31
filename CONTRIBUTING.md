@@ -51,8 +51,9 @@ Run the narrowest relevant checks while iterating and the complete affected suit
 
 - Keep changes scoped and document user-visible behavior, compatibility impact, and verification performed.
 - Add tests for behavior changes. Preserve keyboard access, reduced-motion handling, and light/dark contrast in web changes.
-- Use Conventional Commit subjects for user-facing changes; the on-demand
-  release PR generates the changelog for review.
+- Use Conventional Commit subjects for user-facing changes and keep the
+  Unreleased changelog section current; the on-demand release PR seals that
+  section under the requested version.
 - Treat CLI commands, JSON envelopes, MCP wire formats, and generated references as compatibility contracts.
 - Do not describe planned mainnet, durable-state, hosted, team, or Windows capabilities as shipped.
 
@@ -60,7 +61,7 @@ Run the narrowest relevant checks while iterating and the complete affected suit
 
 Normal merges never prepare or publish a release. When the product is ready, a
 maintainer manually runs **Prepare Labcoat Release**, reviews its single
-Release-plz PR, and merges that PR to publish the CLI, runtime, and test harness
+release PR, and merges that PR to publish the CLI, runtime, and test harness
 as one `cli-vX.Y.Z` release. Never replace published assets or move an existing
 tag.
 
