@@ -4,6 +4,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-31
+
 ### Breaking changes
 
 - rename the managed local chain and its selector to Labcoat Network / `labcoat`; existing projects must change `network = "regtest"` to `network = "labcoat"`
