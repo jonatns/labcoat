@@ -623,9 +623,15 @@ async fn run(cli: Cli) -> i32 {
         Commands::Binaries { download } => {
             let network = LabcoatNetwork::new();
             if download {
-                if let Err(e) = network.ensure_binaries(progress_logger(!json)).await {
+                let progress = output::Progress::new("Preparing service binaries…", !json);
+                if let Err(e) = network
+                    .ensure_binaries(progress.service_logger(!json))
+                    .await
+                {
+                    progress.finish();
                     return output::finish(json, "binaries", Err(e), output_options);
                 }
+                progress.finish();
             }
             let infos = network.check_binaries();
             output::finish(
@@ -655,17 +661,6 @@ fn validate_labcoat_network_overrides(cli: &Cli) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn progress_logger(enabled: bool) -> impl Fn(isomer_core::ServiceId, f32) + Send + Clone + 'static {
-    move |service, progress| {
-        if enabled
-            && std::io::IsTerminal::is_terminal(&std::io::stderr())
-            && (progress == 0.0 || progress >= 1.0)
-        {
-            eprintln!("  {} {:.0}%", service.display_name(), progress * 100.0);
-        }
-    }
 }
 
 #[cfg(test)]

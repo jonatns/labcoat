@@ -308,12 +308,15 @@ impl BinaryManager {
                     .is_none_or(|bytes| Self::verify_asset(&bytes, asset, local_name).is_err())
             })
             .collect::<Vec<_>>();
-        let asset_count = missing_assets.len();
-        for (asset_index, (remote_name, asset, local_name)) in
-            missing_assets.into_iter().enumerate()
-        {
+        let bundle_size = missing_assets
+            .iter()
+            .map(|(_, asset, _)| asset.size_bytes)
+            .sum();
+        let mut completed_bytes = 0;
+        for (remote_name, asset, local_name) in missing_assets {
             let path = get_bin_dir().join(local_name);
             let callback = progress.clone();
+            let asset_size = asset.size_bytes;
             Self::download_file(
                 &format!("{base}/{remote_name}"),
                 &path,
@@ -321,20 +324,35 @@ impl BinaryManager {
                 move |value| {
                     callback(
                         ServiceId::Qubitcoind,
-                        Self::bundle_progress(asset_index, asset_count, value),
+                        Self::bundle_progress(completed_bytes, bundle_size, asset_size, value),
                     )
                 },
             )
             .await?;
+            completed_bytes += asset_size;
         }
         Ok(())
     }
 
-    fn bundle_progress(asset_index: usize, asset_count: usize, asset_progress: f32) -> f32 {
-        if asset_count == 0 {
+    fn bundle_progress(
+        completed_bytes: u64,
+        bundle_size: u64,
+        asset_size: u64,
+        asset_progress: f32,
+    ) -> f32 {
+        if bundle_size == 0 {
             return 1.0;
         }
-        (asset_index as f32 + asset_progress.clamp(0.0, 1.0)) / asset_count as f32
+        let downloaded_bytes =
+            completed_bytes as f64 + asset_size as f64 * asset_progress.clamp(0.0, 1.0) as f64;
+        (downloaded_bytes / bundle_size as f64).clamp(0.0, 1.0) as f32
+    }
+
+    fn byte_progress(downloaded_bytes: u64, content_length: u64) -> f32 {
+        if content_length == 0 {
+            return 0.0;
+        }
+        (downloaded_bytes as f64 / content_length as f64).clamp(0.0, 1.0) as f32
     }
 
     pub fn check_all(&self) -> Vec<BinaryInfo> {
@@ -379,7 +397,7 @@ impl BinaryManager {
         progress: impl Fn(f32),
     ) -> Result<(), String> {
         progress(0.0);
-        let response = reqwest::get(url)
+        let mut response = reqwest::get(url)
             .await
             .map_err(|error| format!("Download failed for {url}: {error}"))?;
         if !response.status().is_success() {
@@ -388,11 +406,28 @@ impl BinaryManager {
                 response.status()
             ));
         }
-        let bytes = response
-            .bytes()
+        let content_length = response.content_length().unwrap_or(asset.size_bytes);
+        let capacity = usize::try_from(asset.size_bytes)
+            .map_err(|_| format!("Runtime asset is too large for this platform: {url}"))?;
+        let mut bytes = Vec::with_capacity(capacity);
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .map_err(|error| format!("Failed to read {url}: {error}"))?;
-        progress(0.9);
+            .map_err(|error| format!("Failed to read {url}: {error}"))?
+        {
+            let downloaded_bytes = bytes
+                .len()
+                .checked_add(chunk.len())
+                .ok_or_else(|| format!("Runtime asset is too large for this platform: {url}"))?;
+            if downloaded_bytes as u64 > asset.size_bytes {
+                return Err(format!(
+                    "Runtime size mismatch for {url}: expected {}, got more than {}",
+                    asset.size_bytes, asset.size_bytes
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+            progress(Self::byte_progress(downloaded_bytes as u64, content_length));
+        }
         Self::verify_asset(&bytes, asset, url)?;
         Self::write_atomic(path, &bytes, asset.executable)?;
         progress(1.0);
@@ -560,19 +595,28 @@ mod tests {
     #[test]
     fn bundle_progress_is_monotonic_across_runtime_assets() {
         let updates = [
-            BinaryManager::bundle_progress(0, 3, 0.0),
-            BinaryManager::bundle_progress(0, 3, 0.9),
-            BinaryManager::bundle_progress(0, 3, 1.0),
-            BinaryManager::bundle_progress(1, 3, 0.0),
-            BinaryManager::bundle_progress(1, 3, 0.9),
-            BinaryManager::bundle_progress(1, 3, 1.0),
-            BinaryManager::bundle_progress(2, 3, 0.0),
-            BinaryManager::bundle_progress(2, 3, 0.9),
-            BinaryManager::bundle_progress(2, 3, 1.0),
+            BinaryManager::bundle_progress(0, 100, 80, 0.0),
+            BinaryManager::bundle_progress(0, 100, 80, 0.5),
+            BinaryManager::bundle_progress(0, 100, 80, 1.0),
+            BinaryManager::bundle_progress(80, 100, 10, 0.0),
+            BinaryManager::bundle_progress(80, 100, 10, 0.5),
+            BinaryManager::bundle_progress(80, 100, 10, 1.0),
+            BinaryManager::bundle_progress(90, 100, 10, 0.0),
+            BinaryManager::bundle_progress(90, 100, 10, 0.5),
+            BinaryManager::bundle_progress(90, 100, 10, 1.0),
         ];
         assert!(updates.windows(2).all(|pair| pair[0] <= pair[1]));
         assert_eq!(updates.first(), Some(&0.0));
         assert_eq!(updates.last(), Some(&1.0));
+    }
+
+    #[test]
+    fn byte_progress_uses_content_length_and_clamps_overflow() {
+        assert_eq!(BinaryManager::byte_progress(0, 100), 0.0);
+        assert_eq!(BinaryManager::byte_progress(25, 100), 0.25);
+        assert_eq!(BinaryManager::byte_progress(100, 100), 1.0);
+        assert_eq!(BinaryManager::byte_progress(125, 100), 1.0);
+        assert_eq!(BinaryManager::byte_progress(25, 0), 0.0);
     }
 
     #[test]
