@@ -2,6 +2,11 @@ name: Prepare Labcoat Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Next Labcoat version (for example, 0.2.0)
+        type: string
+        required: true
 
 concurrency:
   group: release-pr-main
@@ -20,36 +25,33 @@ jobs:
           fetch-depth: 0
       - name: Validate release metadata
         run: node scripts/release/validate-release.mjs
-      - name: Prepare or update release PR
-        id: release-plz
-        uses: release-plz/action@v0.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          command: release-pr
-          config: release-plz.toml
-      - name: Refresh generated CLI reference in release PR
+      - name: Prepare release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR: ${{ steps.release-plz.outputs.pr }}
+          VERSION: ${{ inputs.version }}
         run: |
-          pr_number=$(jq -r '.number // empty' <<<"$RELEASE_PR")
-          if [ -z "$pr_number" ]; then
-            echo "No release PR to refresh"
-            exit 0
-          fi
-          gh pr checkout "$pr_number"
+          branch="release-plz-$VERSION-$GITHUB_RUN_ID"
+          git switch -c "$branch"
+          node scripts/release/prepare-release.mjs --version "$VERSION"
+          cargo update --workspace
+          node scripts/release/validate-release.mjs
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
           cargo build --locked -p labcoat-cli
           node apps/web/scripts/sync-reference.mjs --bin ./target/debug/labcoat
-          generated_files=(
-            apps/web/src/content/docs/docs/reference/cli.md
-            apps/web/src/generated/cli-reference.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            Cargo.toml \
+            Cargo.lock \
+            CHANGELOG.md \
+            apps/web/src/content/docs/docs/reference/cli.md \
+            apps/web/src/generated/cli-reference.json \
             skills/SKILL.md
-          )
-          if git diff --quiet -- "${generated_files[@]}"; then
-            echo "Generated CLI reference is current"
-            exit 0
-          fi
-          git add -- "${generated_files[@]}"
-          git commit -m "chore: refresh generated CLI reference"
-          git push
+          git commit -m "chore: release Labcoat v$VERSION"
+          git push --set-upstream origin "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: release Labcoat v$VERSION" \
+            --body "Prepare the complete Labcoat v$VERSION product release." \
+            --label release

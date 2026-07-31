@@ -18,9 +18,9 @@ required.
 Normal merges to `main` do not create or update a release PR.
 
 1. Open **Actions → Prepare Labcoat Release**.
-2. Run the workflow from `main`.
+2. Run the workflow from `main` and enter the next SemVer version.
 3. Review the generated `release-plz-*` PR:
-   - confirm the SemVer inferred from Conventional Commits;
+   - confirm the requested SemVer and generated changelog heading;
    - edit the generated `CHANGELOG.md` section if user-facing context is
      missing;
    - confirm the generated CLI and MCP reference changes;
@@ -28,9 +28,7 @@ Normal merges to `main` do not create or update a release PR.
 4. Merge the release PR when the product is ready. The merge is the publication
    approval.
 
-If there are no releasable changes, Release-plz does not create a PR. Re-running
-the preparation workflow updates the existing release PR instead of opening
-another one.
+Do not run the preparation workflow while another release PR is open.
 
 ## What publication does
 
