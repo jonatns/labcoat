@@ -2,7 +2,7 @@
   "name": "@labcoat/web",
   "version": "0.1.0",
   "private": true,
-  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.",
+  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.",
   "type": "module",
   "scripts": {
     "dev": "astro dev",

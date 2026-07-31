@@ -239,6 +239,9 @@ mod tests {
         assert_eq!(result["template"], "default");
         assert_eq!(result["contract"], "counter");
         assert!(root.join("labcoat.toml").exists());
+        assert!(std::fs::read_to_string(root.join("labcoat.toml"))
+            .unwrap()
+            .contains("network = \"labcoat\""));
         assert!(root.join("contracts/counter/Cargo.toml").exists());
         assert!(root.join("contracts/counter/src/lib.rs").exists());
         assert!(!root.join("crates").exists());

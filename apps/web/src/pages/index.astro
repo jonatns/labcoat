@@ -85,7 +85,7 @@ const softwareSchema = {
         </section>
 
         <section class="signal-strip" aria-label="Labcoat capabilities">
-          <p>RUST-NATIVE CLI</p><i></i><p>NATIVE WASM TESTS</p><i></i><p>MANAGED REGTEST</p><i></i><p>JSON + MCP</p><i></i><p>ONE COMMAND SYSTEM</p>
+          <p>RUST-NATIVE CLI</p><i></i><p>NATIVE WASM TESTS</p><i></i><p>LABCOAT NETWORK</p><i></i><p>JSON + MCP</p><i></i><p>ONE COMMAND SYSTEM</p>
         </section>
 
         <section class="section workflow-section" id="workflow" aria-labelledby="workflow-title">
@@ -97,14 +97,14 @@ const softwareSchema = {
           <ol class="workflow-grid">
             <li><span>01</span><div class="workflow-icon"><Icon name="scaffold" /></div><h3>Scaffold</h3><p>Create a Rust contract project with tests, configuration, and agent instructions included.</p><code>labcoat init</code></li>
             <li><span>02</span><div class="workflow-icon"><Icon name="test" /></div><h3>Test</h3><p>Compile WASIp1 and run native integration tests before touching a chain.</p><code>labcoat test</code></li>
-            <li><span>03</span><div class="workflow-icon"><Icon name="devnet" /></div><h3>Run the devnet</h3><p>Start Qubitcoin with its in-process Alkanes and Esplora indexes.</p><code>labcoat up</code></li>
+            <li><span>03</span><div class="workflow-icon"><Icon name="network" /></div><h3>Run Labcoat Network</h3><p>Start the local/private Bitcoin regtest stack with its Alkanes and Esplora indexes.</p><code>labcoat up</code></li>
             <li><span>04</span><div class="workflow-icon"><Icon name="deploy" /></div><h3>Deploy &amp; inspect</h3><p>Deploy by package name, call opcodes, simulate reads, and decode traces.</p><code>labcoat deploy</code></li>
           </ol>
         </section>
 
         <section class="section stack-section" aria-labelledby="stack-title">
           <div class="stack-visual" aria-label="Labcoat local development stack">
-            <div class="stack-topline"><span>LABCOAT DEVNET</span><span class="status-dot">SYSTEM READY</span></div>
+            <div class="stack-topline"><span>LABCOAT NETWORK</span><span class="status-dot">SYSTEM READY</span></div>
             <div class="stack-gateway">
               <span>QUBITCOIN RPC</span><strong>127.0.0.1:18443</strong>
             </div>
@@ -119,14 +119,14 @@ const softwareSchema = {
           <div class="stack-copy">
             <p class="eyebrow"><span></span> 02 / COMPLETE ENVIRONMENT</p>
             <h2 id="stack-title">The chain is part<br />of the tool.</h2>
-            <p>No hand-wired ports. Labcoat downloads the exact Qubitcoin executable and indexer modules for your CLI release, starts one local process, waits for readiness, and reports exactly what failed.</p>
+            <p>Labcoat Network is local, private, and resettable. It runs Bitcoin regtest under the hood—not Signet—with the exact Qubitcoin executable and indexer modules for your CLI release.</p>
             <ul>
               <li><Icon name="check" size={18} /> Deterministic service versions</li>
               <li><Icon name="check" size={18} /> Built-in wallet and faucet</li>
               <li><Icon name="check" size={18} /> Snapshots and instant resets</li>
               <li><Icon name="check" size={18} /> Service-level health and logs</li>
             </ul>
-            <a class="text-link" href="/docs/devnet-wallets/">Explore the local devnet <span aria-hidden="true">→</span></a>
+            <a class="text-link" href="/docs/labcoat-network/">Explore Labcoat Network <span aria-hidden="true">→</span></a>
           </div>
         </section>
 
@@ -157,7 +157,7 @@ const softwareSchema = {
                 <strong>CLI CORE</strong><span>JSON</span><span>MCP</span><span>DOCS</span><span>AGENTS</span>
               </div>
               <h3>Structured tools, not shell guesses.</h3>
-              <p>Expose devnet, wallet, build, deploy, call, simulate, and trace operations over Model Context Protocol.</p>
+              <p>Expose Labcoat Network, wallet, build, deploy, call, simulate, and trace operations over Model Context Protocol.</p>
               <code class="card-command">labcoat mcp serve</code>
             </article>
             <article class="agent-card">

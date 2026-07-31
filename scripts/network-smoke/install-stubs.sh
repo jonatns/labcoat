@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install protocol stubs into the Labcoat runtime bin dir so `labcoat up
-# --no-download` can exercise orchestration without downloading Qubitcoin.
+# --no-download` can exercise Labcoat Network without downloading Qubitcoin.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

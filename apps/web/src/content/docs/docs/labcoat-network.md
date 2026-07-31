@@ -1,7 +1,10 @@
 ---
-title: Devnet and wallets
-description: Operate the managed local Qubitcoin devnet and project wallet.
+title: Labcoat Network and wallets
+description: Operate Labcoat Network and the project wallet.
 ---
+
+Labcoat Network is Labcoat's local, private, resettable Alkanes network. It
+runs Bitcoin regtest under the hood. It is not Signet.
 
 `labcoat up` downloads the Qubitcoin executable and its Alkanes and Esplora
 WASM modules from the installed CLI's exact `cli-vX.Y.Z` release, then starts
@@ -15,7 +18,7 @@ selects a new versioned bundle.
 
 | Service | Purpose |
 | --- | --- |
-| qubitcoind | Regtest chain plus in-process Alkanes and Esplora indexes; RPC on port 18443 |
+| qubitcoind | Bitcoin regtest chain plus in-process Alkanes and Esplora indexes; RPC on port 18443 |
 
 ## Operate the local services
 
@@ -28,8 +31,9 @@ labcoat restore clean
 labcoat down
 ```
 
-Only one Labcoat devnet should run per machine. `status` reports `qubitcoind`,
-chain height, mempool size, and overall readiness.
+Only one Labcoat Network should run per machine. `status` reports its
+`labcoat` identity, underlying Bitcoin `regtest` mode, `qubitcoind`, chain
+height, mempool size, and overall readiness.
 
 ## Wallet workflow
 
@@ -48,3 +52,12 @@ primary address for Alkanes operations.
 
 `labcoat reset -y` stops Qubitcoin and permanently removes v2 chain, index, and
 faucet data. Legacy runtime data and snapshots are left untouched.
+
+## Migrating an existing project
+
+Change `network = "regtest"` to `network = "labcoat"` in `labcoat.toml`.
+Labcoat does not migrate `networks.regtest` records in `labcoat.lock`; redeploy
+contracts so they are recorded under `networks.labcoat`. Only rename the
+lockfile key manually when you are intentionally preserving the exact same
+local chain state. Existing wallets, snapshots, and runtime data remain
+compatible.

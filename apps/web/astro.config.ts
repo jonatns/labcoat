@@ -49,7 +49,7 @@ export default defineConfig({
           label: 'Build with Labcoat',
           items: [
             { label: 'Projects & configuration', slug: 'docs/projects-configuration' },
-            { label: 'Devnet & wallets', slug: 'docs/devnet-wallets' },
+            { label: 'Labcoat Network & wallets', slug: 'docs/labcoat-network' },
             { label: 'Contracts', slug: 'docs/contracts' },
             { label: 'Automation & agents', slug: 'docs/automation' },
           ],

@@ -6,6 +6,11 @@ use serde_json::Value;
 
 const ERROR_CODES: &[(&str, &str, &str)] = &[
     (
+        "LABCOAT_NETWORK_ERROR",
+        "a Labcoat Network operation failed",
+        "run `labcoat status` and inspect `labcoat logs`",
+    ),
+    (
         "CONFIG_INVALID",
         "configuration is invalid",
         "run `labcoat doctor`",
@@ -77,7 +82,7 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     ),
     (
         "BINARY_CRASH",
-        "a managed devnet service exited",
+        "a Labcoat Network service exited",
         "inspect `labcoat logs`",
     ),
 ];
@@ -141,7 +146,7 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
 
     AgentReference {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        description: "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.".into(),
+        description: "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.".into(),
         install: "curl -fsSL https://labcoat.sh/install | sh".into(),
         core_loop: vec![
             "labcoat init my-project".into(),

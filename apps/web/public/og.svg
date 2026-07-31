@@ -21,7 +21,7 @@
   </g>
   <text x="148" y="105" class="mono" fill="#F4F8F2" font-size="24" font-weight="600" letter-spacing="4">LABCOAT</text>
   <text x="72" y="220" class="sans" fill="#F4F8F2" font-size="72" font-weight="620" letter-spacing="-2.5"><tspan x="72">From Rust source</tspan><tspan x="72" dy="78">to decoded trace.</tspan></text>
-  <text x="72" y="365" class="sans" fill="#AEB9AE" font-size="25" font-weight="400"><tspan x="72" dy="0">Labcoat is the Rust-native CLI for building, testing, and operating</tspan><tspan x="72" dy="36">Alkanes smart contracts with a complete local Bitcoin devnet.</tspan></text>
+  <text x="72" y="365" class="sans" fill="#AEB9AE" font-size="25" font-weight="400"><tspan x="72" dy="0">Labcoat is the Rust-native CLI for building, testing, and operating</tspan><tspan x="72" dy="36">Alkanes smart contracts on Labcoat Network, a managed local Bitcoin</tspan><tspan x="72" dy="36">regtest.</tspan></text>
   <g transform="translate(72 450)">
     <rect width="440" height="60" fill="#151C17" stroke="#354338"/>
     <text x="22" y="38" class="mono" fill="#B8FF65" font-size="18">$</text>
@@ -33,5 +33,5 @@
     <path d="m22 158 42-38 34 26 30-28 30 40" stroke="#B8FF65" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <title>From Rust source to decoded trace.</title>
-  <desc>Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.</desc>
+  <desc>Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.</desc>
 </svg>

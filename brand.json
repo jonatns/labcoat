@@ -3,13 +3,19 @@
   "name": "Labcoat",
   "interfaceName": "Labcoat CLI",
   "executable": "labcoat",
+  "localNetwork": {
+    "name": "Labcoat Network",
+    "selector": "labcoat",
+    "bitcoinNetwork": "regtest",
+    "scope": "local/private"
+  },
   "domain": "labcoat.sh",
   "category": "Rust-native Alkanes development CLI and local environment",
   "tagline": "From Rust source to decoded trace.",
-  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet.",
-  "repositoryDescription": "Rust-native CLI for building, testing, deploying, and inspecting Alkanes smart contracts with a complete local Bitcoin devnet.",
+  "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.",
+  "repositoryDescription": "Rust-native CLI for building, testing, deploying, and inspecting Alkanes smart contracts on Labcoat Network.",
   "metaTitle": "Labcoat — Rust-native Alkanes development",
-  "metaDescription": "Build, test, deploy, simulate, and trace Alkanes smart contracts with one CLI and a managed local Bitcoin devnet.",
+  "metaDescription": "Build, test, deploy, simulate, and trace Alkanes smart contracts with one CLI and Labcoat Network, a managed local Bitcoin regtest.",
   "socialHeadline": "From Rust source to decoded trace.",
   "ctas": {
     "primary": "Run the quick start",

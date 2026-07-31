@@ -4,6 +4,13 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+### Breaking changes
+
+- rename the managed local chain and its selector to Labcoat Network / `labcoat`; existing projects must change `network = "regtest"` to `network = "labcoat"`
+- keep `regtest` only for custom regtest RPC endpoints; the default Labcoat endpoint now rejects that selector
+- record new local deployments under `networks.labcoat`; existing `networks.regtest` records are not migrated or read automatically, so redeploy or deliberately rename the key only when preserving the exact same local chain
+- replace the Rust `Devnet` API with `LabcoatNetwork`, MCP `devnet_*` tools with `network_*`, and `DEVNET_ERROR` with `LABCOAT_NETWORK_ERROR`, without compatibility aliases
+
 ### Changed
 
 - replace raw successful-command JSON dumps with concise, color-aware human output

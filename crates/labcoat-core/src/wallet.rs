@@ -12,6 +12,7 @@ use serde::Serialize;
 pub struct WalletInitResult {
     pub address: String,
     pub network: String,
+    pub bitcoin_network: String,
     pub wallet_file: String,
     pub created: bool,
     /// Present only when a mnemonic was generated (not supplied) — the one
@@ -45,7 +46,7 @@ pub struct WalletUtxo {
 }
 
 fn wallet_config(config: &ToolkitConfig) -> WalletConfig {
-    let network = match config.normalized_network().as_str() {
+    let network = match config.bitcoin_network_id() {
         "mainnet" => bitcoin::Network::Bitcoin,
         "testnet" => bitcoin::Network::Testnet,
         "signet" => bitcoin::Network::Signet,
@@ -78,7 +79,8 @@ pub async fn init(
             .map_err(|e| LabcoatError::classify(e.into()))?;
         return Ok(WalletInitResult {
             address: info.address,
-            network: config.normalized_network(),
+            network: config.network_id().to_string(),
+            bitcoin_network: config.bitcoin_network_id().to_string(),
             wallet_file: config.wallet_file.display().to_string(),
             created: false,
             mnemonic: None,
@@ -130,7 +132,8 @@ pub async fn init(
 
     Ok(WalletInitResult {
         address: info.address,
-        network: config.normalized_network(),
+        network: config.network_id().to_string(),
+        bitcoin_network: config.bitcoin_network_id().to_string(),
         wallet_file: config.wallet_file.display().to_string(),
         created: true,
         mnemonic: if generated { info.mnemonic } else { None },
@@ -191,4 +194,17 @@ pub async fn utxos(provider: &ConcreteProvider) -> Result<Vec<WalletUtxo>> {
             is_coinbase: info.is_coinbase,
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn labcoat_wallet_uses_regtest_address_parameters() {
+        let config = ToolkitConfig::default();
+        let wallet = wallet_config(&config);
+        assert_eq!(config.network_id(), "labcoat");
+        assert_eq!(wallet.network, bitcoin::Network::Regtest);
+    }
 }

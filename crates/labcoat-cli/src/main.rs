@@ -1,6 +1,6 @@
 //! `labcoat` — the Alkanes toolkit CLI.
 //!
-//! Devnet verbs (up, down, status, mine, fund, logs, reset, snapshot,
+//! Labcoat Network verbs (up, down, status, mine, fund, logs, reset, snapshot,
 //! restore, binaries) + contract ops (wallet, build, deploy, call,
 //! simulate, trace, lock) on the pinned alkanes-rs main commit.
 
@@ -15,13 +15,13 @@ mod test_command;
 mod trace_view;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use isomer_core::Devnet;
+use isomer_core::LabcoatNetwork;
 
 #[derive(Parser)]
 #[command(
     name = "labcoat",
     version,
-    about = "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts with a complete local Bitcoin devnet."
+    about = "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest."
 )]
 struct Cli {
     /// Emit a machine-readable JSON envelope on stdout
@@ -36,11 +36,11 @@ struct Cli {
     #[arg(long, global = true, value_enum, default_value_t)]
     color: output::ColorMode,
 
-    /// Network: regtest | signet | testnet | mainnet
+    /// Network: labcoat | regtest | signet | testnet | mainnet
     #[arg(long, global = true)]
     network: Option<String>,
 
-    /// Unified JSON-RPC endpoint (defaults to the local devnet gateway)
+    /// Unified JSON-RPC endpoint (defaults to Labcoat Network)
     #[arg(long, global = true)]
     rpc_url: Option<String>,
 
@@ -73,7 +73,7 @@ enum Commands {
         /// Optional Cargo contract package whose host test should run
         package: Option<String>,
     },
-    /// Prepare this CLI release's exact runtime bundle and boot the devnet
+    /// Prepare this CLI release's exact runtime bundle and boot Labcoat Network
     Up {
         /// Skip runtime bundle verification and download
         #[arg(long)]
@@ -84,11 +84,11 @@ enum Commands {
         #[arg(long)]
         ci: bool,
     },
-    /// Stop all devnet services
+    /// Stop all Labcoat Network services
     Down,
-    /// Show devnet status (services, block height, mempool)
+    /// Show Labcoat Network status (services, block height, mempool)
     Status,
-    /// Mine blocks on the devnet
+    /// Mine blocks on Labcoat Network
     Mine {
         /// Number of blocks
         #[arg(default_value_t = 1)]
@@ -119,14 +119,14 @@ enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
-    /// Snapshot the devnet data directory (stops services first)
+    /// Snapshot the Labcoat Network data directory (stops services first)
     Snapshot {
         name: Option<String>,
         /// List existing snapshots
         #[arg(long)]
         list: bool,
     },
-    /// Restore a devnet snapshot (stops services first)
+    /// Restore a Labcoat Network snapshot (stops services first)
     Restore { name: String },
     /// Inspect (and with --download, repair) this CLI release's runtime bundle
     Binaries {
@@ -213,6 +213,24 @@ enum Commands {
     Doctor,
 }
 
+impl Commands {
+    fn labcoat_network_command_name(&self) -> Option<&'static str> {
+        match self {
+            Self::Up { .. } => Some("up"),
+            Self::Down => Some("down"),
+            Self::Status => Some("status"),
+            Self::Mine { .. } => Some("mine"),
+            Self::Fund { .. } => Some("fund"),
+            Self::Logs { .. } => Some("logs"),
+            Self::Reset { .. } => Some("reset"),
+            Self::Snapshot { .. } => Some("snapshot"),
+            Self::Restore { .. } => Some("restore"),
+            Self::Binaries { .. } => Some("binaries"),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum McpCmd {
     /// Serve MCP over stdio (newline-delimited JSON-RPC)
@@ -260,12 +278,29 @@ async fn run(cli: Cli) -> i32 {
     if let Commands::New { name } = &cli.command {
         return output::finish_contract(json, "new", project::new_contract(name), output_options);
     }
-    let resolved = match settings::resolve(settings::Overrides {
-        network: cli.network.as_deref(),
-        rpc_url: cli.rpc_url.as_deref(),
-        wallet_file: cli.wallet_file.as_deref(),
-        fee_rate: cli.fee_rate,
-    }) {
+    let labcoat_network_command = cli.command.labcoat_network_command_name();
+    if let Err(message) = validate_labcoat_network_overrides(&cli) {
+        return output::finish_contract(
+            json,
+            "config",
+            Err(contract::EnvelopeError {
+                code: "CONFIG_INVALID",
+                message,
+                hint: "use contract and wallet commands for external network targets",
+            }),
+            output_options,
+        );
+    }
+    let resolved = match if labcoat_network_command.is_some() {
+        Ok(settings::labcoat_network())
+    } else {
+        settings::resolve(settings::Overrides {
+            network: cli.network.as_deref(),
+            rpc_url: cli.rpc_url.as_deref(),
+            wallet_file: cli.wallet_file.as_deref(),
+            fee_rate: cli.fee_rate,
+        })
+    } {
         Ok(settings) => settings,
         Err(message) => {
             return output::finish_contract(
@@ -282,7 +317,7 @@ async fn run(cli: Cli) -> i32 {
     };
     let wallet_file = resolved.wallet_file.to_string_lossy();
     let ctx = contract::Ctx::new(
-        &resolved.network,
+        resolved.network,
         &resolved.rpc_url,
         &wallet_file,
         resolved.fee_rate,
@@ -415,25 +450,25 @@ async fn run(cli: Cli) -> i32 {
             }
         }
         Commands::Up { no_download, ci } => {
-            let mut devnet = Devnet::new();
-            let progress = output::Progress::new("Preparing devnet services…", !json);
+            let mut network = LabcoatNetwork::new();
+            let progress = output::Progress::new("Preparing Labcoat Network…", !json);
             if !no_download {
-                if let Err(e) = devnet.ensure_binaries(progress_logger(!json && !ci)).await {
+                if let Err(e) = network.ensure_binaries(progress_logger(!json && !ci)).await {
                     progress.finish();
                     return output::finish(json, "up", Err(e), output_options);
                 }
             }
-            if let Err(e) = devnet.start() {
+            if let Err(e) = network.start() {
                 progress.finish();
                 return output::finish(json, "up", Err(e), output_options);
             }
-            let mut status = devnet.status().await;
+            let mut status = network.status().await;
             if ci {
                 // Bounded readiness wait so CI can `labcoat up --ci && test`.
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
                 while !status.is_ready && std::time::Instant::now() < deadline {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    status = devnet.status().await;
+                    status = network.status().await;
                 }
                 if !status.is_ready {
                     let not_ready: Vec<String> = status
@@ -442,23 +477,23 @@ async fn run(cli: Cli) -> i32 {
                         .filter(|s| s.status != "running")
                         .map(|s| s.id.clone())
                         .collect();
-                    std::mem::forget(devnet);
+                    std::mem::forget(network);
                     progress.finish();
                     return output::finish(
                         json,
                         "up",
                         Err(format!(
-                            "devnet not ready after 120s; still down: {}",
+                            "Labcoat Network not ready after 120s; still down: {}",
                             not_ready.join(", ")
                         )),
                         output_options,
                     );
                 }
             }
-            let endpoints = devnet.endpoints();
+            let endpoints = network.endpoints();
             // The stack must outlive this process: dropping the handle
             // would stop the children it spawned.
-            std::mem::forget(devnet);
+            std::mem::forget(network);
             progress.finish();
             let payload = serde_json::json!({
                 "status": status,
@@ -471,15 +506,19 @@ async fn run(cli: Cli) -> i32 {
             }
         }
         Commands::Down => {
-            let mut devnet = Devnet::new();
-            let res = devnet
-                .stop()
-                .map(|_| serde_json::json!({ "stopped": true }));
+            let mut network = LabcoatNetwork::new();
+            let res = network.stop().map(|_| {
+                serde_json::json!({
+                    "network": "labcoat",
+                    "bitcoin_network": "regtest",
+                    "stopped": true
+                })
+            });
             output::finish(json, "down", res, output_options)
         }
         Commands::Status => {
-            let mut devnet = Devnet::new();
-            let status = devnet.status().await;
+            let mut network = LabcoatNetwork::new();
+            let status = network.status().await;
             output::finish(
                 json,
                 "status",
@@ -488,24 +527,31 @@ async fn run(cli: Cli) -> i32 {
             )
         }
         Commands::Mine { count, address } => {
-            let devnet = Devnet::new();
-            let res = devnet
-                .mine(count, address)
-                .await
-                .map(|height| serde_json::json!({ "mined": count, "height": height }));
+            let network = LabcoatNetwork::new();
+            let res = network.mine(count, address).await.map(|height| {
+                serde_json::json!({
+                    "network": "labcoat",
+                    "bitcoin_network": "regtest",
+                    "mined": count,
+                    "height": height
+                })
+            });
             output::finish(json, "mine", res, output_options)
         }
         Commands::Fund { address, amount } => {
-            let devnet = Devnet::new();
-            let res = devnet
-                .fund(&address, amount)
-                .await
-                .map(|txid| serde_json::json!({ "txid": txid }));
+            let network = LabcoatNetwork::new();
+            let res = network.fund(&address, amount).await.map(|txid| {
+                serde_json::json!({
+                    "network": "labcoat",
+                    "bitcoin_network": "regtest",
+                    "txid": txid
+                })
+            });
             output::finish(json, "fund", res, output_options)
         }
         Commands::Logs { service, limit } => {
-            let devnet = Devnet::new();
-            let logs = devnet.logs(service, limit);
+            let network = LabcoatNetwork::new();
+            let logs = network.logs(service, limit);
             output::finish(
                 json,
                 "logs",
@@ -515,7 +561,7 @@ async fn run(cli: Cli) -> i32 {
         }
         Commands::Reset { yes } => {
             if !yes && !json {
-                eprint!("This wipes all devnet chain data. Continue? [y/N] ");
+                eprint!("This wipes all Labcoat Network chain data. Continue? [y/N] ");
                 use std::io::BufRead;
                 let mut line = String::new();
                 let _ = std::io::stdin().lock().read_line(&mut line);
@@ -524,42 +570,61 @@ async fn run(cli: Cli) -> i32 {
                     return 1;
                 }
             }
-            let mut devnet = Devnet::new();
-            let res = devnet.reset().map(|_| serde_json::json!({ "reset": true }));
+            let mut network = LabcoatNetwork::new();
+            let res = network.reset().map(|_| {
+                serde_json::json!({
+                    "network": "labcoat",
+                    "bitcoin_network": "regtest",
+                    "reset": true
+                })
+            });
             output::finish(json, "reset", res, output_options)
         }
         Commands::Snapshot { name, list } => {
-            let mut devnet = Devnet::new();
+            let mut network = LabcoatNetwork::new();
             if list || name.is_none() {
-                let names = devnet.snapshots();
+                let names = network.snapshots();
                 return output::finish(
                     json,
                     "snapshot",
-                    Ok(serde_json::json!({ "snapshots": names })),
+                    Ok(serde_json::json!({
+                        "network": "labcoat",
+                        "bitcoin_network": "regtest",
+                        "snapshots": names
+                    })),
                     output_options,
                 );
             }
             let name = name.unwrap();
-            let res = devnet
-                .snapshot(&name)
-                .map(|path| serde_json::json!({ "snapshot": name, "path": path }));
+            let res = network.snapshot(&name).map(|path| {
+                serde_json::json!({
+                    "network": "labcoat",
+                    "bitcoin_network": "regtest",
+                    "snapshot": name,
+                    "path": path
+                })
+            });
             output::finish(json, "snapshot", res, output_options)
         }
         Commands::Restore { name } => {
-            let mut devnet = Devnet::new();
-            let res = devnet
-                .restore(&name)
-                .map(|_| serde_json::json!({ "restored": name }));
+            let mut network = LabcoatNetwork::new();
+            let res = network.restore(&name).map(|_| {
+                serde_json::json!({
+                    "network": "labcoat",
+                    "bitcoin_network": "regtest",
+                    "restored": name
+                })
+            });
             output::finish(json, "restore", res, output_options)
         }
         Commands::Binaries { download } => {
-            let devnet = Devnet::new();
+            let network = LabcoatNetwork::new();
             if download {
-                if let Err(e) = devnet.ensure_binaries(progress_logger(!json)).await {
+                if let Err(e) = network.ensure_binaries(progress_logger(!json)).await {
                     return output::finish(json, "binaries", Err(e), output_options);
                 }
             }
-            let infos = devnet.check_binaries();
+            let infos = network.check_binaries();
             output::finish(
                 json,
                 "binaries",
@@ -568,6 +633,25 @@ async fn run(cli: Cli) -> i32 {
             )
         }
     }
+}
+
+fn validate_labcoat_network_overrides(cli: &Cli) -> Result<(), String> {
+    let Some(command) = cli.command.labcoat_network_command_name() else {
+        return Ok(());
+    };
+    if let Some(network) = cli.network.as_deref() {
+        if !network.eq_ignore_ascii_case("labcoat") {
+            return Err(format!(
+                "`labcoat {command}` always controls Labcoat Network; remove `--network {network}`"
+            ));
+        }
+    }
+    if cli.rpc_url.is_some() {
+        return Err(format!(
+            "`labcoat {command}` always uses the managed Labcoat Network endpoint; remove `--rpc-url`"
+        ));
+    }
+    Ok(())
 }
 
 fn progress_logger(enabled: bool) -> impl Fn(isomer_core::ServiceId, f32) + Send + Clone + 'static {
@@ -621,6 +705,23 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "tui"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "--json", "--verbose", "status"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "--color", "rainbow", "status"]).is_err());
+    }
+
+    #[test]
+    fn managed_commands_reject_external_network_and_rpc_overrides() {
+        let signet = Cli::try_parse_from(["labcoat", "--network", "signet", "up"]).unwrap();
+        assert!(validate_labcoat_network_overrides(&signet)
+            .unwrap_err()
+            .contains("always controls Labcoat Network"));
+
+        let rpc =
+            Cli::try_parse_from(["labcoat", "--rpc-url", "http://example", "status"]).unwrap();
+        assert!(validate_labcoat_network_overrides(&rpc)
+            .unwrap_err()
+            .contains("remove `--rpc-url`"));
+
+        let labcoat = Cli::try_parse_from(["labcoat", "--network", "labcoat", "status"]).unwrap();
+        assert!(validate_labcoat_network_overrides(&labcoat).is_ok());
     }
 
     #[test]

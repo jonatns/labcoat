@@ -1,13 +1,16 @@
 ---
 title: Labcoat documentation
-description: Build, test, deploy, simulate, and trace Alkanes smart contracts with one CLI and a managed local Bitcoin devnet.
+description: Build, test, deploy, simulate, and trace Alkanes smart contracts with one CLI and Labcoat Network.
 slug: docs
 ---
 
 Labcoat is the Rust-native CLI for building, testing, and operating Alkanes
-smart contracts with a complete local Bitcoin devnet. It connects project
-scaffolding, native tests, WebAssembly builds, managed regtest services,
-wallets, deployment, calls, simulation, and decoded traces.
+smart contracts on Labcoat Network, a managed local Bitcoin regtest. It
+connects project scaffolding, native tests, WebAssembly builds, wallets,
+deployment, calls, simulation, and decoded traces.
+
+Labcoat Network is Labcoat's local, private, resettable Alkanes network. It
+runs Bitcoin regtest under the hood. It is not Signet.
 
 > Early-stage software for local Alkanes development. Interfaces may change
 > before 1.0; mainnet deployment controls are not production-ready.

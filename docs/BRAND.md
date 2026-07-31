@@ -27,7 +27,7 @@ Labcoat is for local Alkanes development. It is not described as a general Bitco
 | `labcoat` | Executable, commands, and terminal examples. | Decorative renaming of commands. |
 | Alkanes smart contracts | Primary technical object. | Generic “Bitcoin apps” claims. |
 | Rust-native | Rust authoring, native Wasm tests, and Rust tooling. | Implying the complete runtime is a single Rust process. |
-| managed local Bitcoin devnet | Labcoat-managed regtest services. | “One binary,” “full stack,” or a hosted/testnet implication. |
+| Labcoat Network | The managed local/private network selected as `labcoat`; state that it uses Bitcoin regtest underneath when technical context matters. | Calling it Signet, a public testnet, or only by a generic development-network label. |
 | local environment | The orchestrated development runtime. | Production environment. |
 | command system | CLI, JSON, MCP, and versioned references exposing one capability set. | “Always synchronized” without a version boundary. |
 | package-name deployment | Current CLI deployment behavior. | Describing an unavailable future behavior. |

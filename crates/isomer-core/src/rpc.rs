@@ -1,4 +1,4 @@
-//! Direct Qubitcoin JSON-RPC helpers for the local devnet.
+//! Direct Qubitcoin JSON-RPC helpers for Labcoat Network.
 
 use crate::config::IsomerConfig;
 use serde::Serialize;

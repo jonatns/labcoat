@@ -1,4 +1,4 @@
-//! Persistent Labcoat-owned regtest faucet for Qubitcoin.
+//! Persistent Labcoat Network regtest faucet for Qubitcoin.
 
 use crate::config::{get_qubitcoin_dir, IsomerConfig};
 use bitcoin::absolute;
@@ -323,7 +323,7 @@ fn select_for_amount(
         }
     }
     if total < amount.saturating_add(estimated_fee(selected.len(), 1)) {
-        return Err("Devnet faucet has insufficient mature funds".into());
+        return Err("Labcoat Network faucet has insufficient mature funds".into());
     }
     let two_output_fee = estimated_fee(selected.len(), 2);
     let change = if total >= amount.saturating_add(two_output_fee + DUST_SATS) {
@@ -410,7 +410,7 @@ mod tests {
         };
         assert_eq!(
             select_for_amount(&[utxo], 1_000).unwrap_err(),
-            "Devnet faucet has insufficient mature funds"
+            "Labcoat Network faucet has insufficient mature funds"
         );
     }
 

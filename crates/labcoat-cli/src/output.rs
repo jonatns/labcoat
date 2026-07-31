@@ -115,24 +115,7 @@ pub fn finish_contract(json: bool, command: &str, result: CmdResult, options: Op
 
 pub fn finish(json: bool, command: &str, result: Result<Value, String>, options: Options) -> i32 {
     if json {
-        let envelope = match &result {
-            Ok(value) => serde_json::json!({
-                "ok": true,
-                "command": command,
-                "schema": format!("labcoat/v1/{command}"),
-                "result": value,
-            }),
-            Err(error) => serde_json::json!({
-                "ok": false,
-                "command": command,
-                "schema": "labcoat/v1/error",
-                "error": {
-                    "code": "DEVNET_ERROR",
-                    "message": error,
-                    "hint": "run `labcoat status` to inspect the devnet"
-                },
-            }),
-        };
+        let envelope = labcoat_network_envelope(command, &result);
         println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
         return 0;
     }
@@ -145,6 +128,27 @@ pub fn finish(json: bool, command: &str, result: Result<Value, String>, options:
             print_untyped_error(&error, options.color);
             1
         }
+    }
+}
+
+fn labcoat_network_envelope(command: &str, result: &Result<Value, String>) -> Value {
+    match result {
+        Ok(value) => serde_json::json!({
+            "ok": true,
+            "command": command,
+            "schema": format!("labcoat/v1/{command}"),
+            "result": value,
+        }),
+        Err(error) => serde_json::json!({
+            "ok": false,
+            "command": command,
+            "schema": "labcoat/v1/error",
+            "error": {
+                "code": "LABCOAT_NETWORK_ERROR",
+                "message": error,
+                "hint": "run `labcoat status` to inspect Labcoat Network"
+            },
+        }),
     }
 }
 
@@ -427,14 +431,21 @@ fn status_document(command: &str, value: &Value, verbose: bool) -> Document {
     document.headline(
         if ready { Tone::Success } else { Tone::Warning },
         if command == "up" && ready {
-            "Devnet is ready"
+            "Labcoat Network is ready"
         } else if ready {
-            "Devnet ready"
+            "Labcoat Network ready"
         } else {
-            "Devnet not ready"
+            "Labcoat Network not ready"
         },
     );
+    let bitcoin_mode = status
+        .get("bitcoin_network")
+        .or_else(|| status.get("bitcoinNetwork"))
+        .map(value_string)
+        .unwrap_or_else(|| "regtest".to_string());
     document.fields(vec![
+        ("Network", "Labcoat Network".to_string()),
+        ("Bitcoin mode", format!("{bitcoin_mode} (local/private)")),
         (
             "Block height",
             value_string(
@@ -646,14 +657,20 @@ fn wallet_init_document(value: &Value) -> Document {
             "Wallet loaded"
         },
     );
-    document.fields(fields(
+    let network = match value.get("network").and_then(Value::as_str) {
+        Some("labcoat") => "Labcoat Network".to_string(),
+        Some(network) => network.to_string(),
+        None => "—".to_string(),
+    };
+    let mut wallet_fields = vec![("Network".to_string(), network)];
+    if let Some(bitcoin_network) = value.get("bitcoinNetwork") {
+        wallet_fields.push(("Bitcoin mode".to_string(), value_string(bitcoin_network)));
+    }
+    wallet_fields.extend(fields(
         value,
-        &[
-            ("Network", "network"),
-            ("Address", "address"),
-            ("Wallet file", "walletFile"),
-        ],
+        &[("Address", "address"), ("Wallet file", "walletFile")],
     ));
+    document.fields(wallet_fields);
     if let Some(mnemonic) = value.get("mnemonic").and_then(Value::as_str) {
         document.blocks.push(Block::Secret(mnemonic.into()));
     }
@@ -853,10 +870,10 @@ fn scaffold_document(command: &str, value: &Value, verbose: bool) -> Document {
 fn action_or_generic_document(command: &str, value: &Value, verbose: bool) -> Document {
     let mut document = Document::default();
     let action = match command {
-        "down" => Some("Devnet stopped"),
+        "down" => Some("Labcoat Network stopped"),
         "mine" => Some("Blocks mined"),
         "fund" => Some("Wallet funded"),
-        "reset" => Some("Devnet reset"),
+        "reset" => Some("Labcoat Network reset"),
         "snapshot" => Some("Snapshot created"),
         "restore" => Some("Snapshot restored"),
         _ => None,
@@ -1245,11 +1262,40 @@ mod tests {
     #[test]
     fn wallet_mnemonic_is_always_shown() {
         let value = serde_json::json!({
-            "created":true,"network":"regtest","address":"bcrt1...","walletFile":"wallet.json",
+            "created":true,"network":"labcoat","bitcoinNetwork":"regtest",
+            "address":"bcrt1...","walletFile":"wallet.json",
             "mnemonic":"alpha beta gamma"
         });
         let output = render_plain("wallet-init", &value, false, 80);
+        assert!(output.contains("Labcoat Network"));
+        assert!(output.contains("Bitcoin mode"));
+        assert!(output.contains("regtest"));
         assert!(output.contains("alpha beta gamma"));
         assert!(output.contains("will not be shown again"));
+    }
+
+    #[test]
+    fn status_names_labcoat_network_and_its_regtest_mode() {
+        let value = serde_json::json!({
+            "network": "labcoat",
+            "bitcoin_network": "regtest",
+            "services": [],
+            "block_height": 101,
+            "mempool_size": 0,
+            "is_ready": true
+        });
+        let output = render_plain("status", &value, false, 80);
+        assert!(output.contains("Labcoat Network ready"));
+        assert!(output.contains("regtest (local/private)"));
+    }
+
+    #[test]
+    fn network_failures_use_the_new_error_code() {
+        let envelope = labcoat_network_envelope("status", &Err("connection refused".to_string()));
+        assert_eq!(envelope["error"]["code"], "LABCOAT_NETWORK_ERROR");
+        assert!(envelope["error"]["hint"]
+            .as_str()
+            .unwrap()
+            .contains("Labcoat Network"));
     }
 }

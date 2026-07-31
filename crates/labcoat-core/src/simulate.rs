@@ -95,7 +95,7 @@ fn decode_result(result: &serde_json::Value) -> Result<SimulateOutcome> {
         LabcoatError::new(
             "TOOLKIT_ERROR",
             format!("failed to decode SimulateResponse: {}", e),
-            "the pinned alkanes-rs rev and the devnet indexer may be out of sync",
+            "the pinned alkanes-rs rev and the Labcoat Network indexer may be out of sync",
         )
     })?;
 

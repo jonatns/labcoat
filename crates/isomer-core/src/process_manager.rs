@@ -1,4 +1,4 @@
-//! Qubitcoin process management for the Labcoat devnet.
+//! Qubitcoin process management for Labcoat Network.
 
 use crate::config::{get_bin_dir, get_logs_dir, get_qubitcoin_dir, IsomerConfig};
 use crate::state::{ServiceInfo, ServiceStatus};
