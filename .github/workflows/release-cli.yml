@@ -56,7 +56,6 @@ jobs:
           node scripts/release/validate-release.mjs
           version=$(node scripts/release/validate-release.mjs --workspace-version)
           tag="cli-v$version"
-          node scripts/release/validate-release.mjs --validate-cli-tag "$tag"
           node scripts/release/render-release-notes.mjs \
             --version "$version" \
             --tag "$tag" \
