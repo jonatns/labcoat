@@ -295,12 +295,13 @@ jobs:
     needs: [metadata, assemble]
     runs-on: ubuntu-latest
     env:
-      LABCOAT_DATA_HOME: ${{ runner.temp }}/labcoat-data
       LABCOAT_TEST_CRATE_PATH: ${{ github.workspace }}/crates/labcoat-test
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.sha }}
+      - name: Configure runtime acceptance paths
+        run: echo "LABCOAT_DATA_HOME=$RUNNER_TEMP/labcoat-data" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
           name: labcoat-release-${{ needs.metadata.outputs.version }}
