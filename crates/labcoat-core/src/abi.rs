@@ -78,6 +78,23 @@ pub struct ResolvedMethod {
     pub cellpack_args: Vec<u128>,
 }
 
+/// Call or constructor arguments: positional values in ABI parameter order,
+/// or named values matched to ABI parameter names before encoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallArgs {
+    Positional(Vec<String>),
+    Named(Vec<(String, String)>),
+}
+
+impl CallArgs {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            CallArgs::Positional(values) => values.is_empty(),
+            CallArgs::Named(values) => values.is_empty(),
+        }
+    }
+}
+
 struct HostState {
     limits: StoreLimits,
 }
@@ -129,9 +146,9 @@ pub fn validate(bytes: &[u8]) -> std::result::Result<(), String> {
     parse(bytes).map(|_| ())
 }
 
-/// Resolve an exact ABI method name and encode one shell argument per ABI
+/// Resolve an exact ABI method name and encode one argument per ABI
 /// parameter into the contract's raw cellpack representation.
-pub fn resolve_method(bytes: &[u8], selector: &str, args: &[String]) -> Result<ResolvedMethod> {
+pub fn resolve_method(bytes: &[u8], selector: &str, args: &CallArgs) -> Result<ResolvedMethod> {
     let abi = parse(bytes).map_err(|message| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
@@ -163,6 +180,89 @@ pub fn resolve_method(bytes: &[u8], selector: &str, args: &[String]) -> Result<R
             LabcoatError::new("CONFIG_INVALID", message, hint)
         })?;
 
+    let ordered = ordered_args(method, args)?;
+    let cellpack_args = encode_method_args(method, &ordered)?;
+
+    Ok(ResolvedMethod {
+        name: method.name.clone(),
+        opcode: method.opcode,
+        cellpack_args,
+    })
+}
+
+/// Resolve the constructor (initializer opcode 0) and encode one argument
+/// per ABI parameter. Returns Ok(None) when the ABI declares no opcode-0
+/// method — callers fall back to raw u128 args (positional only).
+pub fn resolve_constructor(bytes: &[u8], args: &CallArgs) -> Result<Option<ResolvedMethod>> {
+    let abi = parse(bytes).map_err(|message| {
+        LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!("cannot resolve constructor from invalid ABI metadata: {message}"),
+            "verify the contract exports valid __meta ABI metadata",
+        )
+    })?;
+    let Some(method) = abi.methods.iter().find(|method| method.opcode == 0) else {
+        return Ok(None);
+    };
+    let ordered = ordered_args(method, args)?;
+    let cellpack_args = encode_method_args(method, &ordered)?;
+    Ok(Some(ResolvedMethod {
+        name: method.name.clone(),
+        opcode: 0,
+        cellpack_args,
+    }))
+}
+
+/// Positional args in the ABI's parameter order: pass-through for
+/// positional input, name-matched reordering for named input.
+fn ordered_args(method: &AbiMethod, args: &CallArgs) -> Result<Vec<String>> {
+    let named = match args {
+        CallArgs::Positional(values) => return Ok(values.clone()),
+        CallArgs::Named(values) => values,
+    };
+    let expected = method
+        .params
+        .iter()
+        .map(|param| format!("{}: {}", param.name, param.type_))
+        .collect::<Vec<_>>()
+        .join(", ");
+    for (name, _) in named {
+        if !method.params.iter().any(|param| &param.name == name) {
+            return Err(LabcoatError::new(
+                "CONFIG_INVALID",
+                format!(
+                    "method `{}` has no parameter `{name}` — expected parameters: {expected}",
+                    method.name
+                ),
+                "name each arg after an ABI parameter, or use positional args = [...]",
+            ));
+        }
+    }
+    let mut ordered = Vec::with_capacity(method.params.len());
+    let mut missing = Vec::new();
+    for param in &method.params {
+        match named.iter().find(|(name, _)| name == &param.name) {
+            Some((_, value)) => ordered.push(value.clone()),
+            None => missing.push(param.name.as_str()),
+        }
+    }
+    if !missing.is_empty() {
+        return Err(LabcoatError::new(
+            "CONFIG_INVALID",
+            format!(
+                "method `{}` is missing named arg(s): {} — expected parameters: {expected}",
+                method.name,
+                missing.join(", ")
+            ),
+            "name each arg after an ABI parameter, or use positional args = [...]",
+        ));
+    }
+    Ok(ordered)
+}
+
+/// Encode one shell argument per ABI parameter into the method's raw
+/// cellpack representation.
+fn encode_method_args(method: &AbiMethod, args: &[String]) -> Result<Vec<u128>> {
     if args.len() != method.params.len() {
         let expected = method
             .params
@@ -196,12 +296,117 @@ pub fn resolve_method(bytes: &[u8], selector: &str, args: &[String]) -> Result<R
         })?;
         cellpack_args.extend(encoded);
     }
+    Ok(cellpack_args)
+}
 
-    Ok(ResolvedMethod {
-        name: method.name.clone(),
-        opcode: method.opcode,
-        cellpack_args,
+/// How constructor args were encoded for a deploy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConstructorEncoding {
+    /// One shell argument per ABI constructor parameter.
+    AbiTyped,
+    /// Raw u128 / 0x-hex cellpack values (no ABI constructor available).
+    Raw,
+}
+
+#[derive(Debug, Clone)]
+pub struct EncodedConstructor {
+    pub cellpack: Vec<u128>,
+    pub encoding: ConstructorEncoding,
+    /// The ABI constructor's method name, when one was used.
+    pub method: Option<String>,
+    /// A caller-facing warning: the raw fallback was taken with args present.
+    pub note: Option<String>,
+}
+
+/// Encode deploy constructor args against the artifact's ABI (the sibling
+/// `.abi.json` written by `labcoat build`, else `__meta` extracted from the
+/// wasm itself). Positional args fall back to raw cellpack values when no
+/// ABI constructor is available; named args require a typed constructor;
+/// ABI type/arity mismatches are hard errors.
+pub fn encode_constructor(wasm_path: &Path, args: &CallArgs) -> Result<EncodedConstructor> {
+    let abi_bytes = artifact_abi_bytes(wasm_path);
+    let mut note = None;
+    if let Some(bytes) = abi_bytes {
+        if let Some(resolved) = resolve_constructor(&bytes, args)? {
+            return Ok(EncodedConstructor {
+                cellpack: resolved.cellpack_args,
+                encoding: ConstructorEncoding::AbiTyped,
+                method: Some(resolved.name),
+                note: None,
+            });
+        }
+        if matches!(args, CallArgs::Named(_)) {
+            return Err(LabcoatError::new(
+                "CONFIG_INVALID",
+                format!(
+                    "named args require an opcode-0 constructor in the ABI, but {} declares none",
+                    wasm_path.display()
+                ),
+                "use positional args = [...] or add an opcode-0 initializer to the contract",
+            ));
+        }
+        if !args.is_empty() {
+            note = Some(
+                "ABI declares no opcode-0 constructor — encoding args as raw cellpack values"
+                    .to_string(),
+            );
+        }
+    } else {
+        if matches!(args, CallArgs::Named(_)) {
+            return Err(LabcoatError::new(
+                "CONFIG_INVALID",
+                format!(
+                    "named args require typed ABI constructor metadata, but no ABI is available for {}",
+                    wasm_path.display()
+                ),
+                "use positional args = [...] or export __meta from the contract",
+            ));
+        }
+        if !args.is_empty() {
+            note =
+                Some("no ABI metadata available — encoding args as raw cellpack values".to_string());
+        }
+    }
+    let CallArgs::Positional(values) = args else {
+        unreachable!("named args error out above the raw fallback");
+    };
+    Ok(EncodedConstructor {
+        cellpack: values
+            .iter()
+            .map(|a| parse_raw_arg(a))
+            .collect::<Result<Vec<_>>>()?,
+        encoding: ConstructorEncoding::Raw,
+        method: None,
+        note,
     })
+}
+
+/// A raw cellpack value on a manifest-driven path. Unlike `crate::parse_arg`
+/// (whose string→LE-u128 encoding is a deliberate shell convenience), this
+/// rejects `block:tx`-shaped values: silently encoding an AlkaneId's ASCII
+/// bytes as one u128 would corrupt the cellpack with no diagnostic.
+pub(crate) fn parse_raw_arg(value: &str) -> Result<u128> {
+    if value.contains(':') {
+        return Err(LabcoatError::new(
+            "CONFIG_INVALID",
+            format!(
+                "arg `{value}` looks like an AlkaneId but no typed ABI parameter is available — raw cellpack encoding would corrupt it"
+            ),
+            "add ABI metadata (export __meta), or pass block and tx as separate integer args",
+        ));
+    }
+    crate::parse_arg(value)
+}
+
+/// The artifact's ABI JSON: the sibling `.abi.json` if present, else
+/// extracted from the wasm's `__meta` export. None when neither works.
+fn artifact_abi_bytes(wasm_path: &Path) -> Option<Vec<u8>> {
+    let abi_path = wasm_path.with_extension("abi.json");
+    if let Ok(bytes) = std::fs::read(&abi_path) {
+        return Some(bytes);
+    }
+    extract_file(wasm_path).ok()
 }
 
 fn encode_parameter(type_: &str, value: &str) -> std::result::Result<Vec<u128>, String> {
@@ -362,6 +567,18 @@ fn extract_inner(wasm: &[u8]) -> std::result::Result<Vec<u8>, String> {
 mod tests {
     use super::*;
 
+    fn pos(args: &[&str]) -> CallArgs {
+        CallArgs::Positional(args.iter().map(|a| a.to_string()).collect())
+    }
+
+    fn named(args: &[(&str, &str)]) -> CallArgs {
+        CallArgs::Named(
+            args.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        )
+    }
+
     #[test]
     fn validates_upstream_shape_and_duplicate_opcodes() {
         validate(
@@ -382,20 +599,41 @@ mod tests {
     }
 
     #[test]
+    fn resolves_and_encodes_the_opcode_zero_constructor() {
+        let abi = br#"{"contract":"Token","methods":[{"name":"initialize","opcode":0,"params":[{"type":"u128","name":"variant"},{"type":"u128","name":"supply"}],"returns":"void"},{"name":"mint","opcode":77,"params":[],"returns":"void"}]}"#;
+
+        let resolved = resolve_constructor(abi, &pos(&["1", "100"]))
+            .unwrap()
+            .expect("opcode-0 constructor exists");
+        assert_eq!(resolved.name, "initialize");
+        assert_eq!(resolved.opcode, 0);
+        assert_eq!(resolved.cellpack_args, vec![1, 100]);
+
+        // Arg-count mismatches are hard errors, not silent fallbacks.
+        let error = resolve_constructor(abi, &pos(&["1"])).unwrap_err();
+        assert_eq!(error.code, "CONFIG_INVALID");
+        assert!(error.message.contains("expects 2 parameter(s)"));
+    }
+
+    #[test]
+    fn missing_constructor_resolves_to_none() {
+        let abi = br#"{"contract":"Token","methods":[{"name":"mint","opcode":77,"params":[],"returns":"void"}]}"#;
+        assert!(resolve_constructor(abi, &pos(&[])).unwrap().is_none());
+    }
+
+    #[test]
     fn resolves_counter_method_names_to_opcodes() {
         let abi = br#"{"contract":"Counter","methods":[{"name":"initialize","opcode":0,"params":[],"returns":"void"},{"name":"increment","opcode":1,"params":[],"returns":"u128"},{"name":"get_count","opcode":2,"params":[],"returns":"u128"}]}"#;
 
-        assert_eq!(resolve_method(abi, "initialize", &[]).unwrap().opcode, 0);
-        assert_eq!(resolve_method(abi, "increment", &[]).unwrap().opcode, 1);
-        assert_eq!(resolve_method(abi, "get_count", &[]).unwrap().opcode, 2);
+        assert_eq!(resolve_method(abi, "initialize", &pos(&[])).unwrap().opcode, 0);
+        assert_eq!(resolve_method(abi, "increment", &pos(&[])).unwrap().opcode, 1);
+        assert_eq!(resolve_method(abi, "get_count", &pos(&[])).unwrap().opcode, 2);
     }
 
     #[test]
     fn encodes_typed_u128_and_alkane_id_parameters() {
         let abi = br#"{"contract":"Token","methods":[{"name":"configure","opcode":9,"params":[{"name":"amount","type":"u128"},{"name":"limit","type":"u128"},{"name":"owner","type":"AlkaneId"}],"returns":"void"}]}"#;
-        let args = vec!["42".into(), "0xff".into(), "2:3".into()];
-
-        let resolved = resolve_method(abi, "configure", &args).unwrap();
+        let resolved = resolve_method(abi, "configure", &pos(&["42", "0xff", "2:3"])).unwrap();
         assert_eq!(resolved.name, "configure");
         assert_eq!(resolved.opcode, 9);
         assert_eq!(resolved.cellpack_args, vec![42, 255, 2, 3]);
@@ -405,19 +643,19 @@ mod tests {
     fn encodes_empty_multicell_and_exact_word_strings() {
         let abi = br#"{"contract":"Registry","methods":[{"name":"set_name","opcode":3,"params":[{"name":"name","type":"String"}],"returns":"void"}]}"#;
 
-        let empty = resolve_method(abi, "set_name", &[String::new()]).unwrap();
+        let empty = resolve_method(abi, "set_name", &pos(&[""])).unwrap();
         assert_eq!(empty.cellpack_args, vec![0]);
 
         let multicell = resolve_method(
             abi,
             "set_name",
-            &["a string longer than sixteen bytes".into()],
+            &pos(&["a string longer than sixteen bytes"]),
         )
         .unwrap();
         assert!(multicell.cellpack_args.len() > 1);
         assert_eq!(multicell.cellpack_args.last().unwrap().to_le_bytes()[15], 0);
 
-        let exact = resolve_method(abi, "set_name", &["1234567890abcdef".into()]).unwrap();
+        let exact = resolve_method(abi, "set_name", &pos(&["1234567890abcdef"])).unwrap();
         assert_eq!(exact.cellpack_args.len(), 2);
         assert_eq!(exact.cellpack_args[1], 0);
     }
@@ -426,25 +664,25 @@ mod tests {
     fn reports_named_method_and_parameter_errors() {
         let abi = br#"{"contract":"Token","methods":[{"name":"mint","opcode":7,"params":[{"name":"amount","type":"u128"}],"returns":"void"},{"name":"batch","opcode":8,"params":[{"name":"amounts","type":"Vec<u128>"}],"returns":"void"}]}"#;
 
-        let unknown = resolve_method(abi, "burn", &[]).unwrap_err();
+        let unknown = resolve_method(abi, "burn", &pos(&[])).unwrap_err();
         assert_eq!(unknown.code, "CONFIG_INVALID");
         assert!(unknown.message.contains("available methods: mint, batch"));
 
-        let expression = resolve_method(abi, "mint(1)", &[]).unwrap_err();
+        let expression = resolve_method(abi, "mint(1)", &pos(&[])).unwrap_err();
         assert!(expression.hint.contains("without parentheses"));
 
-        let arity = resolve_method(abi, "mint", &[]).unwrap_err();
+        let arity = resolve_method(abi, "mint", &pos(&[])).unwrap_err();
         assert!(arity.message.contains("amount: u128"));
         assert!(arity.message.contains("received 0"));
 
-        let bad_u128 = resolve_method(abi, "mint", &["many".into()]).unwrap_err();
+        let bad_u128 = resolve_method(abi, "mint", &pos(&["many"])).unwrap_err();
         assert!(bad_u128.message.contains("parameter `amount`"));
         assert!(bad_u128.message.contains("expected u128"));
 
-        let bad_hex = resolve_method(abi, "mint", &["0xgg".into()]).unwrap_err();
+        let bad_hex = resolve_method(abi, "mint", &pos(&["0xgg"])).unwrap_err();
         assert!(bad_hex.message.contains("hexadecimal u128"));
 
-        let unsupported = resolve_method(abi, "batch", &["[1,2]".into()]).unwrap_err();
+        let unsupported = resolve_method(abi, "batch", &pos(&["[1,2]"])).unwrap_err();
         assert!(unsupported.message.contains("Vec<u128>"));
         assert!(unsupported.hint.contains("numeric opcode"));
     }
@@ -453,11 +691,79 @@ mod tests {
     fn rejects_invalid_typed_values() {
         let abi = br#"{"contract":"Registry","methods":[{"name":"set","opcode":4,"params":[{"name":"owner","type":"AlkaneId"},{"name":"name","type":"String"}],"returns":"void"}]}"#;
 
-        let bad_id = resolve_method(abi, "set", &["2:3:4".into(), "name".into()]).unwrap_err();
+        let bad_id = resolve_method(abi, "set", &pos(&["2:3:4", "name"])).unwrap_err();
         assert!(bad_id.message.contains("AlkaneId"));
 
-        let null = resolve_method(abi, "set", &["2:3".into(), "a\0b".into()]).unwrap_err();
+        let null = resolve_method(abi, "set", &pos(&["2:3", "a\0b"])).unwrap_err();
         assert!(null.message.contains("null byte"));
+    }
+
+    #[test]
+    fn reorders_named_args_against_abi_parameter_order() {
+        let abi = br#"{"contract":"Series","methods":[{"name":"initialize","opcode":0,"params":[{"name":"underlying","type":"AlkaneId"},{"name":"strike","type":"u128"},{"name":"supply","type":"u128"}],"returns":"void"}]}"#;
+        let resolved = resolve_constructor(
+            abi,
+            &named(&[("supply", "100"), ("underlying", "4:65011"), ("strike", "75")]),
+        )
+        .unwrap()
+        .expect("opcode-0 constructor exists");
+        assert_eq!(resolved.cellpack_args, vec![4, 65011, 75, 100]);
+    }
+
+    #[test]
+    fn reports_missing_and_unknown_named_args() {
+        let abi = br#"{"contract":"Series","methods":[{"name":"initialize","opcode":0,"params":[{"name":"underlying","type":"AlkaneId"},{"name":"strike","type":"u128"}],"returns":"void"}]}"#;
+
+        let missing = resolve_constructor(abi, &named(&[("underlying", "4:65011")])).unwrap_err();
+        assert_eq!(missing.code, "CONFIG_INVALID");
+        assert!(missing.message.contains("missing named arg(s): strike"));
+        assert!(missing.message.contains("underlying: AlkaneId, strike: u128"));
+
+        let unknown = resolve_constructor(abi, &named(&[("strke", "75")])).unwrap_err();
+        assert!(unknown.message.contains("has no parameter `strke`"));
+        assert!(unknown.message.contains("underlying: AlkaneId, strike: u128"));
+    }
+
+    #[test]
+    fn named_constructor_args_require_a_typed_abi() {
+        let missing_abi = encode_constructor(
+            Path::new("/nonexistent/contract.wasm"),
+            &named(&[("supply", "100")]),
+        )
+        .unwrap_err();
+        assert_eq!(missing_abi.code, "CONFIG_INVALID");
+        assert!(missing_abi.message.contains("no ABI is available"));
+
+        let dir = std::env::temp_dir().join(format!("labcoat-abi-named-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("contract.abi.json"),
+            br#"{"contract":"Token","methods":[{"name":"mint","opcode":77,"params":[],"returns":"void"}]}"#,
+        )
+        .unwrap();
+        let no_constructor =
+            encode_constructor(&dir.join("contract.wasm"), &named(&[("supply", "100")]))
+                .unwrap_err();
+        assert!(no_constructor
+            .message
+            .contains("opcode-0 constructor in the ABI"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn raw_fallback_rejects_alkane_id_shaped_args() {
+        let corrupt = encode_constructor(
+            Path::new("/nonexistent/contract.wasm"),
+            &pos(&["4:65011"]),
+        )
+        .unwrap_err();
+        assert_eq!(corrupt.code, "CONFIG_INVALID");
+        assert!(corrupt.message.contains("raw cellpack encoding would corrupt it"));
+
+        let plain = encode_constructor(Path::new("/nonexistent/contract.wasm"), &pos(&["7"]))
+            .unwrap();
+        assert_eq!(plain.cellpack, vec![7]);
+        assert_eq!(plain.encoding, ConstructorEncoding::Raw);
     }
 
     #[test]

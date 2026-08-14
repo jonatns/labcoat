@@ -7,10 +7,12 @@
 //! drive this crate.
 
 pub mod abi;
+pub mod apply;
 pub mod compile;
 pub mod error;
 pub mod execute;
 pub mod lockfile;
+pub mod manifest;
 pub mod simulate;
 pub mod sync;
 pub mod system;

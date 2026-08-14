@@ -2,7 +2,9 @@
 //! server expose.
 
 use crate::error::{LabcoatError, Result};
-use crate::execute::{cellpack_spec, find_created_alkane, find_return_status, ExecuteOutcome};
+use crate::execute::{
+    find_created_alkane, find_return_status, spec_with_options, ExecuteOutcome, TxOptions,
+};
 use crate::system::ToolkitConfig;
 use crate::{lockfile, simulate as sim, sync, system, trace as trace_mod, wallet};
 use std::path::Path;
@@ -10,27 +12,60 @@ use std::path::Path;
 const INDEXER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const TRACE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Where a deploy's wasm envelope lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeployTarget {
+    /// Next free id via the `[1,0]` factory target.
+    #[default]
+    New,
+    /// Reserved number `N` via the `[3,N]` target.
+    Reserve(u128),
+}
+
+impl DeployTarget {
+    fn block_tx(self) -> (u128, u128) {
+        match self {
+            DeployTarget::New => (1, 0),
+            DeployTarget::Reserve(n) => (3, n),
+        }
+    }
+}
+
+/// The deploy cellpack spec. `[1,0]` with no constructor inputs keeps its
+/// historical bare form (matching the old encipher([1,0])); every other
+/// shape carries initializer opcode 0 followed by the constructor args.
+pub fn deploy_spec(target: DeployTarget, cellpack_args: &[u128], options: &TxOptions) -> String {
+    let (block, tx) = target.block_tx();
+    let inputs = if target == DeployTarget::New && cellpack_args.is_empty() {
+        Vec::new()
+    } else {
+        let mut inputs = vec![0_u128];
+        inputs.extend_from_slice(cellpack_args);
+        inputs
+    };
+    spec_with_options(block, tx, &inputs, options)
+}
+
+/// Everything one deploy needs beyond config, signer, and project root.
+pub struct DeployRequest<'a> {
+    pub wasm_path: &'a Path,
+    /// Lockfile name to record the deployment under (None skips recording).
+    pub contract_name: Option<String>,
+    pub cellpack_args: &'a [u128],
+    pub fee_rate: Option<f32>,
+    pub target: DeployTarget,
+    pub options: &'a TxOptions,
+}
+
 /// Deploy a compiled contract (raw .wasm — the envelope gzips internally;
 /// .wasm.gz inputs are rejected to prevent double compression).
 pub async fn deploy(
     config: &ToolkitConfig,
     passphrase: Option<String>,
-    wasm_path: &Path,
-    contract_name: Option<String>,
-    cellpack_args: &[u128],
-    fee_rate: Option<f32>,
+    request: DeployRequest<'_>,
 ) -> Result<ExecuteOutcome> {
     let deployment_root = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    deploy_in(
-        config,
-        passphrase,
-        &deployment_root,
-        wasm_path,
-        contract_name,
-        cellpack_args,
-        fee_rate,
-    )
-    .await
+    deploy_in(config, passphrase, &deployment_root, request).await
 }
 
 /// Deploy and record the resulting contract in a specific project directory.
@@ -38,11 +73,16 @@ pub async fn deploy_in(
     config: &ToolkitConfig,
     passphrase: Option<String>,
     deployment_root: &Path,
-    wasm_path: &Path,
-    contract_name: Option<String>,
-    cellpack_args: &[u128],
-    fee_rate: Option<f32>,
+    request: DeployRequest<'_>,
 ) -> Result<ExecuteOutcome> {
+    let DeployRequest {
+        wasm_path,
+        contract_name,
+        cellpack_args,
+        fee_rate,
+        target,
+        options,
+    } = request;
     if wasm_path.extension().and_then(|e| e.to_str()) == Some("gz") {
         return Err(LabcoatError::new(
             "ENVELOPE_INVALID",
@@ -70,30 +110,29 @@ pub async fn deploy_in(
     }
 
     config.require_passphrase_policy(&passphrase)?;
+    let input_requirements = options.input_requirements()?;
     let mut provider = system::connect(config, passphrase, true).await?;
-    let to_address = wallet::primary_address(&provider).await?;
+    let to_address = match &options.to {
+        Some(address) => address.clone(),
+        None => wallet::primary_address(&provider).await?,
+    };
     let indexed = sync::wait_for_indexer(&provider, INDEXER_TIMEOUT)
         .await
         .ok();
 
-    // Deploy-new cellpack target is 1:0.
-    let spec = cellpack_spec(1, 0, 0, cellpack_args);
-    // The [1,0,...] form: block=1, tx=0, then constructor args — opcode 0 is
-    // part of the constructor input stream, matching the old encipher([1n,0n]).
-    let spec = if cellpack_args.is_empty() {
-        "[1,0]:v0:v0".to_string()
-    } else {
-        spec
-    };
+    let spec = deploy_spec(target, cellpack_args, options);
 
     let result = crate::execute::run(
         &mut provider,
         config,
-        &spec,
-        Some(wasm.clone()),
-        to_address,
-        fee_rate,
-        indexed,
+        crate::execute::ExecuteRequest {
+            spec: &spec,
+            envelope: Some(wasm.clone()),
+            to_address,
+            fee_rate,
+            max_indexed_height: indexed,
+            input_requirements,
+        },
     )
     .await?;
 
@@ -109,8 +148,13 @@ pub async fn deploy_in(
     let (status, revert_reason) = find_return_status(&traces);
 
     if let (Some(id), Some(name)) = (&alkanes_id, &contract_name) {
+        use alkanes_cli_common::traits::BitcoinRpcProvider;
         use sha2::Digest;
         let network = config.network_id();
+        // Chain instance identity: block 1's hash changes on every reset,
+        // marking older records as stale. Best effort — a record without it
+        // is still valid, just unverifiable.
+        let chain_id = BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok();
         lockfile::record(
             deployment_root,
             network,
@@ -125,6 +169,7 @@ pub async fn deploy_in(
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64,
+                chain_id,
             },
         )?;
     }
@@ -141,32 +186,66 @@ pub async fn deploy_in(
     })
 }
 
-/// Execute (state-changing call) against a deployed contract.
-pub async fn call(
-    config: &ToolkitConfig,
-    passphrase: Option<String>,
+/// The call cellpack spec: opcode followed by args, with routing/edicts.
+pub fn call_spec(
     block: u128,
     tx: u128,
     opcode: u128,
     args: &[u128],
-    fee_rate: Option<f32>,
+    options: &TxOptions,
+) -> String {
+    let mut inputs = vec![opcode];
+    inputs.extend_from_slice(args);
+    spec_with_options(block, tx, &inputs, options)
+}
+
+/// Everything one call needs beyond config and signer.
+pub struct CallRequest<'a> {
+    pub block: u128,
+    pub tx: u128,
+    pub opcode: u128,
+    pub args: &'a [u128],
+    pub fee_rate: Option<f32>,
+    pub options: &'a TxOptions,
+}
+
+/// Execute (state-changing call) against a deployed contract.
+pub async fn call(
+    config: &ToolkitConfig,
+    passphrase: Option<String>,
+    request: CallRequest<'_>,
 ) -> Result<ExecuteOutcome> {
+    let CallRequest {
+        block,
+        tx,
+        opcode,
+        args,
+        fee_rate,
+        options,
+    } = request;
     config.require_passphrase_policy(&passphrase)?;
+    let input_requirements = options.input_requirements()?;
     let mut provider = system::connect(config, passphrase, true).await?;
-    let to_address = wallet::primary_address(&provider).await?;
+    let to_address = match &options.to {
+        Some(address) => address.clone(),
+        None => wallet::primary_address(&provider).await?,
+    };
     let indexed = sync::wait_for_indexer(&provider, INDEXER_TIMEOUT)
         .await
         .ok();
 
-    let spec = cellpack_spec(block, tx, opcode, args);
+    let spec = call_spec(block, tx, opcode, args, options);
     let result = crate::execute::run(
         &mut provider,
         config,
-        &spec,
-        None,
-        to_address,
-        fee_rate,
-        indexed,
+        crate::execute::ExecuteRequest {
+            spec: &spec,
+            envelope: None,
+            to_address,
+            fee_rate,
+            max_indexed_height: indexed,
+            input_requirements,
+        },
     )
     .await?;
 
@@ -202,6 +281,22 @@ pub async fn simulate(
     sim::simulate(&provider, block, tx, opcode, args).await
 }
 
+/// Alkanes token balances held by an address.
+pub async fn balances(config: &ToolkitConfig, address: &str) -> Result<serde_json::Value> {
+    use alkanes_cli_common::traits::AlkanesProvider;
+    let provider = system::connect(config, None, false).await?;
+    let balances = AlkanesProvider::get_balance(&provider, Some(address))
+        .await
+        .map_err(|e| LabcoatError::classify(e.into()))?;
+    serde_json::to_value(balances).map_err(|e| {
+        LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!("cannot serialize balances: {e}"),
+            "report this as a Labcoat bug",
+        )
+    })
+}
+
 /// Decoded traces for a txid (optionally waiting for the indexer).
 pub async fn trace(
     config: &ToolkitConfig,
@@ -222,7 +317,7 @@ pub async fn trace(
 pub fn resolve_contract(config: &ToolkitConfig, name: &str) -> Result<(u128, u128)> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let network = config.network_id();
-    let dep = lockfile::get(&cwd, network, name).ok_or_else(|| {
+    let dep = lockfile::get(&cwd, network, name)?.ok_or_else(|| {
         LabcoatError::new(
             "CONTRACT_NOT_FOUND",
             format!("no deployment of '{}' on {} in labcoat.lock", name, network),
@@ -256,4 +351,45 @@ pub fn parse_alkanes_id(id: &str) -> Result<(u128, u128)> {
         )
     })?;
     Ok((block, tx))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deploy_spec_keeps_the_bare_historical_new_form() {
+        let options = TxOptions::default();
+        assert_eq!(deploy_spec(DeployTarget::New, &[], &options), "[1,0]:v0:v0");
+        assert_eq!(
+            deploy_spec(DeployTarget::New, &[3, 100], &options),
+            "[1,0,0,3,100]:v0:v0"
+        );
+    }
+
+    #[test]
+    fn reserve_deploys_always_carry_the_initializer_opcode() {
+        let options = TxOptions::default();
+        assert_eq!(
+            deploy_spec(DeployTarget::Reserve(65_011), &[], &options),
+            "[3,65011,0]:v0:v0"
+        );
+        assert_eq!(
+            deploy_spec(DeployTarget::Reserve(65_011), &[1, 100], &options),
+            "[3,65011,0,1,100]:v0:v0"
+        );
+    }
+
+    #[test]
+    fn call_spec_carries_routing_options() {
+        let options = TxOptions {
+            pointer: Some("v1".into()),
+            edicts: vec!["4:65014:100:v0".into()],
+            ..TxOptions::default()
+        };
+        assert_eq!(
+            call_spec(4, 65_014, 101, &[], &options),
+            "[4,65014,101]:v1:v1:[4:65014:100:v0]"
+        );
+    }
 }
