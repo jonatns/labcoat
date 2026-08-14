@@ -80,8 +80,35 @@ warning and the deployed ABI is used. A numeric opcode keeps the raw cellpack
 format for advanced calls. Simulation always uses deployed code and live
 indexed state; use `labcoat test <package>` for an undeployed local build.
 `result.status` is `success` or `revert` (with `result.revertReason` decoded).
-Compose multi-step operations with ordinary shell scripts; Labcoat has no
-contract script runner.
+Both `deploy` and `call` accept transaction shaping: `--inputs
+block:tx:amount` (incoming alkanes; `B:sats` for bitcoin), `--to <address>`
+(protostone recipient), `--pointer`/`--refund` (`vN`/`pN` routing), repeated
+`--edict block:tx:amount:target`, and `deploy --reserve N` targets `[3,N]`.
+`labcoat balance <address> --json` lists alkanes token balances.
+
+Compose multi-step deployments declaratively in `alkanes.hcl`: `contract`
+blocks are managed deployments, `alkane` blocks bind names to external
+on-chain ids (no deploy, no dependency edge), and `call` blocks run after
+deploys — reserve them for configuration that completes the deployment
+(wiring references, setting admins); the manifest is done when the topology
+is correct and inert, so value-moving, actor-specific operations (funding,
+transfers, exercising) belong in `tests/e2e.rs` or application flows, not
+here. An alkane's `id` is one binding for every network
+(`id = [4, 65012]`) or a per-network map
+(`id = { regtest = [4, 65012], signet = [2, 190213] }`) — one manifest
+serves every environment, and plan fails fast when the active network has
+no binding. References are namespaced — `contract.<name>.id` (orders that
+deploy first) and `alkane.<name>.id` (resolves immediately), plus
+`.block`/`.tx` — with `height` arithmetic and `"${...}"` templates, but no
+conditionals/loops/functions. Prefer named constructor args matched to the
+ABI constructor's parameters (`args = { supply = 100, ... }`; requires a
+typed opcode-0 constructor) over positional arrays. Then `labcoat plan` (read-only
+reconcile against labcoat.lock + chain) and `labcoat apply --broadcast`
+(idempotent; re-run resumes). Imperative
+multi-step flows belong in `tests/e2e.rs` (`labcoat test --e2e`), which
+resets the chain, applies the manifest, and runs `#[ignore]`d Rust tests
+using `labcoat_test::e2e::E2e` (disposable wallets, calls, balances,
+mining).
 
 ## 6. Trace
 
@@ -117,6 +144,9 @@ fallback.
 - `call` — Execute a state-changing contract call and wait for its trace.
 - `simulate` — Simulate a deployed contract against live indexed chain state (no transaction).
 - `trace` — Decoded protostone traces for a transaction.
+- `balance` — Alkanes token balances held by an address.
+- `plan` — Reconcile the alkanes.hcl deployment manifest against labcoat.lock and chain state; shows pending actions without loading a signer.
+- `apply` — Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan.
 <!-- END GENERATED MCP TOOLS -->
 
 ## Ground rules
