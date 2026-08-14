@@ -55,13 +55,19 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("abi_verify", "Compare a deployed ABI with a locally built contract package.",
             json!({"contract": {"type": "string"}, "package": {"type": "string"}}), &["contract"]),
         tool("deploy", "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
-            json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone()}), &[]),
+            json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone(), "reserve": {"type": "string", "description": "reserved number N for a [3,N] deploy target (default: next free id via [1,0])"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
-            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone()}), &["contract", "opcode"]),
+            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone(), "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &["contract", "opcode"]),
         tool("simulate", "Simulate a deployed contract against live indexed chain state (no transaction).",
             json!({"contract": {"type": "string"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array}), &["contract", "opcode"]),
         tool("trace", "Decoded protostone traces for a transaction.",
             json!({"txid": {"type": "string"}, "wait": {"type": "boolean"}}), &["txid"]),
+        tool("balance", "Alkanes token balances held by an address.",
+            json!({"address": {"type": "string"}}), &["address"]),
+        tool("plan", "Reconcile the alkanes.hcl deployment manifest against labcoat.lock and chain state; shows pending actions without loading a signer.",
+            json!({"manifest": {"type": "string", "description": "manifest path (default alkanes.hcl)"}}), &[]),
+        tool("apply", "Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan.",
+            json!({"manifest": {"type": "string", "description": "manifest path (default alkanes.hcl)"}, "broadcast": {"type": "boolean", "description": "actually broadcast transactions"}}), &[]),
     ]
 }
 
@@ -76,6 +82,31 @@ fn str_args(v: Option<&Value>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Optional transaction-shaping params shared by the deploy and call tools.
+fn tx_flags(args: &Value) -> contract::TxFlags {
+    let string = |key: &str| args.get(key).and_then(|v| v.as_str()).map(String::from);
+    contract::TxFlags {
+        inputs: string("inputs"),
+        to: string("to"),
+        pointer: string("pointer"),
+        refund: string("refund"),
+        edicts: str_args(args.get("edicts")),
+    }
+}
+
+/// The deploy tool's reserve target: a number or decimal string (u128).
+fn parse_reserve(args: &Value) -> Result<Option<u128>, (String, String)> {
+    match args.get("reserve") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(n)) if n.as_u64().is_some() => Ok(n.as_u64().map(u128::from)),
+        Some(Value::String(s)) if s.parse::<u128>().is_ok() => Ok(s.parse().ok()),
+        Some(_) => Err((
+            "[CONFIG_INVALID] reserve must be a decimal u128".into(),
+            "pass the reserved number N for a [3,N] deploy target".into(),
+        )),
+    }
 }
 
 fn call_selector(args: &Value) -> Result<String, (String, String)> {
@@ -279,8 +310,17 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             let package = args.get("package").and_then(|v| v.as_str());
             let wasm = args.get("wasm").and_then(|v| v.as_str());
             let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
-            let (_, res) =
-                contract::deploy(ctx, package, wasm, name, &str_args(args.get("args"))).await;
+            let reserve = parse_reserve(args)?;
+            let (_, res) = contract::deploy(
+                ctx,
+                package,
+                wasm,
+                name,
+                &str_args(args.get("args")),
+                reserve,
+                &tx_flags(args),
+            )
+            .await;
             res.map_err(fail)
         }
         "call" | "simulate" => {
@@ -291,7 +331,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             let selector = call_selector(args)?;
             let call_args = str_args(args.get("args"));
             let (_, res) = if name == "call" {
-                contract::call(ctx, contract_ref, &selector, &call_args).await
+                contract::call(ctx, contract_ref, &selector, &call_args, &tx_flags(args)).await
             } else {
                 contract::simulate(ctx, contract_ref, &selector, &call_args).await
             };
@@ -306,7 +346,29 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             let (_, res) = contract::trace(ctx, txid, wait).await;
             res.map_err(fail)
         }
-        other => Err((format!("unknown tool: {}", other), "call tools/list".into())),
+        "balance" => {
+            let address = args
+                .get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let (_, res) = contract::balance(ctx, address).await;
+            res.map_err(fail)
+        }
+        "plan" => {
+            let manifest = args.get("manifest").and_then(|v| v.as_str());
+            let (_, res) = contract::plan(ctx, manifest).await;
+            res.map_err(fail)
+        }
+        "apply" => {
+            let manifest = args.get("manifest").and_then(|v| v.as_str());
+            let broadcast = args
+                .get("broadcast")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let (_, res) = contract::apply(ctx, manifest, broadcast).await;
+            res.map_err(fail)
+        }
+        other => Err((format!("unknown tool: {other}"), "call tools/list".into())),
     }
 }
 
@@ -373,7 +435,7 @@ pub async fn serve(ctx: Ctx) -> i32 {
                     ),
                 }
             }
-            other => rpc_error(id, -32601, &format!("method not found: {}", other)),
+            other => rpc_error(id, -32601, &format!("method not found: {other}")),
         };
 
         let mut bytes = serde_json::to_vec(&response).unwrap();

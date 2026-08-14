@@ -71,7 +71,15 @@ enum Commands {
     /// Build WASIp1 WebAssembly and run native Rust integration tests
     Test {
         /// Optional Cargo contract package whose host test should run
+        /// (with --e2e: a test-name filter instead)
         package: Option<String>,
+        /// Run tests/e2e.rs against Labcoat Network: reset the chain, apply
+        /// alkanes.hcl, then execute the ignored e2e tests
+        #[arg(long)]
+        e2e: bool,
+        /// With --e2e: keep the current chain state instead of resetting
+        #[arg(long, requires = "e2e")]
+        no_reset: bool,
     },
     /// Prepare this CLI release's exact runtime bundle and boot Labcoat Network
     Up {
@@ -159,9 +167,16 @@ enum Commands {
         /// Contract name for --wasm deployments (defaults to file stem)
         #[arg(long, requires = "wasm", conflicts_with = "package")]
         name: Option<String>,
-        /// Constructor cellpack args (u128 / 0x-hex / short strings)
+        /// Constructor args, one per ABI constructor parameter (raw u128 /
+        /// 0x-hex cellpack values when the artifact exposes no ABI constructor)
         #[arg(long, num_args = 0.., value_delimiter = ',')]
         args: Vec<String>,
+        /// Deploy to reserved number N (cellpack target [3,N]) instead of
+        /// the next free id ([1,0])
+        #[arg(long)]
+        reserve: Option<u128>,
+        #[command(flatten)]
+        tx: contract::TxFlags,
         /// Validate inputs and show what would happen without broadcasting
         #[arg(long)]
         dry_run: bool,
@@ -175,9 +190,27 @@ enum Commands {
         /// One typed value per ABI parameter, or raw cellpack args for numeric opcodes
         #[arg(num_args = 0..)]
         args: Vec<String>,
+        #[command(flatten)]
+        tx: contract::TxFlags,
         /// Validate inputs and show what would happen without broadcasting
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Reconcile the deployment manifest against the chain and show pending actions
+    Plan {
+        /// Manifest path (default alkanes.hcl)
+        #[arg(long)]
+        manifest: Option<String>,
+    },
+    /// Execute the deployment manifest's pending actions
+    Apply {
+        /// Manifest path (default alkanes.hcl)
+        #[arg(long)]
+        manifest: Option<String>,
+        /// Broadcast the pending transactions (without this flag apply only
+        /// shows the plan)
+        #[arg(long)]
+        broadcast: bool,
     },
     /// Simulate a deployed contract against live indexed chain state
     Simulate {
@@ -188,6 +221,11 @@ enum Commands {
         /// One typed value per ABI parameter, or raw cellpack args for numeric opcodes
         #[arg(num_args = 0..)]
         args: Vec<String>,
+    },
+    /// Alkanes token balances held by an address
+    Balance {
+        /// Bitcoin address to query
+        address: String,
     },
     /// Decoded protostone traces for a transaction
     Trace {
@@ -328,9 +366,24 @@ async fn run(cli: Cli) -> i32 {
         Commands::New { .. } => {
             unreachable!("contract scaffolding handled before configuration loading")
         }
-        Commands::Test { package } => {
-            let progress = output::Progress::new("Building contracts and running tests…", !json);
-            let result = test_command::run(package.as_deref());
+        Commands::Test {
+            package,
+            e2e,
+            no_reset,
+        } => {
+            let progress = output::Progress::new(
+                if e2e {
+                    "Resetting the network, applying the manifest, and running e2e tests…"
+                } else {
+                    "Building contracts and running tests…"
+                },
+                !json,
+            );
+            let result = if e2e {
+                test_command::run_e2e(&ctx, package.as_deref(), no_reset).await
+            } else {
+                test_command::run(package.as_deref())
+            };
             progress.finish();
             output::finish_contract(json, "test", result, output_options)
         }
@@ -353,6 +406,8 @@ async fn run(cli: Cli) -> i32 {
             wasm,
             name,
             args,
+            reserve,
+            tx,
             dry_run,
         } => {
             let progress = output::Progress::new(
@@ -364,9 +419,26 @@ async fn run(cli: Cli) -> i32 {
                 !json,
             );
             let (cmd_name, res) = if dry_run {
-                contract::deploy_dry_run(&ctx, package.as_deref(), wasm.as_deref(), name, &args)
+                contract::deploy_dry_run(
+                    &ctx,
+                    package.as_deref(),
+                    wasm.as_deref(),
+                    name,
+                    &args,
+                    reserve,
+                    &tx,
+                )
             } else {
-                contract::deploy(&ctx, package.as_deref(), wasm.as_deref(), name, &args).await
+                contract::deploy(
+                    &ctx,
+                    package.as_deref(),
+                    wasm.as_deref(),
+                    name,
+                    &args,
+                    reserve,
+                    &tx,
+                )
+                .await
             };
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
@@ -375,6 +447,7 @@ async fn run(cli: Cli) -> i32 {
             contract,
             selector,
             args,
+            tx,
             dry_run,
         } => {
             let progress = output::Progress::new(
@@ -386,10 +459,32 @@ async fn run(cli: Cli) -> i32 {
                 !json,
             );
             let (cmd_name, res) = if dry_run {
-                contract::call_dry_run(&ctx, &contract, &selector, &args).await
+                contract::call_dry_run(&ctx, &contract, &selector, &args, &tx).await
             } else {
-                contract::call(&ctx, &contract, &selector, &args).await
+                contract::call(&ctx, &contract, &selector, &args, &tx).await
             };
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Plan { manifest } => {
+            let progress = output::Progress::new("Planning against the manifest…", !json);
+            let (cmd_name, res) = contract::plan(&ctx, manifest.as_deref()).await;
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Apply {
+            manifest,
+            broadcast,
+        } => {
+            let progress = output::Progress::new(
+                if broadcast {
+                    "Applying the manifest…"
+                } else {
+                    "Planning against the manifest…"
+                },
+                !json,
+            );
+            let (cmd_name, res) = contract::apply(&ctx, manifest.as_deref(), broadcast).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
@@ -399,6 +494,10 @@ async fn run(cli: Cli) -> i32 {
             args,
         } => {
             let (cmd_name, res) = contract::simulate(&ctx, &contract, &selector, &args).await;
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Balance { address } => {
+            let (cmd_name, res) = contract::balance(&ctx, &address).await;
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Trace { txid, wait } => {
@@ -762,5 +861,54 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "simulate", "counter", "1"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "call", "token", "mint", "1000"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "call", "counter"]).is_err());
+    }
+
+    #[test]
+    fn deploy_and_call_accept_transaction_shaping_flags() {
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "deploy",
+            "token",
+            "--reserve",
+            "65011",
+            "--args",
+            "1,100",
+            "--to",
+            "bcrt1qexample",
+        ])
+        .unwrap();
+        let Commands::Deploy { reserve, tx, .. } = cli.command else {
+            panic!("expected deploy");
+        };
+        assert_eq!(reserve, Some(65_011));
+        assert_eq!(tx.to.as_deref(), Some("bcrt1qexample"));
+
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "call",
+            "series",
+            "transfer",
+            "--inputs",
+            "4:65014:100",
+            "--pointer",
+            "v1",
+            "--edict",
+            "4:65014:100:v0",
+            "--edict",
+            "4:65014:5:v1",
+        ])
+        .unwrap();
+        let Commands::Call { tx, .. } = cli.command else {
+            panic!("expected call");
+        };
+        assert_eq!(tx.inputs.as_deref(), Some("4:65014:100"));
+        assert_eq!(tx.pointer.as_deref(), Some("v1"));
+        assert_eq!(tx.edicts, vec!["4:65014:100:v0", "4:65014:5:v1"]);
+
+        // Simulate stays read-only: no transaction-shaping flags.
+        assert!(
+            Cli::try_parse_from(["labcoat", "simulate", "counter", "1", "--inputs", "4:1:1"])
+                .is_err()
+        );
     }
 }

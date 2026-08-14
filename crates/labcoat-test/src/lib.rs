@@ -3,6 +3,8 @@
 //! `labcoat test` compiles WASIp1 WebAssembly modules and points this harness
 //! at the resulting artifact directory through `LABCOAT_TEST_ARTIFACT_DIR`.
 
+pub mod e2e;
+
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -117,8 +119,8 @@ impl ContractHarness {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(".labcoat/test-artifacts"));
         Self::from_files(
-            root.join(format!("{}.wasm", name)),
-            root.join(format!("{}.abi.json", name)),
+            root.join(format!("{name}.wasm")),
+            root.join(format!("{name}.abi.json")),
         )
     }
 

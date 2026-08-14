@@ -114,7 +114,7 @@ pub async fn init(
             .filter(|p| {
                 p.file_name()
                     .and_then(|n| n.to_str())
-                    .map(|n| n.starts_with(&format!("{}-", stem)) && n.ends_with(".json"))
+                    .map(|n| n.starts_with(&format!("{stem}-")) && n.ends_with(".json"))
                     .unwrap_or(false)
             })
             .collect();
@@ -123,7 +123,7 @@ pub async fn init(
             std::fs::rename(&newest, &config.wallet_file).map_err(|e| {
                 LabcoatError::new(
                     "TOOLKIT_ERROR",
-                    format!("could not move keystore into place: {}", e),
+                    format!("could not move keystore into place: {e}"),
                     "check permissions",
                 )
             })?;

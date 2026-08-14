@@ -24,6 +24,14 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../templates/default/tests/counter.rs"),
     ),
     (
+        "tests/e2e.rs",
+        include_str!("../templates/default/tests/e2e.rs"),
+    ),
+    (
+        "alkanes.hcl",
+        include_str!("../templates/default/alkanes.hcl"),
+    ),
+    (
         "labcoat.toml",
         include_str!("../templates/default/labcoat.toml"),
     ),

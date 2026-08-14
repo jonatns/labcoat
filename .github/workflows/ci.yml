@@ -59,7 +59,7 @@ jobs:
           sudo apt-get install -y protobuf-compiler clang wasi-libc
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.88.0
           components: rustfmt,clippy
           targets: wasm32-unknown-unknown,wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
@@ -73,7 +73,7 @@ jobs:
           ./scripts/network-smoke/install-stubs.sh
           trap './target/debug/labcoat down --json || true' EXIT
           ./target/debug/labcoat up --no-download
-          for attempt in {1..10}; do
+          for _ in {1..10}; do
             ./target/debug/labcoat status --json \
               | tee "$RUNNER_TEMP/labcoat-status.json"
             if grep -q '"is_ready": true' "$RUNNER_TEMP/labcoat-status.json"; then
@@ -201,6 +201,7 @@ jobs:
           fi
       - name: "Guard: every alkanes-rs reference is pinned to the TOOLCHAIN.md rev on main"
         run: |
+          # shellcheck disable=SC2016  # single-quoted regex; backticks are literal
           PIN=$(grep -oE '\*\*Pinned commit\*\* \| `[0-9a-f]{40}`' TOOLCHAIN.md | grep -oE '[0-9a-f]{40}')
           echo "Pinned rev: $PIN"
           test -n "$PIN" || { echo '::error::could not read pin from TOOLCHAIN.md'; exit 1; }

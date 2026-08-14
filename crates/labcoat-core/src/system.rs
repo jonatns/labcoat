@@ -125,7 +125,7 @@ impl ToolkitConfig {
         if passphrase.is_none() && (net == "mainnet" || net == "signet") {
             return Err(LabcoatError::new(
                 "WALLET_LOCKED",
-                format!("a wallet passphrase is required on {}", net),
+                format!("a wallet passphrase is required on {net}"),
                 "set LABCOAT_WALLET_PASSPHRASE",
             ));
         }
@@ -148,7 +148,7 @@ pub async fn connect(
         alkanes_cli_common::network::NetworkParams::from_network_str(network).map_err(|e| {
             LabcoatError::new(
                 "CONFIG_INVALID",
-                format!("unknown Bitcoin network '{}': {}", network, e),
+                format!("unknown Bitcoin network '{network}': {e}"),
                 "use one of: labcoat, regtest, signet, testnet, mainnet",
             )
         })?;

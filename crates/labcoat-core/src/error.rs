@@ -32,7 +32,7 @@ impl LabcoatError {
     /// Best-effort classification of upstream (anyhow / AlkanesError)
     /// failures into stable codes.
     pub fn classify(err: anyhow::Error) -> Self {
-        let msg = format!("{:#}", err);
+        let msg = format!("{err:#}");
         let lower = msg.to_lowercase();
         let (code, hint) = if lower.contains("wallet file does not exist")
             || lower.contains("no wallet")
