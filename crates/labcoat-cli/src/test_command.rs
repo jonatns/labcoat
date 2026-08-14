@@ -149,7 +149,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
         .output()
         .map_err(|e| EnvelopeError {
             code: "TOOLKIT_ERROR",
-            message: format!("failed to run cargo test: {}", e),
+            message: format!("failed to run cargo test: {e}"),
             hint: "install Cargo and run `labcoat doctor`",
         })?;
     if !output.status.success() {
@@ -222,7 +222,7 @@ pub fn run(package: Option<&str>) -> CmdResult {
         .output()
         .map_err(|e| EnvelopeError {
             code: "TOOLKIT_ERROR",
-            message: format!("failed to run cargo test: {}", e),
+            message: format!("failed to run cargo test: {e}"),
             hint: "install Cargo and run `labcoat doctor`",
         })?;
     if !output.status.success() {

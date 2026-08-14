@@ -30,7 +30,7 @@ pub async fn wait_for_indexer(
         if started.elapsed() > timeout {
             return Err(LabcoatError::new(
                 "INDEXER_LAG",
-                format!("indexer at {} but chain at {}", indexed, chain),
+                format!("indexer at {indexed} but chain at {chain}"),
                 "wait for the Alkanes index to catch up (`labcoat status` / `labcoat logs --service qubitcoind`)",
             ));
         }

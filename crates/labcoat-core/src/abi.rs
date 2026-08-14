@@ -799,7 +799,7 @@ mod tests {
         bytes.extend_from_slice(abi);
         let data = bytes
             .iter()
-            .map(|byte| format!("\\{:02x}", byte))
+            .map(|byte| format!("\\{byte:02x}"))
             .collect::<String>();
         let wat = format!(
             "(module (memory (export \"memory\") 1) (data (i32.const 8) \"{data}\") (func (export \"__meta\") (result i32) i32.const 12))"
@@ -846,7 +846,7 @@ mod tests {
         let length = ((MAX_ABI_BYTES + 1) as u32).to_le_bytes();
         let data = length
             .iter()
-            .map(|byte| format!("\\{:02x}", byte))
+            .map(|byte| format!("\\{byte:02x}"))
             .collect::<String>();
         let wat = format!(
             "(module (memory (export \"memory\") 1) (data (i32.const 0) \"{data}\") (func (export \"__meta\") (result i32) i32.const 4))"

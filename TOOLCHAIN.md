@@ -41,7 +41,7 @@ change in its own reviewed PR. CI verifies the pin is reachable from `main`.
 
 | Tool | Version | Where enforced |
 |---|---|---|
-| Rust | 1.86.0 | `rust-toolchain.toml` (matches alkanes-rs upstream) |
+| Rust | 1.88.0 | `rust-toolchain.toml` (≥ alkanes-rs upstream's 1.86; raised because freshly resolved transitive deps — icu 2.3 via url/idna — require 1.88) |
 | wasm targets | `wasm32-unknown-unknown`, `wasm32-wasip1` | deploy artifacts use unknown-unknown; native contract tests use WASIp1 |
 | protoc | any ≥3 (`protobuf-compiler`) | required to build `labcoat-core` (prost-build 0.12 does not vendor protoc) |
 | LLVM Clang | wasm32 backend | required by secp256k1-sys while compiling contracts; Homebrew LLVM is auto-detected on macOS |

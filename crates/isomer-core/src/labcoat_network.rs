@@ -200,10 +200,10 @@ impl LabcoatNetwork {
         }
         let dest = Self::snapshots_dir().join(name);
         if dest.exists() {
-            return Err(format!("Snapshot '{}' already exists", name));
+            return Err(format!("Snapshot '{name}' already exists"));
         }
         self.stop()?;
-        copy_dir(&src, &dest).map_err(|e| format!("Snapshot failed: {}", e))?;
+        copy_dir(&src, &dest).map_err(|e| format!("Snapshot failed: {e}"))?;
         Ok(dest)
     }
 
@@ -213,14 +213,14 @@ impl LabcoatNetwork {
         validate_snapshot_name(name)?;
         let src = Self::snapshots_dir().join(name);
         if !src.exists() {
-            return Err(format!("Snapshot '{}' not found", name));
+            return Err(format!("Snapshot '{name}' not found"));
         }
         self.stop()?;
         let data = get_runtime_dir();
         if data.exists() {
-            std::fs::remove_dir_all(&data).map_err(|e| format!("Restore failed: {}", e))?;
+            std::fs::remove_dir_all(&data).map_err(|e| format!("Restore failed: {e}"))?;
         }
-        copy_dir(&src, &data).map_err(|e| format!("Restore failed: {}", e))?;
+        copy_dir(&src, &data).map_err(|e| format!("Restore failed: {e}"))?;
         Ok(())
     }
 

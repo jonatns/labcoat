@@ -36,7 +36,7 @@ pub fn parse_arg(arg: &str) -> Result<u128> {
         return u128::from_str_radix(hex_str, 16).map_err(|e| {
             LabcoatError::new(
                 "CONFIG_INVALID",
-                format!("bad hex arg '{}': {}", arg, e),
+                format!("bad hex arg '{arg}': {e}"),
                 "hex args must fit in u128",
             )
         });
@@ -51,7 +51,7 @@ pub fn parse_arg(arg: &str) -> Result<u128> {
     if bytes.is_empty() || bytes.len() > 16 {
         return Err(LabcoatError::new(
             "CONFIG_INVALID",
-            format!("string arg '{}' must be 1..=16 bytes", arg),
+            format!("string arg '{arg}' must be 1..=16 bytes"),
             "long strings don't fit a u128 cellpack value",
         ));
     }

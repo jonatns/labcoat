@@ -119,8 +119,8 @@ impl ContractHarness {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(".labcoat/test-artifacts"));
         Self::from_files(
-            root.join(format!("{}.wasm", name)),
-            root.join(format!("{}.abi.json", name)),
+            root.join(format!("{name}.wasm")),
+            root.join(format!("{name}.abi.json")),
         )
     }
 

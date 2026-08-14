@@ -320,7 +320,7 @@ pub fn resolve_contract(config: &ToolkitConfig, name: &str) -> Result<(u128, u12
     let dep = lockfile::get(&cwd, network, name)?.ok_or_else(|| {
         LabcoatError::new(
             "CONTRACT_NOT_FOUND",
-            format!("no deployment of '{}' on {} in labcoat.lock", name, network),
+            format!("no deployment of '{name}' on {network} in labcoat.lock"),
             "deploy the contract first or pass its block:tx id directly",
         )
     })?;
@@ -332,21 +332,21 @@ pub fn parse_alkanes_id(id: &str) -> Result<(u128, u128)> {
     let (Some(b), Some(t)) = (parts.next(), parts.next()) else {
         return Err(LabcoatError::new(
             "CONFIG_INVALID",
-            format!("bad alkanes id '{}'", id),
+            format!("bad alkanes id '{id}'"),
             "expected block:tx",
         ));
     };
     let block = b.trim().parse().map_err(|_| {
         LabcoatError::new(
             "CONFIG_INVALID",
-            format!("bad block in '{}'", id),
+            format!("bad block in '{id}'"),
             "expected block:tx",
         )
     })?;
     let tx = t.trim().parse().map_err(|_| {
         LabcoatError::new(
             "CONFIG_INVALID",
-            format!("bad tx in '{}'", id),
+            format!("bad tx in '{id}'"),
             "expected block:tx",
         )
     })?;

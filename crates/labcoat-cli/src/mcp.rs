@@ -368,7 +368,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             let (_, res) = contract::apply(ctx, manifest, broadcast).await;
             res.map_err(fail)
         }
-        other => Err((format!("unknown tool: {}", other), "call tools/list".into())),
+        other => Err((format!("unknown tool: {other}"), "call tools/list".into())),
     }
 }
 
@@ -435,7 +435,7 @@ pub async fn serve(ctx: Ctx) -> i32 {
                     ),
                 }
             }
-            other => rpc_error(id, -32601, &format!("method not found: {}", other)),
+            other => rpc_error(id, -32601, &format!("method not found: {other}")),
         };
 
         let mut bytes = serde_json::to_vec(&response).unwrap();

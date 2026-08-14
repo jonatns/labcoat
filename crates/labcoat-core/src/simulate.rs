@@ -66,7 +66,7 @@ pub async fn simulate(
         refund_pointer: 0,
     };
 
-    let contract_id = format!("{}:{}", block, tx);
+    let contract_id = format!("{block}:{tx}");
     let result = AlkanesProvider::simulate(provider, &contract_id, &context, None)
         .await
         .map_err(|e| LabcoatError::classify(e.into()))?;
@@ -80,21 +80,21 @@ fn decode_result(result: &serde_json::Value) -> Result<SimulateOutcome> {
     let hex_str = result.as_str().ok_or_else(|| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("unexpected simulate response shape: {}", result),
+            format!("unexpected simulate response shape: {result}"),
             "re-run with RUST_LOG=debug",
         )
     })?;
     let bytes = hex::decode(hex_str.strip_prefix("0x").unwrap_or(hex_str)).map_err(|e| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("simulate response is not hex: {}", e),
+            format!("simulate response is not hex: {e}"),
             "re-run with RUST_LOG=debug",
         )
     })?;
     let response = SimulateResponse::decode(bytes.as_slice()).map_err(|e| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("failed to decode SimulateResponse: {}", e),
+            format!("failed to decode SimulateResponse: {e}"),
             "the pinned alkanes-rs rev and the Labcoat Network indexer may be out of sync",
         )
     })?;

@@ -59,7 +59,7 @@ jobs:
           sudo apt-get install -y protobuf-compiler clang wasi-libc
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.88.0
           components: rustfmt,clippy
           targets: wasm32-unknown-unknown,wasm32-wasip1
       - uses: Swatinem/rust-cache@v2

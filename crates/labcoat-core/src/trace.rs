@@ -51,7 +51,7 @@ pub async fn wait_for_trace(
         if started.elapsed() > timeout {
             return Err(LabcoatError::new(
                 "TRACE_TIMEOUT",
-                format!("no trace for {} after {:?}", txid, timeout),
+                format!("no trace for {txid} after {timeout:?}"),
                 "is the Alkanes index synced? run `labcoat status`, then `labcoat trace <txid>`",
             ));
         }
