@@ -75,12 +75,14 @@ Arguments and options:
 Build WASIp1 WebAssembly and run native Rust integration tests
 
 ```text
-test [PACKAGE]
+test [OPTIONS] [PACKAGE]
 ```
 
 Arguments and options:
 
-- `package` (optional): Optional Cargo contract package whose host test should run
+- `package` (optional): Optional Cargo contract package whose host test should run (with --e2e: a test-name filter instead)
+- `e2e` (optional): Run tests/e2e.rs against Labcoat Network: reset the chain, apply alkanes.hcl, then execute the ignored e2e tests Values: `true`, `false`.
+- `no_reset` (optional): With --e2e: keep the current chain state instead of resetting Values: `true`, `false`.
 
 ### `labcoat up`
 
@@ -299,7 +301,13 @@ Arguments and options:
 - `package` (optional): Exact Cargo contract package name
 - `wasm` (optional): Explicit path to a raw .wasm artifact (skips compilation)
 - `name` (optional): Contract name for --wasm deployments (defaults to file stem)
-- `args` (optional): Constructor cellpack args (u128 / 0x-hex / short strings)
+- `args` (optional): Constructor args, one per ABI constructor parameter (raw u128 / 0x-hex cellpack values when the artifact exposes no ABI constructor)
+- `reserve` (optional): Deploy to reserved number N (cellpack target [3,N]) instead of the next free id ([1,0])
+- `inputs` (optional): Extra transaction inputs: comma-separated alkanes `block:tx:amount` (amount 0 means all) or bitcoin `B:sats`
+- `to` (optional): Recipient address for the protostone outputs (defaults to the wallet's primary address)
+- `pointer` (optional): Protostone pointer target: vN (physical output) or pN (protostone)
+- `refund` (optional): Protostone refund target (defaults to the pointer target)
+- `edicts` (optional): Edict `block:tx:amount:target` appended to the protostone (repeatable)
 - `dry_run` (optional): Validate inputs and show what would happen without broadcasting Values: `true`, `false`.
 
 ### `labcoat call`
@@ -315,7 +323,37 @@ Arguments and options:
 - `contract` (required): Contract: labcoat.lock name or block:tx alkanes id
 - `selector` (required): Exact ABI method name or decimal opcode
 - `args` (optional): One typed value per ABI parameter, or raw cellpack args for numeric opcodes
+- `inputs` (optional): Extra transaction inputs: comma-separated alkanes `block:tx:amount` (amount 0 means all) or bitcoin `B:sats`
+- `to` (optional): Recipient address for the protostone outputs (defaults to the wallet's primary address)
+- `pointer` (optional): Protostone pointer target: vN (physical output) or pN (protostone)
+- `refund` (optional): Protostone refund target (defaults to the pointer target)
+- `edicts` (optional): Edict `block:tx:amount:target` appended to the protostone (repeatable)
 - `dry_run` (optional): Validate inputs and show what would happen without broadcasting Values: `true`, `false`.
+
+### `labcoat plan`
+
+Reconcile the deployment manifest against the chain and show pending actions
+
+```text
+plan [OPTIONS]
+```
+
+Arguments and options:
+
+- `manifest` (optional): Manifest path (default alkanes.hcl)
+
+### `labcoat apply`
+
+Execute the deployment manifest's pending actions
+
+```text
+apply [OPTIONS]
+```
+
+Arguments and options:
+
+- `manifest` (optional): Manifest path (default alkanes.hcl)
+- `broadcast` (optional): Broadcast the pending transactions (without this flag apply only shows the plan) Values: `true`, `false`.
 
 ### `labcoat simulate`
 
@@ -330,6 +368,18 @@ Arguments and options:
 - `contract` (required): Contract: labcoat.lock name or block:tx alkanes id
 - `selector` (required): Exact ABI method name or decimal opcode
 - `args` (optional): One typed value per ABI parameter, or raw cellpack args for numeric opcodes
+
+### `labcoat balance`
+
+Alkanes token balances held by an address
+
+```text
+balance <ADDRESS>
+```
+
+Arguments and options:
+
+- `address` (required): Bitcoin address to query
 
 ### `labcoat trace`
 
@@ -420,6 +470,9 @@ doctor
 | `call` | Execute a state-changing contract call and wait for its trace. |
 | `simulate` | Simulate a deployed contract against live indexed chain state (no transaction). |
 | `trace` | Decoded protostone traces for a transaction. |
+| `balance` | Alkanes token balances held by an address. |
+| `plan` | Reconcile the alkanes.hcl deployment manifest against labcoat.lock and chain state; shows pending actions without loading a signer. |
+| `apply` | Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan. |
 
 ## Error codes
 
@@ -439,6 +492,10 @@ doctor
 | `PACKAGE_NOT_FOUND` | the requested Cargo contract package was not discovered | run `labcoat build` or pass a package listed in the error |
 | `ABI_MISMATCH` | local and deployed __meta output differ | build the deployed source revision and verify the contract ID |
 | `CONTRACT_NOT_FOUND` | a contract name or ID could not be resolved | run `labcoat lock show` |
+| `LOCKFILE_INVALID` | labcoat.lock exists but cannot be read or parsed | repair the JSON, or delete labcoat.lock to start a fresh ledger |
+| `MANIFEST_INVALID` | the alkanes.hcl deployment manifest failed to parse or validate | fix the reported block; references are `alkane.<name>.<field>` / `contract.<name>.<field>`, and conditionals, loops, and functions are not supported |
+| `STATE_INVALID` | the .labcoat/state call journal cannot be read or parsed | repair or delete the journal file (calls may re-execute) |
+| `APPLY_BLOCKED` | an action cannot proceed without manual intervention | read the action's detail in `labcoat plan` |
 | `TOOLKIT_ERROR` | the underlying contract toolkit failed | read the error hint |
 | `BINARY_CRASH` | a Labcoat Network service exited | inspect `labcoat logs` |
 

@@ -103,6 +103,75 @@ fn parse_args(args: &[String]) -> Result<Vec<u128>, labcoat_core::LabcoatError> 
     args.iter().map(|a| labcoat_core::parse_arg(a)).collect()
 }
 
+/// Transaction-shaping flags shared by `deploy` and `call`.
+#[derive(Debug, Clone, Default, clap::Args)]
+pub struct TxFlags {
+    /// Extra transaction inputs: comma-separated alkanes `block:tx:amount`
+    /// (amount 0 means all) or bitcoin `B:sats`
+    #[arg(long)]
+    pub inputs: Option<String>,
+    /// Recipient address for the protostone outputs (defaults to the
+    /// wallet's primary address)
+    #[arg(long)]
+    pub to: Option<String>,
+    /// Protostone pointer target: vN (physical output) or pN (protostone)
+    #[arg(long)]
+    pub pointer: Option<String>,
+    /// Protostone refund target (defaults to the pointer target)
+    #[arg(long)]
+    pub refund: Option<String>,
+    /// Edict `block:tx:amount:target` appended to the protostone (repeatable)
+    #[arg(long = "edict")]
+    pub edicts: Vec<String>,
+}
+
+impl TxFlags {
+    fn options(&self) -> labcoat_core::execute::TxOptions {
+        labcoat_core::execute::TxOptions {
+            inputs: self.inputs.clone(),
+            to: self.to.clone(),
+            pointer: self.pointer.clone(),
+            refund: self.refund.clone(),
+            edicts: self.edicts.clone(),
+        }
+    }
+
+    /// Non-default fields as dry-run metadata.
+    fn metadata(&self) -> serde_json::Value {
+        serde_json::json!({
+            "inputs": self.inputs,
+            "to": self.to,
+            "pointer": self.pointer,
+            "refund": self.refund,
+            "edicts": self.edicts,
+        })
+    }
+}
+
+fn deploy_target(reserve: Option<u128>) -> toolkit::DeployTarget {
+    match reserve {
+        Some(n) => toolkit::DeployTarget::Reserve(n),
+        None => toolkit::DeployTarget::New,
+    }
+}
+
+/// Encode deploy constructor args via the artifact's ABI, surfacing the
+/// core helper's fallback note as a CLI warning.
+fn resolve_constructor_args(
+    ctx: &Ctx,
+    wasm_path: &std::path::Path,
+    args: &[String],
+) -> Result<labcoat_core::abi::EncodedConstructor, labcoat_core::LabcoatError> {
+    let constructor = labcoat_core::abi::encode_constructor(
+        wasm_path,
+        &labcoat_core::abi::CallArgs::Positional(args.to_vec()),
+    )?;
+    if let Some(note) = &constructor.note {
+        ctx.warn(note);
+    }
+    Ok(constructor)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct ResolvedInvocation {
     opcode: u128,
@@ -188,7 +257,7 @@ async fn resolve_invocation(
     let numeric = numeric_selector(selector)?;
     let (block, tx) = resolve(&ctx.config, contract)?;
     let target = format!("{block}:{tx}");
-    let deployment = named_deployment(&ctx.config, contract);
+    let deployment = named_deployment(&ctx.config, contract)?;
     let mut local_build_status = deployment
         .as_ref()
         .map(|deployment| local_build_status(contract, deployment))
@@ -230,7 +299,11 @@ async fn resolve_invocation(
                 AbiSource::DeployedMeta,
             )
         };
-        let method = labcoat_core::abi::resolve_method(&abi, selector, args)?;
+        let method = labcoat_core::abi::resolve_method(
+            &abi,
+            selector,
+            &labcoat_core::abi::CallArgs::Positional(args.to_vec()),
+        )?;
         ResolvedInvocation {
             opcode: method.opcode,
             method: Some(method.name),
@@ -246,9 +319,9 @@ async fn resolve_invocation(
 fn named_deployment(
     config: &ToolkitConfig,
     contract: &str,
-) -> Option<labcoat_core::lockfile::Deployment> {
+) -> Result<Option<labcoat_core::lockfile::Deployment>, labcoat_core::LabcoatError> {
     if contract.contains(':') {
-        return None;
+        return Ok(None);
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
     labcoat_core::lockfile::get(&cwd, config.network_id(), contract)
@@ -518,20 +591,35 @@ pub async fn deploy(
     wasm: Option<&str>,
     name: Option<String>,
     args: &[String],
+    reserve: Option<u128>,
+    tx: &TxFlags,
 ) -> (&'static str, CmdResult) {
     let res = async {
-        let parsed = parse_args(args)?;
         let artifact = resolve_deployment_artifact(package, wasm, name)?;
-        toolkit::deploy_in(
+        let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
+        let outcome = toolkit::deploy_in(
             &ctx.config,
             ctx.passphrase(),
             &artifact.deployment_root,
-            &artifact.wasm_path,
-            Some(artifact.contract_name),
-            &parsed,
-            ctx.config.fee_rate,
+            toolkit::DeployRequest {
+                wasm_path: &artifact.wasm_path,
+                contract_name: Some(artifact.contract_name),
+                cellpack_args: &constructor.cellpack,
+                fee_rate: ctx.config.fee_rate,
+                target: deploy_target(reserve),
+                options: &tx.options(),
+            },
         )
-        .await
+        .await?;
+        let mut value = serde_json::to_value(outcome).expect("serializable deploy outcome");
+        if let serde_json::Value::Object(object) = &mut value {
+            object.insert(
+                "argsEncoding".into(),
+                serde_json::to_value(constructor.encoding).expect("serializable encoding"),
+            );
+            object.insert("constructor".into(), serde_json::json!(constructor.method));
+        }
+        Ok(value)
     }
     .await;
     ("deploy", to_envelope(res))
@@ -544,9 +632,10 @@ pub fn deploy_dry_run(
     wasm: Option<&str>,
     name: Option<String>,
     args: &[String],
+    reserve: Option<u128>,
+    tx: &TxFlags,
 ) -> (&'static str, CmdResult) {
     let res = (|| {
-        let parsed = parse_args(args)?;
         let artifact = resolve_deployment_artifact(package, wasm, name)?;
         let bytes = std::fs::read(&artifact.wasm_path).map_err(|e| {
             labcoat_core::LabcoatError::new(
@@ -562,6 +651,12 @@ pub fn deploy_dry_run(
                 "pass the .wasm produced by `labcoat build`",
             ));
         }
+        let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
+        let options = tx.options();
+        options.input_requirements()?;
+        let target = deploy_target(reserve);
+        let spec = toolkit::deploy_spec(target, &constructor.cellpack, &options);
+        labcoat_core::execute::validate_spec(&spec)?;
         use sha2::Digest;
         Ok(serde_json::json!({
             "dryRun": true,
@@ -572,7 +667,15 @@ pub fn deploy_dry_run(
             "wasmBytes": bytes.len(),
             "wasmSha256": hex::encode(sha2::Sha256::digest(&bytes)),
             "name": artifact.contract_name,
-            "cellpackArgs": parsed.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+            "target": match target {
+                toolkit::DeployTarget::New => "1:0 (next free id)".to_string(),
+                toolkit::DeployTarget::Reserve(n) => format!("3:{n} (reserved)"),
+            },
+            "constructor": constructor.method,
+            "argsEncoding": constructor.encoding,
+            "cellpackArgs": constructor.cellpack.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+            "protostoneSpec": spec,
+            "tx": tx.metadata(),
             "wouldBroadcast": "commit + reveal transactions with the wasm envelope",
         }))
     })();
@@ -679,10 +782,15 @@ pub async fn call_dry_run(
     contract: &str,
     selector: &str,
     args: &[String],
+    tx_flags: &TxFlags,
 ) -> (&'static str, CmdResult) {
     let res = async {
         let (block, tx, invocation) =
             resolve_invocation(ctx, contract, selector, args, "call").await?;
+        let options = tx_flags.options();
+        options.input_requirements()?;
+        let spec = toolkit::call_spec(block, tx, invocation.opcode, &invocation.cellpack_args, &options);
+        labcoat_core::execute::validate_spec(&spec)?;
         Ok(serde_json::json!({
             "dryRun": true,
             "network": ctx.config.network_id(),
@@ -695,12 +803,8 @@ pub async fn call_dry_run(
             "abiSource": invocation.abi_source,
             "localBuildStatus": invocation.local_build_status,
             "cellpackArgs": invocation.cellpack_args.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-            "protostoneSpec": labcoat_core::execute::cellpack_spec(
-                block,
-                tx,
-                invocation.opcode,
-                &invocation.cellpack_args,
-            ),
+            "protostoneSpec": spec,
+            "tx": tx_flags.metadata(),
             "wouldBroadcast": "one execute transaction carrying the protostone",
         }))
     }
@@ -713,6 +817,7 @@ pub async fn call(
     contract: &str,
     selector: &str,
     args: &[String],
+    tx_flags: &TxFlags,
 ) -> (&'static str, CmdResult) {
     let res = async {
         let (block, tx, invocation) =
@@ -720,11 +825,14 @@ pub async fn call(
         let outcome = toolkit::call(
             &ctx.config,
             ctx.passphrase(),
-            block,
-            tx,
-            invocation.opcode,
-            &invocation.cellpack_args,
-            ctx.config.fee_rate,
+            toolkit::CallRequest {
+                block,
+                tx,
+                opcode: invocation.opcode,
+                args: &invocation.cellpack_args,
+                fee_rate: ctx.config.fee_rate,
+                options: &tx_flags.options(),
+            },
         )
         .await?;
         Ok(invocation.enrich(serde_json::to_value(outcome).expect("serializable call outcome")))
@@ -758,6 +866,63 @@ pub async fn simulate(
     ("simulate", to_envelope(res))
 }
 
+fn manifest_root_and_path(
+    manifest: Option<&str>,
+) -> Result<(PathBuf, PathBuf), labcoat_core::LabcoatError> {
+    let root = std::env::current_dir().map_err(|e| {
+        labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            e.to_string(),
+            "run Labcoat from a readable directory",
+        )
+    })?;
+    let path = match manifest {
+        Some(path) => root.join(path),
+        None => root.join(labcoat_core::manifest::MANIFEST),
+    };
+    Ok((root, path))
+}
+
+/// `labcoat plan` — reconcile the manifest, never load a signer.
+pub async fn plan(ctx: &Ctx, manifest: Option<&str>) -> (&'static str, CmdResult) {
+    let res = async {
+        let (root, path) = manifest_root_and_path(manifest)?;
+        let outcome = labcoat_core::apply::plan(&ctx.config, &root, &path).await?;
+        Ok(serde_json::to_value(outcome.plan).expect("serializable plan"))
+    }
+    .await;
+    ("plan", to_envelope(res))
+}
+
+/// `labcoat apply` — execute the plan's pending actions under --broadcast;
+/// without the flag it only shows the plan.
+pub async fn apply(
+    ctx: &Ctx,
+    manifest: Option<&str>,
+    broadcast: bool,
+) -> (&'static str, CmdResult) {
+    let res = async {
+        let (root, path) = manifest_root_and_path(manifest)?;
+        if !broadcast {
+            let outcome = labcoat_core::apply::plan(&ctx.config, &root, &path).await?;
+            let mut value = serde_json::to_value(outcome.plan).expect("serializable plan");
+            if let serde_json::Value::Object(object) = &mut value {
+                object.insert("dryRun".into(), serde_json::json!(true));
+                object.insert(
+                    "wouldBroadcast".into(),
+                    serde_json::json!("re-run with --broadcast to execute the pending actions"),
+                );
+            }
+            return Ok(value);
+        }
+        let report =
+            labcoat_core::apply::apply(&ctx.config, ctx.passphrase(), &root, &path).await?;
+        Ok(serde_json::to_value(report).expect("serializable apply report"))
+    }
+    .await;
+    ("apply", to_envelope(res))
+}
+
 pub async fn trace(ctx: &Ctx, txid: &str, wait: bool) -> (&'static str, CmdResult) {
     let res = toolkit::trace(&ctx.config, txid, wait)
         .await
@@ -765,16 +930,23 @@ pub async fn trace(ctx: &Ctx, txid: &str, wait: bool) -> (&'static str, CmdResul
     ("trace", to_envelope(res))
 }
 
+pub async fn balance(ctx: &Ctx, address: &str) -> (&'static str, CmdResult) {
+    let res = toolkit::balances(&ctx.config, address)
+        .await
+        .map(|balances| serde_json::json!({ "address": address, "balances": balances }));
+    ("balance", to_envelope(res))
+}
+
 pub fn lock(cmd: LockCmd) -> (&'static str, CmdResult) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
     match cmd {
-        LockCmd::Show => {
-            let lockfile = labcoat_core::lockfile::load(&cwd);
-            (
-                "lock-show",
-                Ok(serde_json::to_value(lockfile).expect("serializable")),
-            )
-        }
+        LockCmd::Show => (
+            "lock-show",
+            to_envelope(
+                labcoat_core::lockfile::load(&cwd)
+                    .map(|lockfile| serde_json::to_value(lockfile).expect("serializable")),
+            ),
+        ),
     }
 }
 

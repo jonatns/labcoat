@@ -20,7 +20,15 @@ Named methods accept one shell argument per ABI parameter. Labcoat encodes
 `u128`, `String`, and `AlkaneId`; use a numeric opcode for raw cellpack args
 when a method uses an unsupported complex type. Simulation always targets the
 deployed contract and live indexed state; use `labcoat test <package>` for an
-undeployed local build. Use ordinary shell scripts for multi-step workflows.
+undeployed local build. Declare multi-step deployments in `alkanes.hcl`
+(`contract` blocks deploy; `alkane` blocks name external ids, either one
+binding or a per-network map like `id = { regtest = [4, 65012] }`;
+reference them as `contract.<name>.id` / `alkane.<name>.id`; prefer
+constructor `args` named after ABI parameters over positional) and run
+`labcoat plan` / `labcoat apply --broadcast`. The manifest is deployment
+only — done when the topology is correct and inert; value-moving,
+actor-specific operations belong in `tests/e2e.rs` (`labcoat test --e2e`)
+or application flows.
 
 Secrets belong in environment variables or mnemonic stdin, never argv or
 `labcoat.toml`. Commit the `Cargo.lock` created by the first build. Run

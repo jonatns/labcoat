@@ -76,6 +76,26 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
         "run `labcoat lock show`",
     ),
     (
+        "LOCKFILE_INVALID",
+        "labcoat.lock exists but cannot be read or parsed",
+        "repair the JSON, or delete labcoat.lock to start a fresh ledger",
+    ),
+    (
+        "MANIFEST_INVALID",
+        "the alkanes.hcl deployment manifest failed to parse or validate",
+        "fix the reported block; references are `alkane.<name>.<field>` / `contract.<name>.<field>`, and conditionals, loops, and functions are not supported",
+    ),
+    (
+        "STATE_INVALID",
+        "the .labcoat/state call journal cannot be read or parsed",
+        "repair or delete the journal file (calls may re-execute)",
+    ),
+    (
+        "APPLY_BLOCKED",
+        "an action cannot proceed without manual intervention",
+        "read the action's detail in `labcoat plan`",
+    ),
+    (
         "TOOLKIT_ERROR",
         "the underlying contract toolkit failed",
         "read the error hint",

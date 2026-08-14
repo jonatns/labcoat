@@ -249,6 +249,17 @@ fn build_document(command: &str, value: &Value, verbose: bool) -> Document {
         "wallet-init" => wallet_init_document(value),
         "build" | "test" => build_document_report(command, value, verbose),
         "lock-show" => lock_document(value, verbose),
+        "plan" => plan_document(value),
+        "apply"
+            if value
+                .get("actions")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().any(|x| x.get("outcome").is_some()))
+                == Some(true) =>
+        {
+            apply_document(value)
+        }
+        "apply" => plan_document(value),
         "logs" => logs_document(value, verbose),
         "snapshot" if value.get("snapshots").is_some() => snapshots_document(value),
         "abi-fetch" | "abi-verify" => abi_document(command, value, verbose),
@@ -758,6 +769,124 @@ fn lock_document(value: &Value, verbose: bool) -> Document {
         headers.push("Wasm SHA-256".into());
     }
     document.blocks.push(Block::Table(headers, rows));
+    document
+}
+
+fn plan_document(value: &Value) -> Document {
+    let mut document = Document::default();
+    let pending = value.get("pending").and_then(Value::as_u64).unwrap_or(0);
+    document.headline(
+        Tone::Info,
+        format!(
+            "Plan for {} — {pending} pending action(s)",
+            string_at(value, "manifest")
+        ),
+    );
+    document.fields(fields(
+        value,
+        &[
+            ("Network", "network"),
+            ("Height", "height"),
+            ("Chain", "chainId"),
+        ],
+    ));
+    let mut rows = Vec::new();
+    for action in value
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        rows.push(vec![
+            string_at(action, "kind"),
+            string_at(action, "name"),
+            string_at(action, "status"),
+            action
+                .get("id")
+                .or_else(|| action.get("target"))
+                .and_then(Value::as_str)
+                .unwrap_or("-")
+                .to_string(),
+            string_at(action, "detail"),
+        ]);
+    }
+    if !rows.is_empty() {
+        document.blocks.push(Block::Table(
+            vec![
+                "Kind".into(),
+                "Name".into(),
+                "Status".into(),
+                "Id/Target".into(),
+                "Detail".into(),
+            ],
+            rows,
+        ));
+    }
+    let stale = value
+        .get("staleCallRecords")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if stale > 0 {
+        document.note(
+            Tone::Warning,
+            format!("{stale} call record(s) from a previous chain instance were ignored."),
+        );
+    }
+    if value.get("dryRun").and_then(Value::as_bool) == Some(true) && pending > 0 {
+        document.note(
+            Tone::Info,
+            "Re-run with --broadcast to execute the pending actions.",
+        );
+    }
+    document
+}
+
+fn apply_document(value: &Value) -> Document {
+    let mut document = Document::default();
+    let actions = value
+        .get("actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let applied = actions
+        .iter()
+        .filter(|a| {
+            matches!(
+                a.get("outcome").and_then(Value::as_str),
+                Some("applied") | Some("adopted")
+            )
+        })
+        .count();
+    document.headline(
+        Tone::Success,
+        format!("Applied {applied} of {} action(s)", actions.len()),
+    );
+    document.fields(fields(
+        value,
+        &[("Network", "network"), ("Chain", "chainId")],
+    ));
+    let mut rows = Vec::new();
+    for action in &actions {
+        rows.push(vec![
+            string_at(action, "kind"),
+            string_at(action, "name"),
+            string_at(action, "outcome"),
+            string_at(action, "id"),
+            string_at(action, "txid"),
+        ]);
+    }
+    if !rows.is_empty() {
+        document.blocks.push(Block::Table(
+            vec![
+                "Kind".into(),
+                "Name".into(),
+                "Outcome".into(),
+                "Id".into(),
+                "Transaction".into(),
+            ],
+            rows,
+        ));
+    }
     document
 }
 

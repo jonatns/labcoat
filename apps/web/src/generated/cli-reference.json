@@ -36,9 +36,27 @@
       {
         "arguments": [
           {
-            "description": "Optional Cargo contract package whose host test should run",
+            "description": "Optional Cargo contract package whose host test should run (with --e2e: a test-name filter instead)",
             "id": "package",
             "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Run tests/e2e.rs against Labcoat Network: reset the chain, apply alkanes.hcl, then execute the ignored e2e tests",
+            "id": "e2e",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          },
+          {
+            "description": "With --e2e: keep the current chain state instead of resetting",
+            "id": "no_reset",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
             "required": false
           }
         ],
@@ -46,7 +64,7 @@
         "name": "test",
         "path": "labcoat test",
         "subcommands": [],
-        "usage": "test [PACKAGE]"
+        "usage": "test [OPTIONS] [PACKAGE]"
       },
       {
         "arguments": [
@@ -374,8 +392,44 @@
             "required": false
           },
           {
-            "description": "Constructor cellpack args (u128 / 0x-hex / short strings)",
+            "description": "Constructor args, one per ABI constructor parameter (raw u128 / 0x-hex cellpack values when the artifact exposes no ABI constructor)",
             "id": "args",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Deploy to reserved number N (cellpack target [3,N]) instead of the next free id ([1,0])",
+            "id": "reserve",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Extra transaction inputs: comma-separated alkanes `block:tx:amount` (amount 0 means all) or bitcoin `B:sats`",
+            "id": "inputs",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Recipient address for the protostone outputs (defaults to the wallet's primary address)",
+            "id": "to",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Protostone pointer target: vN (physical output) or pN (protostone)",
+            "id": "pointer",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Protostone refund target (defaults to the pointer target)",
+            "id": "refund",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Edict `block:tx:amount:target` appended to the protostone (repeatable)",
+            "id": "edicts",
             "possibleValues": [],
             "required": false
           },
@@ -416,6 +470,36 @@
             "required": false
           },
           {
+            "description": "Extra transaction inputs: comma-separated alkanes `block:tx:amount` (amount 0 means all) or bitcoin `B:sats`",
+            "id": "inputs",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Recipient address for the protostone outputs (defaults to the wallet's primary address)",
+            "id": "to",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Protostone pointer target: vN (physical output) or pN (protostone)",
+            "id": "pointer",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Protostone refund target (defaults to the pointer target)",
+            "id": "refund",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Edict `block:tx:amount:target` appended to the protostone (repeatable)",
+            "id": "edicts",
+            "possibleValues": [],
+            "required": false
+          },
+          {
             "description": "Validate inputs and show what would happen without broadcasting",
             "id": "dry_run",
             "possibleValues": [
@@ -430,6 +514,45 @@
         "path": "labcoat call",
         "subcommands": [],
         "usage": "call [OPTIONS] <CONTRACT> <SELECTOR> [ARGS]..."
+      },
+      {
+        "arguments": [
+          {
+            "description": "Manifest path (default alkanes.hcl)",
+            "id": "manifest",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Reconcile the deployment manifest against the chain and show pending actions",
+        "name": "plan",
+        "path": "labcoat plan",
+        "subcommands": [],
+        "usage": "plan [OPTIONS]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Manifest path (default alkanes.hcl)",
+            "id": "manifest",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Broadcast the pending transactions (without this flag apply only shows the plan)",
+            "id": "broadcast",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Execute the deployment manifest's pending actions",
+        "name": "apply",
+        "path": "labcoat apply",
+        "subcommands": [],
+        "usage": "apply [OPTIONS]"
       },
       {
         "arguments": [
@@ -457,6 +580,21 @@
         "path": "labcoat simulate",
         "subcommands": [],
         "usage": "simulate <CONTRACT> <SELECTOR> [ARGS]..."
+      },
+      {
+        "arguments": [
+          {
+            "description": "Bitcoin address to query",
+            "id": "address",
+            "possibleValues": [],
+            "required": true
+          }
+        ],
+        "description": "Alkanes token balances held by an address",
+        "name": "balance",
+        "path": "labcoat balance",
+        "subcommands": [],
+        "usage": "balance <ADDRESS>"
       },
       {
         "arguments": [
@@ -634,6 +772,26 @@
         "code": "CONTRACT_NOT_FOUND",
         "meaning": "a contract name or ID could not be resolved",
         "recovery": "run `labcoat lock show`"
+      },
+      {
+        "code": "LOCKFILE_INVALID",
+        "meaning": "labcoat.lock exists but cannot be read or parsed",
+        "recovery": "repair the JSON, or delete labcoat.lock to start a fresh ledger"
+      },
+      {
+        "code": "MANIFEST_INVALID",
+        "meaning": "the alkanes.hcl deployment manifest failed to parse or validate",
+        "recovery": "fix the reported block; references are `alkane.<name>.<field>` / `contract.<name>.<field>`, and conditionals, loops, and functions are not supported"
+      },
+      {
+        "code": "STATE_INVALID",
+        "meaning": "the .labcoat/state call journal cannot be read or parsed",
+        "recovery": "repair or delete the journal file (calls may re-execute)"
+      },
+      {
+        "code": "APPLY_BLOCKED",
+        "meaning": "an action cannot proceed without manual intervention",
+        "recovery": "read the action's detail in `labcoat plan`"
       },
       {
         "code": "TOOLKIT_ERROR",
@@ -860,12 +1018,39 @@
               },
               "type": "array"
             },
+            "edicts": {
+              "description": "edicts block:tx:amount:target appended to the protostone",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "inputs": {
+              "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats",
+              "type": "string"
+            },
             "name": {
               "description": "optional name for wasm deployments",
               "type": "string"
             },
             "package": {
               "description": "exact Cargo contract package name",
+              "type": "string"
+            },
+            "pointer": {
+              "description": "protostone pointer target vN or pN (default v0)",
+              "type": "string"
+            },
+            "refund": {
+              "description": "protostone refund target (default: pointer)",
+              "type": "string"
+            },
+            "reserve": {
+              "description": "reserved number N for a [3,N] deploy target (default: next free id via [1,0])",
+              "type": "string"
+            },
+            "to": {
+              "description": "recipient address for protostone outputs (default: wallet primary address)",
               "type": "string"
             },
             "wasm": {
@@ -893,8 +1078,31 @@
               "description": "labcoat.lock name or block:tx id",
               "type": "string"
             },
+            "edicts": {
+              "description": "edicts block:tx:amount:target appended to the protostone",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "inputs": {
+              "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats",
+              "type": "string"
+            },
             "opcode": {
               "description": "exact ABI method name or decimal opcode",
+              "type": "string"
+            },
+            "pointer": {
+              "description": "protostone pointer target vN or pN (default v0)",
+              "type": "string"
+            },
+            "refund": {
+              "description": "protostone refund target (default: pointer)",
+              "type": "string"
+            },
+            "to": {
+              "description": "recipient address for protostone outputs (default: wallet primary address)",
               "type": "string"
             }
           },
@@ -950,6 +1158,53 @@
           "type": "object"
         },
         "name": "trace"
+      },
+      {
+        "description": "Alkanes token balances held by an address.",
+        "inputSchema": {
+          "properties": {
+            "address": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "address"
+          ],
+          "type": "object"
+        },
+        "name": "balance"
+      },
+      {
+        "description": "Reconcile the alkanes.hcl deployment manifest against labcoat.lock and chain state; shows pending actions without loading a signer.",
+        "inputSchema": {
+          "properties": {
+            "manifest": {
+              "description": "manifest path (default alkanes.hcl)",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "plan"
+      },
+      {
+        "description": "Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan.",
+        "inputSchema": {
+          "properties": {
+            "broadcast": {
+              "description": "actually broadcast transactions",
+              "type": "boolean"
+            },
+            "manifest": {
+              "description": "manifest path (default alkanes.hcl)",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "apply"
       }
     ],
     "protocol": [
