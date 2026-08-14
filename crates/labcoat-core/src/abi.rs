@@ -364,8 +364,9 @@ pub fn encode_constructor(wasm_path: &Path, args: &CallArgs) -> Result<EncodedCo
             ));
         }
         if !args.is_empty() {
-            note =
-                Some("no ABI metadata available — encoding args as raw cellpack values".to_string());
+            note = Some(
+                "no ABI metadata available — encoding args as raw cellpack values".to_string(),
+            );
         }
     }
     let CallArgs::Positional(values) = args else {
@@ -625,9 +626,18 @@ mod tests {
     fn resolves_counter_method_names_to_opcodes() {
         let abi = br#"{"contract":"Counter","methods":[{"name":"initialize","opcode":0,"params":[],"returns":"void"},{"name":"increment","opcode":1,"params":[],"returns":"u128"},{"name":"get_count","opcode":2,"params":[],"returns":"u128"}]}"#;
 
-        assert_eq!(resolve_method(abi, "initialize", &pos(&[])).unwrap().opcode, 0);
-        assert_eq!(resolve_method(abi, "increment", &pos(&[])).unwrap().opcode, 1);
-        assert_eq!(resolve_method(abi, "get_count", &pos(&[])).unwrap().opcode, 2);
+        assert_eq!(
+            resolve_method(abi, "initialize", &pos(&[])).unwrap().opcode,
+            0
+        );
+        assert_eq!(
+            resolve_method(abi, "increment", &pos(&[])).unwrap().opcode,
+            1
+        );
+        assert_eq!(
+            resolve_method(abi, "get_count", &pos(&[])).unwrap().opcode,
+            2
+        );
     }
 
     #[test]
@@ -703,7 +713,11 @@ mod tests {
         let abi = br#"{"contract":"Series","methods":[{"name":"initialize","opcode":0,"params":[{"name":"underlying","type":"AlkaneId"},{"name":"strike","type":"u128"},{"name":"supply","type":"u128"}],"returns":"void"}]}"#;
         let resolved = resolve_constructor(
             abi,
-            &named(&[("supply", "100"), ("underlying", "4:65011"), ("strike", "75")]),
+            &named(&[
+                ("supply", "100"),
+                ("underlying", "4:65011"),
+                ("strike", "75"),
+            ]),
         )
         .unwrap()
         .expect("opcode-0 constructor exists");
@@ -717,11 +731,15 @@ mod tests {
         let missing = resolve_constructor(abi, &named(&[("underlying", "4:65011")])).unwrap_err();
         assert_eq!(missing.code, "CONFIG_INVALID");
         assert!(missing.message.contains("missing named arg(s): strike"));
-        assert!(missing.message.contains("underlying: AlkaneId, strike: u128"));
+        assert!(missing
+            .message
+            .contains("underlying: AlkaneId, strike: u128"));
 
         let unknown = resolve_constructor(abi, &named(&[("strke", "75")])).unwrap_err();
         assert!(unknown.message.contains("has no parameter `strke`"));
-        assert!(unknown.message.contains("underlying: AlkaneId, strike: u128"));
+        assert!(unknown
+            .message
+            .contains("underlying: AlkaneId, strike: u128"));
     }
 
     #[test]
@@ -752,16 +770,16 @@ mod tests {
 
     #[test]
     fn raw_fallback_rejects_alkane_id_shaped_args() {
-        let corrupt = encode_constructor(
-            Path::new("/nonexistent/contract.wasm"),
-            &pos(&["4:65011"]),
-        )
-        .unwrap_err();
+        let corrupt =
+            encode_constructor(Path::new("/nonexistent/contract.wasm"), &pos(&["4:65011"]))
+                .unwrap_err();
         assert_eq!(corrupt.code, "CONFIG_INVALID");
-        assert!(corrupt.message.contains("raw cellpack encoding would corrupt it"));
+        assert!(corrupt
+            .message
+            .contains("raw cellpack encoding would corrupt it"));
 
-        let plain = encode_constructor(Path::new("/nonexistent/contract.wasm"), &pos(&["7"]))
-            .unwrap();
+        let plain =
+            encode_constructor(Path::new("/nonexistent/contract.wasm"), &pos(&["7"])).unwrap();
         assert_eq!(plain.cellpack, vec![7]);
         assert_eq!(plain.encoding, ConstructorEncoding::Raw);
     }

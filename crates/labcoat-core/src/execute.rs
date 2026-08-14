@@ -156,10 +156,7 @@ pub fn spec_with_options(
 /// Shift a `pN` protostone reference one slot for the prepended splitter;
 /// `vN` output references are untouched.
 fn shift_protostone_ref(target: &str) -> String {
-    if let Some(n) = target
-        .strip_prefix('p')
-        .and_then(|n| n.parse::<u32>().ok())
-    {
+    if let Some(n) = target.strip_prefix('p').and_then(|n| n.parse::<u32>().ok()) {
         format!("p{}", n + 1)
     } else {
         target.to_string()

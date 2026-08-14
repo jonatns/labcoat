@@ -1147,10 +1147,9 @@ contract "series" {
 
     #[test]
     fn rejects_bad_named_args() {
-        let duplicate = parse(
-            "contract \"a\" {\n  package = \"a\"\n  args = { x = 1, \"x\" = 2 }\n}",
-        )
-        .unwrap_err();
+        let duplicate =
+            parse("contract \"a\" {\n  package = \"a\"\n  args = { x = 1, \"x\" = 2 }\n}")
+                .unwrap_err();
         assert!(duplicate.message.contains("duplicate arg `x`"));
 
         let scalar = parse("contract \"a\" {\n  package = \"a\"\n  args = 1\n}").unwrap_err();
@@ -1160,7 +1159,9 @@ contract "series" {
 
         let computed_key =
             parse("contract \"a\" {\n  package = \"a\"\n  args = { (height) = 1 }\n}").unwrap_err();
-        assert!(computed_key.message.contains("arg names must be identifiers"));
+        assert!(computed_key
+            .message
+            .contains("arg names must be identifiers"));
     }
 
     #[test]
@@ -1262,8 +1263,16 @@ contract "b" {
     #[test]
     fn rejects_bare_and_unknown_references() {
         let bare = parse("contract \"a\" {\n  package = \"a\"\n  args = [fire.id]\n}").unwrap_err();
-        assert!(bare.message.contains("`contract.fire.id`"), "{}", bare.message);
-        assert!(bare.message.contains("`alkane.fire.id`"), "{}", bare.message);
+        assert!(
+            bare.message.contains("`contract.fire.id`"),
+            "{}",
+            bare.message
+        );
+        assert!(
+            bare.message.contains("`alkane.fire.id`"),
+            "{}",
+            bare.message
+        );
 
         let variable =
             parse("contract \"a\" {\n  package = \"a\"\n  args = [supply]\n}").unwrap_err();
@@ -1286,8 +1295,8 @@ contract "b" {
             parse("contract \"a\" {\n  package = \"a\"\n  args = [alkane.usd.id]\n}").unwrap_err();
         assert!(alkane.message.contains("`alkane.usd` is not declared"));
 
-        let contract =
-            parse("contract \"a\" {\n  package = \"a\"\n  args = [contract.usd.id]\n}").unwrap_err();
+        let contract = parse("contract \"a\" {\n  package = \"a\"\n  args = [contract.usd.id]\n}")
+            .unwrap_err();
         assert!(contract.message.contains("`contract.usd` is not declared"));
 
         let cross_hint = parse(
@@ -1300,7 +1309,9 @@ contract "b" {
             "contract \"a\" {\n  package = \"a\"\n}\ncall \"x\" {\n  contract = \"nope\"\n  method = \"m\"\n}",
         )
         .unwrap_err();
-        assert!(call_target.message.contains("contract \"nope\" is not declared"));
+        assert!(call_target
+            .message
+            .contains("contract \"nope\" is not declared"));
     }
 
     #[test]
@@ -1344,17 +1355,17 @@ contract "series" {
 
     #[test]
     fn rejects_malformed_id_maps() {
-        let unknown_network =
-            parse("alkane \"t\" {\n  id = { moonnet = [4, 1] }\n}").unwrap_err();
-        assert!(unknown_network.message.contains("unknown network 'moonnet'"));
+        let unknown_network = parse("alkane \"t\" {\n  id = { moonnet = [4, 1] }\n}").unwrap_err();
+        assert!(unknown_network
+            .message
+            .contains("unknown network 'moonnet'"));
 
         let empty = parse("alkane \"t\" {\n  id = {}\n}").unwrap_err();
         assert!(empty.message.contains("bind at least one network"));
 
-        let duplicate = parse(
-            "alkane \"t\" {\n  id = { regtest = [4, 1], \"regtest\" = [4, 2] }\n}",
-        )
-        .unwrap_err();
+        let duplicate =
+            parse("alkane \"t\" {\n  id = { regtest = [4, 1], \"regtest\" = [4, 2] }\n}")
+                .unwrap_err();
         assert!(duplicate.message.contains("duplicate network `regtest`"));
 
         let bad_value = parse("alkane \"t\" {\n  id = { regtest = 4 }\n}").unwrap_err();
@@ -1379,10 +1390,8 @@ contract "series" {
         let unknown = parse("alkane \"t\" {\n  id = [4, 1]\n  reserve = 2\n}").unwrap_err();
         assert!(unknown.message.contains("unknown attribute `reserve`"));
 
-        let duplicate = parse(
-            "alkane \"t\" {\n  id = [4, 1]\n}\nalkane \"t\" {\n  id = [4, 2]\n}",
-        )
-        .unwrap_err();
+        let duplicate = parse("alkane \"t\" {\n  id = [4, 1]\n}\nalkane \"t\" {\n  id = [4, 2]\n}")
+            .unwrap_err();
         assert!(duplicate.message.contains("duplicate alkane"));
 
         let reserved = parse("alkane \"height\" {\n  id = [4, 1]\n}").unwrap_err();

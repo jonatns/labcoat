@@ -9,9 +9,9 @@
 //! hash), which invalidates both ledgers and makes the next apply rebuild
 //! everything — that is the supported dev loop.
 
+use crate::abi::CallArgs;
 use crate::error::{LabcoatError, Result};
 use crate::execute::TxOptions;
-use crate::abi::CallArgs;
 use crate::manifest::{self, Args, CallEntry, Manifest, ResolvedIds};
 use crate::system::ToolkitConfig;
 use crate::toolkit::{self, DeployTarget};
@@ -326,7 +326,11 @@ impl ResolvedArgSet {
 }
 
 /// Resolve an `args` attribute, or None when any reference is pending.
-fn resolve_arg_set(args: &Args, resolved: &ResolvedIds, height: u64) -> Result<Option<ResolvedArgSet>> {
+fn resolve_arg_set(
+    args: &Args,
+    resolved: &ResolvedIds,
+    height: u64,
+) -> Result<Option<ResolvedArgSet>> {
     match args {
         Args::Positional(items) => {
             Ok(resolve_args(items, resolved, height)?.map(ResolvedArgSet::Positional))
@@ -345,15 +349,12 @@ fn resolve_arg_set(args: &Args, resolved: &ResolvedIds, height: u64) -> Result<O
 }
 
 /// Args for display: resolved where possible, symbolic source text otherwise.
-fn preview_args(
-    args: &Args,
-    resolved: &ResolvedIds,
-    height: u64,
-) -> Result<Vec<String>> {
-    let preview = |expr: &Expression| -> Result<String> {
-        Ok(manifest::eval_scalar(expr, resolved, height)?
-            .unwrap_or_else(|| manifest::render(expr)))
-    };
+fn preview_args(args: &Args, resolved: &ResolvedIds, height: u64) -> Result<Vec<String>> {
+    let preview =
+        |expr: &Expression| -> Result<String> {
+            Ok(manifest::eval_scalar(expr, resolved, height)?
+                .unwrap_or_else(|| manifest::render(expr)))
+        };
     match args {
         Args::Positional(items) => items.iter().map(preview).collect(),
         Args::Named(items) => items
