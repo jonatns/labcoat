@@ -4,7 +4,7 @@
   "description": "Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.",
   "license": "MIT",
   "author": "Jonathan P. Navarrete <jonatns@gmail.com>",
-  "packageManager": "pnpm@11.13.0",
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "pnpm -r build",
     "dev:web": "pnpm --filter @labcoat/web dev",
