@@ -841,6 +841,91 @@ pub async fn call(
     ("call", to_envelope(res))
 }
 
+pub async fn exchange(
+    ctx: &Ctx,
+    offered: &str,
+    offered_amount: u64,
+    payment: &str,
+    payment_amount: u64,
+    seller_wallet_file: &str,
+) -> (&'static str, CmdResult) {
+    let res = async {
+        if !ctx.config.network.uses_regtest() {
+            return Err(labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                "the two-keystore exchange coordinator is restricted to Labcoat Network and custom regtest",
+                "use an external PSBT signer workflow for public networks",
+            ));
+        }
+        let (offered_block, offered_tx) = resolve(&ctx.config, offered)?;
+        let (payment_block, payment_tx) = resolve(&ctx.config, payment)?;
+        let mut seller_config = ctx.config.clone();
+        seller_config.wallet_file = PathBuf::from(seller_wallet_file);
+        if seller_config.wallet_file == ctx.config.wallet_file {
+            return Err(labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                "seller and buyer keystore paths must be different",
+                "pass the seller keystore with --seller-wallet-file and the buyer with --wallet-file",
+            ));
+        }
+
+        let passphrase = ctx.passphrase();
+        ctx.config.require_passphrase_policy(&passphrase)?;
+        let mut buyer = labcoat_core::system::connect(&ctx.config, passphrase.clone(), true).await?;
+        let seller = labcoat_core::system::connect(&seller_config, passphrase, true).await?;
+        let buyer_address = labcoat_core::atomic_exchange::primary_address(&buyer).await?;
+        let seller_address = labcoat_core::atomic_exchange::primary_address(&seller).await?;
+
+        let outcome = labcoat_core::atomic_exchange::run(
+            &mut buyer,
+            &seller,
+            &ctx.config,
+            labcoat_core::atomic_exchange::AtomicExchangeRequest {
+                offered: labcoat_core::atomic_exchange::AlkaneId {
+                    block: u64::try_from(offered_block).map_err(|_| {
+                        labcoat_core::LabcoatError::new(
+                            "CONFIG_INVALID",
+                            format!("offered asset block {offered_block} does not fit in u64"),
+                            "use a valid on-chain Alkane ID",
+                        )
+                    })?,
+                    tx: u64::try_from(offered_tx).map_err(|_| {
+                        labcoat_core::LabcoatError::new(
+                            "CONFIG_INVALID",
+                            format!("offered asset tx {offered_tx} does not fit in u64"),
+                            "use a valid on-chain Alkane ID",
+                        )
+                    })?,
+                },
+                offered_amount,
+                payment: labcoat_core::atomic_exchange::AlkaneId {
+                    block: u64::try_from(payment_block).map_err(|_| {
+                        labcoat_core::LabcoatError::new(
+                            "CONFIG_INVALID",
+                            format!("payment asset block {payment_block} does not fit in u64"),
+                            "use a valid on-chain Alkane ID",
+                        )
+                    })?,
+                    tx: u64::try_from(payment_tx).map_err(|_| {
+                        labcoat_core::LabcoatError::new(
+                            "CONFIG_INVALID",
+                            format!("payment asset tx {payment_tx} does not fit in u64"),
+                            "use a valid on-chain Alkane ID",
+                        )
+                    })?,
+                },
+                payment_amount,
+                seller_address,
+                buyer_address,
+            },
+        )
+        .await?;
+        Ok(serde_json::to_value(outcome).expect("serializable exchange outcome"))
+    }
+    .await;
+    ("exchange", to_envelope(res))
+}
+
 pub async fn simulate(
     ctx: &Ctx,
     contract: &str,

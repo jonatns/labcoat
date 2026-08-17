@@ -342,7 +342,7 @@ async fn protected_outpoints(
 
 /// Mine confirmations away from the project wallet. The public key is the
 /// secp256k1 generator point; this is only a regtest block-reward sink.
-fn regtest_mining_address() -> String {
+pub(crate) fn regtest_mining_address() -> String {
     let public_key = bitcoin::secp256k1::PublicKey::from_str(
         "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
     )

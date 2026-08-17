@@ -2861,6 +2861,7 @@ dependencies = [
  "alkanes-cli-common",
  "alkanes-support",
  "anyhow",
+ "bip39",
  "bitcoin 0.32.101",
  "flate2",
  "hcl-rs",

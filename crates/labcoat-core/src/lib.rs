@@ -8,6 +8,7 @@
 
 pub mod abi;
 pub mod apply;
+pub mod atomic_exchange;
 pub mod compile;
 pub mod error;
 pub mod execute;

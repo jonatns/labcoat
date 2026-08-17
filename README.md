@@ -9,8 +9,8 @@ Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smar
 > Early-stage software for local Alkanes development. Interfaces may change before 1.0; mainnet deployment controls are not production-ready.
 
 Labcoat provides one command system for scaffolding Rust contracts, native
-tests, WebAssembly builds, Labcoat Network, wallets,
-deployment, calls, simulation, traces, JSON automation, and MCP.
+tests, WebAssembly builds, Labcoat Network, wallets, deployment, calls, atomic
+two-wallet exchanges, simulation, traces, JSON automation, and MCP.
 
 **Labcoat Network is Labcoat's local, private, resettable Alkanes network. It
 runs Bitcoin regtest under the hood. It is not Signet.**
@@ -65,6 +65,11 @@ labcoat simulate counter get_count
 labcoat call counter increment
 labcoat trace <txid> --wait
 ```
+
+For local integration tests, `labcoat exchange` swaps two Alkane assets in one
+PSBT signed by isolated seller and buyer wallets. The two-keystore coordinator
+is restricted to Labcoat Network and custom regtest; public networks require a
+separate external-signer PSBT workflow.
 
 Stop the local environment with `labcoat down`. Run `labcoat --help`,
 `labcoat <command> --help`, or `labcoat docs --llm` for the complete reference

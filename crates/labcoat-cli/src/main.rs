@@ -196,6 +196,20 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Atomically exchange one wallet's Alkane asset for another wallet's asset
+    Exchange {
+        /// Asset sold by the seller: labcoat.lock name or block:tx id
+        offered: String,
+        /// Complete offered quantity delivered to the buyer
+        offered_amount: u64,
+        /// Asset paid by the buyer: labcoat.lock name or block:tx id
+        payment: String,
+        /// Complete payment quantity delivered to the seller
+        payment_amount: u64,
+        /// Seller keystore; --wallet-file is the buyer keystore
+        #[arg(long)]
+        seller_wallet_file: String,
+    },
     /// Reconcile the deployment manifest against the chain and show pending actions
     Plan {
         /// Manifest path (default alkanes.hcl)
@@ -463,6 +477,27 @@ async fn run(cli: Cli) -> i32 {
             } else {
                 contract::call(&ctx, &contract, &selector, &args, &tx).await
             };
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Exchange {
+            offered,
+            offered_amount,
+            payment,
+            payment_amount,
+            seller_wallet_file,
+        } => {
+            let progress =
+                output::Progress::new("Signing and broadcasting atomic exchange…", !json);
+            let (cmd_name, res) = contract::exchange(
+                &ctx,
+                &offered,
+                offered_amount,
+                &payment,
+                payment_amount,
+                &seller_wallet_file,
+            )
+            .await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }

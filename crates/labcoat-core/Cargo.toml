@@ -17,6 +17,7 @@ tracing.workspace = true
 wasmi.workspace = true
 hex = "0.4"
 bitcoin = "0.32.4"
+bip39 = "2.2.2"
 prost = "0.12.6"
 flate2 = "1.0"
 sha2 = "0.10"
