@@ -2869,6 +2869,7 @@ dependencies = [
  "flate2",
  "hcl-rs",
  "hex",
+ "ordinals",
  "prost",
  "serde",
  "serde_json",

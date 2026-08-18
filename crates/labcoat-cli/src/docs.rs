@@ -26,6 +26,81 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
         "set `LABCOAT_WALLET_PASSPHRASE`",
     ),
     (
+        "WALLET_ERROR",
+        "wallet metadata, ownership, or signing failed",
+        "inspect the wallet, PSBT prevouts, and expected derivation path",
+    ),
+    (
+        "SIGNER_UNSUPPORTED",
+        "the selected signer lacks a required capability",
+        "use the keystore signer or a compatible PSBT signer",
+    ),
+    (
+        "SIGNER_TIMEOUT",
+        "an external signer did not return a PSBT in time",
+        "sign the request file or raise `LABCOAT_PSBT_TIMEOUT_SECS`",
+    ),
+    (
+        "SIGNER_MISMATCH",
+        "external signer output does not match the requested transaction",
+        "sign the exact PSBT without changing inputs or outputs",
+    ),
+    (
+        "EXCHANGE_PLAN_INVALID",
+        "exchange terms or fixed output layout are invalid",
+        "rebuild the exchange plan from current wallet state",
+    ),
+    (
+        "EXCHANGE_PLAN_MISMATCH",
+        "the supplied PSBT differs from its content-addressed plan",
+        "use the PSBT emitted by `labcoat exchange-plan`",
+    ),
+    (
+        "EXCHANGE_INPUT_OWNERSHIP",
+        "an exchange input is unsafe, ambiguous, or owned by the wrong party",
+        "use clean P2TR inputs containing only the participant's required asset",
+    ),
+    (
+        "EXCHANGE_ASSET_UNSAFE",
+        "an exchange input or output contains an unrelated or misrouted Alkane",
+        "use single-asset owner inputs and rebuild the exchange plan",
+    ),
+    (
+        "EXCHANGE_SELLER_DEBIT",
+        "the transaction would consume seller bitcoin value",
+        "rebuild with buyer-funded outputs and fees",
+    ),
+    (
+        "EXCHANGE_SIGNATURE_MISSING",
+        "a required buyer or seller signature is absent",
+        "sign the PSBT with the expected participant wallet",
+    ),
+    (
+        "EXCHANGE_SIGNATURE_INVALID",
+        "an exchange input signature failed verification",
+        "discard the PSBT and recreate the plan",
+    ),
+    (
+        "EXCHANGE_SIGHASH_UNSUPPORTED",
+        "an exchange signature is not Taproot SIGHASH_DEFAULT",
+        "sign the complete unchanged transaction with SIGHASH_DEFAULT",
+    ),
+    (
+        "EXCHANGE_NETWORK_MISMATCH",
+        "the live chain instance differs from the exchange plan",
+        "discard stale plans after a network reset",
+    ),
+    (
+        "EXCHANGE_TIP_STALE",
+        "the observed planning tip is no longer in the active chain",
+        "rebuild the plan after the reorganization",
+    ),
+    (
+        "EXCHANGE_INPUT_SPENT",
+        "a planned input has already been spent",
+        "rebuild the plan with current UTXOs",
+    ),
+    (
         "RPC_UNREACHABLE",
         "the configured Qubitcoin endpoint cannot be reached",
         "run `labcoat status`",

@@ -58,6 +58,10 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone(), "reserve": {"type": "string", "description": "reserved number N for a [3,N] deploy target (default: next free id via [1,0])"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
             json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone(), "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &["contract", "opcode"]),
+        tool("exchange_plan", "Build an owner-partitioned atomic exchange plan and return its base64 PSBT.",
+            json!({"offered": {"type": "string"}, "offeredAmount": {"type": "integer", "minimum": 1}, "payment": {"type": "string"}, "paymentAmount": {"type": "integer", "minimum": 1}, "sellerAddress": {"type": "string"}, "buyerAddress": {"type": "string"}}), &["offered", "offeredAmount", "payment", "paymentAmount", "sellerAddress", "buyerAddress"]),
+        tool("exchange_settle", "Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact.",
+            json!({"plan": {"type": "object"}, "psbt": {"type": "string", "description": "base64 or hex buyer-signed PSBT"}, "sellerWalletFile": {"type": "string"}, "broadcast": {"type": "boolean"}}), &["plan", "psbt", "sellerWalletFile", "broadcast"]),
         tool("simulate", "Simulate a deployed contract against live indexed chain state (no transaction).",
             json!({"contract": {"type": "string"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array}), &["contract", "opcode"]),
         tool("trace", "Decoded protostone traces for a transaction.",
@@ -353,6 +357,127 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                 contract::simulate(ctx, contract_ref, &selector, &call_args).await
             };
             res.map_err(fail)
+        }
+        "exchange_plan" => {
+            let offered = args
+                .get("offered")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let payment = args
+                .get("payment")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let offered_amount = args
+                .get("offeredAmount")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let payment_amount = args
+                .get("paymentAmount")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let seller_address = args
+                .get("sellerAddress")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let buyer_address = args
+                .get("buyerAddress")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let res = async {
+                let offered = contract::resolve(&ctx.config, offered)?;
+                let payment = contract::resolve(&ctx.config, payment)?;
+                let mut provider = ctx.wallet_provider().await?;
+                labcoat_core::atomic_exchange::build_exchange_plan(
+                    &mut provider,
+                    &ctx.config,
+                    labcoat_core::atomic_exchange::AtomicExchangeRequest {
+                        offered: labcoat_core::atomic_exchange::AlkaneId {
+                            block: u64::try_from(offered.0).map_err(|_| {
+                                labcoat_core::LabcoatError::new(
+                                    "CONFIG_INVALID",
+                                    "offered block does not fit u64",
+                                    "use a valid Alkane ID",
+                                )
+                            })?,
+                            tx: u64::try_from(offered.1).map_err(|_| {
+                                labcoat_core::LabcoatError::new(
+                                    "CONFIG_INVALID",
+                                    "offered tx does not fit u64",
+                                    "use a valid Alkane ID",
+                                )
+                            })?,
+                        },
+                        offered_amount,
+                        payment: labcoat_core::atomic_exchange::AlkaneId {
+                            block: u64::try_from(payment.0).map_err(|_| {
+                                labcoat_core::LabcoatError::new(
+                                    "CONFIG_INVALID",
+                                    "payment block does not fit u64",
+                                    "use a valid Alkane ID",
+                                )
+                            })?,
+                            tx: u64::try_from(payment.1).map_err(|_| {
+                                labcoat_core::LabcoatError::new(
+                                    "CONFIG_INVALID",
+                                    "payment tx does not fit u64",
+                                    "use a valid Alkane ID",
+                                )
+                            })?,
+                        },
+                        payment_amount,
+                        seller_address: seller_address.to_string(),
+                        buyer_address: buyer_address.to_string(),
+                    },
+                )
+                .await
+            }
+            .await;
+            res.map(|plan| serde_json::to_value(plan).unwrap())
+                .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))
+        }
+        "exchange_settle" => {
+            if args.get("broadcast").and_then(Value::as_bool) != Some(true) {
+                return Err((
+                    "[CONFIG_INVALID] exchange_settle requires broadcast: true".into(),
+                    "use exchange_plan for read-only inspection".into(),
+                ));
+            }
+            let plan: labcoat_core::atomic_exchange::ExchangePlanV1 = serde_json::from_value(
+                args.get("plan").cloned().unwrap_or(Value::Null),
+            )
+            .map_err(|e| {
+                (
+                    format!("[EXCHANGE_PLAN_INVALID] {e}"),
+                    "pass the complete ExchangePlanV1 object".into(),
+                )
+            })?;
+            let psbt = labcoat_core::signer::decode_psbt(
+                args.get("psbt").and_then(Value::as_str).unwrap_or_default(),
+            )
+            .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))?;
+            let seller_wallet_file = args
+                .get("sellerWalletFile")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let res = async {
+                let mut config = ctx.config.clone();
+                config.wallet_file = std::path::PathBuf::from(seller_wallet_file);
+                let connected =
+                    labcoat_core::system::connect_signing(&config, &ctx.signer_spec()?).await?;
+                let mut provider = connected.provider;
+                labcoat_core::atomic_exchange::settle_exchange(
+                    &mut provider,
+                    connected.signer.as_ref(),
+                    &config,
+                    &plan,
+                    psbt,
+                    true,
+                )
+                .await
+            }
+            .await;
+            res.map(|outcome| serde_json::to_value(outcome).unwrap())
+                .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))
         }
         "trace" => {
             let txid = args

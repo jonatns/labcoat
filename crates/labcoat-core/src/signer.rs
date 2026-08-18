@@ -27,6 +27,7 @@ use bitcoin::key::{TapTweak, UntweakedKeypair};
 use bitcoin::psbt::Psbt;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::{Address, TapSighashType};
+use serde::Serialize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -42,6 +43,17 @@ pub struct SignerCaps {
     /// Can produce taproot script-path signatures (needed for envelope
     /// reveal transactions). External PSBT tools generally cannot.
     pub script_path: bool,
+    /// Can sign an application-provided 32-byte BIP-340 digest with the
+    /// tweaked key controlling an owned P2TR address.
+    pub message_signing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchnorrDigestSignature {
+    pub address: String,
+    pub output_key: String,
+    pub signature: String,
 }
 
 /// Which signing backend a command should use. This replaces the bare
@@ -114,6 +126,19 @@ pub trait Signer: Send + Sync {
     async fn addresses(&self) -> Result<Vec<String>>;
     /// Sign owned inputs in place; returns how many inputs were signed.
     async fn sign_psbt(&self, psbt: &mut Psbt) -> Result<usize>;
+    /// Sign a pre-hashed application message. Backends that only exchange
+    /// PSBTs intentionally reject this optional capability.
+    async fn sign_schnorr_digest(
+        &self,
+        _address: &str,
+        _digest: [u8; 32],
+    ) -> Result<SchnorrDigestSignature> {
+        Err(LabcoatError::new(
+            "SIGNER_UNSUPPORTED",
+            "this signer cannot sign application message digests",
+            "use the keystore signer for quote-message signing",
+        ))
+    }
     fn capabilities(&self) -> SignerCaps;
 }
 
@@ -262,10 +287,63 @@ impl Signer for KeystoreSigner {
         Ok(signed)
     }
 
+    async fn sign_schnorr_digest(
+        &self,
+        address: &str,
+        digest: [u8; 32],
+    ) -> Result<SchnorrDigestSignature> {
+        let checked = Address::from_str(address)
+            .map_err(|error| {
+                LabcoatError::new(
+                    "CONFIG_INVALID",
+                    format!("invalid P2TR address: {error}"),
+                    "pass an address owned by this wallet",
+                )
+            })?
+            .require_network(self.network)
+            .map_err(|error| {
+                LabcoatError::new(
+                    "CONFIG_INVALID",
+                    format!("address is for the wrong network: {error}"),
+                    "pass an address for the configured network",
+                )
+            })?;
+        if !checked.script_pubkey().is_p2tr() {
+            return Err(LabcoatError::new(
+                "SIGNER_UNSUPPORTED",
+                "digest signing requires a P2TR address",
+                "use a BIP-86 P2TR receive address",
+            ));
+        }
+        let path = self.find_p2tr_path(address)?.ok_or_else(|| {
+            LabcoatError::new(
+                "SIGNER_MISMATCH",
+                "the requested address is not owned by this keystore",
+                "use `labcoat wallet addresses` to choose an owned P2TR address",
+            )
+        })?;
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+        let derived = self
+            .root
+            .derive_priv(&secp, &path)
+            .map_err(|error| LabcoatError::classify(error.into()))?;
+        let untweaked = UntweakedKeypair::from(derived.to_keypair(&secp));
+        let tweaked = untweaked.tap_tweak(&secp, None);
+        let message = bitcoin::secp256k1::Message::from_digest(digest);
+        let signature = secp.sign_schnorr_no_aux_rand(&message, &tweaked.to_keypair());
+        let bytes = checked.script_pubkey().into_bytes();
+        Ok(SchnorrDigestSignature {
+            address: address.to_string(),
+            output_key: hex::encode(&bytes[2..34]),
+            signature: signature.to_string(),
+        })
+    }
+
     fn capabilities(&self) -> SignerCaps {
         SignerCaps {
             unattended_ok: true,
             script_path: false,
+            message_signing: true,
         }
     }
 }
@@ -395,6 +473,7 @@ impl Signer for PsbtFileSigner {
         SignerCaps {
             unattended_ok: false,
             script_path: false,
+            message_signing: false,
         }
     }
 }

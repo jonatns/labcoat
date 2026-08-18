@@ -34,6 +34,7 @@ alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714
 # native-deps is REQUIRED: upstream cfg-gates its whole HTTP client on it
 # (without it every RPC method returns "not available in WASM environment").
 alkanes-cli-common = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714843c416e2ab57352a33f05b8461cf3f540f5a", default-features = false, features = ["std", "native-deps"] }
+ordinals = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714843c416e2ab57352a33f05b8461cf3f540f5a" }
 
 # NOTE on transitive git deps: alkanes-rs declares metashrew by tag and emasm
 # by a moving branch ref. Cargo forbids [patch]-ing a git source with itself at a rev,
