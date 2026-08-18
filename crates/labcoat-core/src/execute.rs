@@ -6,11 +6,13 @@ use crate::system::ToolkitConfig;
 use alkanes_cli_common::alkanes::execute::EnhancedAlkanesExecutor;
 pub use alkanes_cli_common::alkanes::types::InputRequirement;
 use alkanes_cli_common::alkanes::types::{
-    EnhancedExecuteParams, EnhancedExecuteResult, OrdinalsStrategy, UtxoDataSource,
+    EnhancedExecuteParams, EnhancedExecuteResult, ExecutionState, OrdinalsStrategy,
+    ReadyToSignRevealTx, UtxoDataSource,
 };
 use alkanes_cli_common::provider::ConcreteProvider;
 use alkanes_cli_common::traits::{BitcoinRpcProvider, WalletProvider};
 use serde::Serialize;
+use std::io::IsTerminal;
 use std::str::FromStr;
 
 const POST_BROADCAST_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -198,8 +200,14 @@ pub struct ExecuteRequest<'a> {
 }
 
 /// Run the executor with a cellpack spec, optional envelope (deploy), and
-/// standard labcoat behavior: auto-confirm, trace, auto-mine on regtest,
-/// UTXOs filtered to the indexer height.
+/// standard labcoat behavior: trace, auto-mine on regtest, UTXOs filtered to
+/// the indexer height.
+///
+/// Signing goes through the pausable `execute()` state machine instead of
+/// the opaque `execute_full()`: every transaction (single, commit, reveal)
+/// is previewed and approved before it is signed and broadcast, and a
+/// pending reveal is persisted to `.labcoat/pending/` between the commit
+/// broadcast and the reveal so an interrupted deploy is recoverable.
 pub async fn run(
     provider: &mut ConcreteProvider,
     config: &ToolkitConfig,
@@ -213,6 +221,14 @@ pub async fn run(
                 "expected [block,tx,opcode,args...]:v0:v0",
             )
         })?;
+
+    if request.envelope.is_some() && provider.has_remote_signer() {
+        return Err(LabcoatError::new(
+            "SIGNER_UNSUPPORTED",
+            "contract deploys need a taproot script-path signature for the reveal, which external signers cannot produce yet",
+            "use the keystore signer for deploys; external-signer deploys arrive with hardware-wallet support",
+        ));
+    }
 
     let mine_enabled = config.network.uses_regtest();
     let required_alkanes: std::collections::BTreeSet<(u128, u128)> = request
@@ -240,6 +256,8 @@ pub async fn run(
         // serves historical transaction hex through its Esplora secondary.
         trace_enabled: false,
         mine_enabled: false,
+        // Labcoat runs its own approval gate; the upstream stdin prompt
+        // stays disabled.
         auto_confirm: true,
         ordinals_strategy: OrdinalsStrategy::default(),
         mempool_indexer: false,
@@ -255,12 +273,92 @@ pub async fn run(
         utxo_source: UtxoDataSource::default(),
     };
 
+    let wallet_fingerprint = provider
+        .get_keystore()
+        .ok()
+        .map(|keystore| keystore.master_fingerprint.clone());
+
     let result = {
         let mut executor = EnhancedAlkanesExecutor::new(provider);
-        executor
-            .execute_full(params)
+        let state = executor
+            .execute(params.clone())
             .await
-            .map_err(|e| LabcoatError::classify(e.into()))?
+            .map_err(|e| LabcoatError::classify(e.into()))?;
+
+        match state {
+            ExecutionState::Complete(result) => result,
+            ExecutionState::ReadyToSign(tx) => {
+                approve_transaction(
+                    config,
+                    &wallet_fingerprint,
+                    &preview("transaction", &tx.psbt, tx.fee, config, &wallet_fingerprint),
+                )?;
+                executor
+                    .resume_execution(tx, &params)
+                    .await
+                    .map_err(|e| LabcoatError::classify(e.into()))?
+            }
+            ExecutionState::ReadyToSignCommit(mut commit) => {
+                prefund_reveal_from_commit_change(&mut commit);
+                approve_transaction(
+                    config,
+                    &wallet_fingerprint,
+                    &preview(
+                        "commit (envelope funding)",
+                        &commit.psbt,
+                        commit.fee,
+                        config,
+                        &wallet_fingerprint,
+                    ),
+                )?;
+                let next = executor
+                    .resume_commit_execution(commit)
+                    .await
+                    .map_err(|e| LabcoatError::classify(e.into()))?;
+                let reveal = match next {
+                    ExecutionState::ReadyToSignReveal(reveal) => reveal,
+                    other => {
+                        return Err(LabcoatError::new(
+                            "TOOLKIT_ERROR",
+                            format!("unexpected state after commit broadcast: {other:?}"),
+                            "report this as a Labcoat bug",
+                        ));
+                    }
+                };
+                // The commit is on the network from here on — persist the
+                // reveal state first so a crash or a declined approval can
+                // be recovered without abandoning the commit output.
+                let pending = persist_pending_reveal(config, &reveal);
+                approve_transaction(
+                    config,
+                    &wallet_fingerprint,
+                    &preview(
+                        &format!("reveal (commit {})", reveal.commit_txid),
+                        &reveal.psbt,
+                        reveal.fee,
+                        config,
+                        &wallet_fingerprint,
+                    ),
+                )?;
+                let result = executor
+                    .resume_reveal_execution(reveal)
+                    .await
+                    .map_err(|e| LabcoatError::classify(e.into()))?;
+                if let Some(pending) = pending {
+                    std::fs::remove_file(pending).ok();
+                }
+                result
+            }
+            ExecutionState::ReadyToSignReveal(reveal) => {
+                // execute() never starts here, but resuming a persisted
+                // reveal will once `labcoat resume` lands.
+                let result = executor
+                    .resume_reveal_execution(reveal)
+                    .await
+                    .map_err(|e| LabcoatError::classify(e.into()))?;
+                result
+            }
+        }
     };
 
     if mine_enabled {
@@ -272,6 +370,184 @@ pub async fn run(
     }
 
     Ok(result)
+}
+
+/// Upstream's `build_reveal_psbt` funds the reveal with extra wallet UTXOs
+/// whenever the commit output holds less than `to·546 + bitcoin reqs +
+/// 50_000` sats — and on this stack that selection reads a stale confirmed
+/// view (the mempool-aware adjustment is skipped in qubitcoin mode), so it
+/// re-picks the very UTXO the still-unconfirmed commit just spent and the
+/// reveal is rejected as a conflicting replacement.
+///
+/// The commit PSBT is still unsigned here, so rebalance the shortfall from
+/// the commit's change output into the commit output instead: the reveal
+/// then spends only the commit outpoint and never selects again. The extra
+/// sats come straight back through the reveal's own change output.
+fn prefund_reveal_from_commit_change(
+    commit: &mut alkanes_cli_common::alkanes::types::ReadyToSignCommitTx,
+) {
+    // Mirrors the constant baked into upstream build_reveal_psbt
+    // (alkanes-cli-common alkanes/execute.rs, `total_bitcoin_needed`).
+    const UPSTREAM_REVEAL_BUFFER: u64 = 50_000;
+    const DUST: u64 = 546;
+
+    let bitcoin_requirements: u64 = commit
+        .params
+        .input_requirements
+        .iter()
+        .filter_map(|requirement| match requirement {
+            InputRequirement::Bitcoin { amount } => Some(*amount),
+            _ => None,
+        })
+        .sum();
+    let reveal_needs = commit.params.to_addresses.len() as u64 * DUST
+        + bitcoin_requirements
+        + UPSTREAM_REVEAL_BUFFER;
+    if commit.required_reveal_amount >= reveal_needs {
+        return;
+    }
+    let bump = reveal_needs - commit.required_reveal_amount;
+
+    // Output 0 is the envelope commit output (resume_commit_execution spends
+    // `vout: 0`); the change, when present, is the last non-commit output
+    // paying back to the wallet.
+    let outputs = &mut commit.psbt.unsigned_tx.output;
+    if outputs.len() < 2 {
+        tracing::warn!(
+            "commit transaction has no change output to pre-fund the reveal from; falling back to upstream reveal funding"
+        );
+        return;
+    }
+    let change_index = outputs.len() - 1;
+    let change_value = outputs[change_index].value.to_sat();
+    if change_value < bump + DUST {
+        tracing::warn!(
+            "commit change ({change_value} sats) cannot cover the reveal shortfall ({bump} sats); falling back to upstream reveal funding"
+        );
+        return;
+    }
+    outputs[0].value = bitcoin::Amount::from_sat(outputs[0].value.to_sat() + bump);
+    outputs[change_index].value = bitcoin::Amount::from_sat(change_value - bump);
+    commit.required_reveal_amount = reveal_needs;
+    tracing::debug!("pre-funded the reveal with {bump} extra sats through the commit output");
+}
+
+/// Render a short human preview of a transaction about to be signed.
+fn preview(
+    kind: &str,
+    psbt: &bitcoin::psbt::Psbt,
+    fee: u64,
+    config: &ToolkitConfig,
+    wallet_fingerprint: &Option<String>,
+) -> String {
+    let network = match config.bitcoin_network_id() {
+        "mainnet" => bitcoin::Network::Bitcoin,
+        "testnet" => bitcoin::Network::Testnet,
+        "signet" => bitcoin::Network::Signet,
+        _ => bitcoin::Network::Regtest,
+    };
+    let mut lines = vec![format!(
+        "about to sign {kind} on {} (wallet {})",
+        config.network_id(),
+        wallet_fingerprint.as_deref().unwrap_or("unknown"),
+    )];
+    let tx = &psbt.unsigned_tx;
+    lines.push(format!(
+        "  {} input(s), {} output(s), fee {fee} sats",
+        tx.input.len(),
+        tx.output.len()
+    ));
+    for (index, output) in tx.output.iter().enumerate() {
+        let destination = if output.script_pubkey.is_op_return() {
+            "OP_RETURN (protostone)".to_string()
+        } else {
+            bitcoin::Address::from_script(&output.script_pubkey, network)
+                .map(|address| address.to_string())
+                .unwrap_or_else(|_| "non-standard script".to_string())
+        };
+        lines.push(format!(
+            "  out v{index}: {destination} {} sats",
+            output.value.to_sat()
+        ));
+    }
+    lines.join("\n")
+}
+
+/// The approval gate for every signature. Regtest targets (and `--yes`)
+/// auto-approve after printing the preview; public networks require an
+/// interactive confirmation.
+fn approve_transaction(
+    config: &ToolkitConfig,
+    _wallet_fingerprint: &Option<String>,
+    preview: &str,
+) -> Result<()> {
+    eprintln!("{preview}");
+    if config.network.uses_regtest() || config.assume_yes {
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(LabcoatError::new(
+            "APPROVAL_REQUIRED",
+            format!(
+                "signing on {} requires interactive approval",
+                config.network_id()
+            ),
+            "re-run in a terminal, or pass --yes to approve non-interactively",
+        ));
+    }
+    eprint!("sign and broadcast? [y/N] ");
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer).map_err(|error| {
+        LabcoatError::new(
+            "APPROVAL_REQUIRED",
+            format!("could not read approval: {error}"),
+            "re-run in a terminal, or pass --yes to approve non-interactively",
+        )
+    })?;
+    let answer = answer.trim().to_ascii_lowercase();
+    if answer == "y" || answer == "yes" {
+        Ok(())
+    } else {
+        Err(LabcoatError::new(
+            "APPROVAL_DECLINED",
+            "transaction was not approved",
+            "nothing was signed or broadcast",
+        ))
+    }
+}
+
+/// Best-effort persistence of a ready-to-sign reveal so an interrupted
+/// deploy can be recovered; the commit is already broadcast when this runs,
+/// so failing the whole flow over a persistence error would only make
+/// recovery harder.
+fn persist_pending_reveal(
+    config: &ToolkitConfig,
+    reveal: &ReadyToSignRevealTx,
+) -> Option<std::path::PathBuf> {
+    let dir = config
+        .wallet_file
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(|parent| parent.join("pending"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".labcoat/pending"));
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("cannot create {}: {error}", dir.display());
+        return None;
+    }
+    let path = dir.join(format!("reveal-{}.json", reveal.commit_txid));
+    match serde_json::to_vec_pretty(reveal) {
+        Ok(bytes) => {
+            if let Err(error) = std::fs::write(&path, bytes) {
+                tracing::warn!("cannot persist pending reveal {}: {error}", path.display());
+                return None;
+            }
+            Some(path)
+        }
+        Err(error) => {
+            tracing::warn!("cannot serialize pending reveal: {error}");
+            None
+        }
+    }
 }
 
 /// Qubitcoin's Esplora transaction shape can omit the coinbase marker. Confirm
@@ -342,7 +618,7 @@ async fn protected_outpoints(
 
 /// Mine confirmations away from the project wallet. The public key is the
 /// secp256k1 generator point; this is only a regtest block-reward sink.
-fn regtest_mining_address() -> String {
+pub(crate) fn regtest_mining_address() -> String {
     let public_key = bitcoin::secp256k1::PublicKey::from_str(
         "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
     )

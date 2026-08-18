@@ -734,7 +734,7 @@ fn stop(kind: &str, name: &str, error: LabcoatError) -> LabcoatError {
 /// the CLI only calls this under `--broadcast`.
 pub async fn apply(
     config: &ToolkitConfig,
-    passphrase: Option<String>,
+    signer: &crate::signer::SignerSpec,
     root: &Path,
     manifest_path: &Path,
 ) -> Result<ApplyReport> {
@@ -867,7 +867,7 @@ pub async fn apply(
                     .map_err(|e| stop("deploy", &entry.name, e))?;
                 let outcome = toolkit::deploy_in(
                     config,
-                    passphrase.clone(),
+                    signer,
                     root,
                     toolkit::DeployRequest {
                         wasm_path,
@@ -971,7 +971,7 @@ pub async fn apply(
 
                 let result = toolkit::call(
                     config,
-                    passphrase.clone(),
+                    signer,
                     toolkit::CallRequest {
                         block,
                         tx,

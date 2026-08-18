@@ -41,8 +41,8 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("network_reset", "Stop services and wipe all Labcoat Network chain data.", json!({}), &[]),
         tool("network_logs", "Recent Labcoat Network service logs.",
             json!({"service": {"type": "string", "enum": ["qubitcoind"]}, "limit": {"type": "integer"}}), &[]),
-        tool("wallet_init", "Create or load the project wallet keystore. Optional mnemonic (else generated).",
-            json!({"mnemonic": {"type": "string"}}), &[]),
+        tool("wallet_init", "Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
+            json!({"mnemonic": {"type": "string"}, "showMnemonic": {"type": "boolean"}}), &[]),
         tool("wallet_addresses", "Wallet receive addresses per script type.",
             json!({"count": {"type": "integer", "minimum": 1}}), &[]),
         tool("wallet_utxos", "Spendable wallet UTXOs.", json!({}), &[]),
@@ -224,22 +224,40 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                 .get("mnemonic")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+            let show_mnemonic = args
+                .get("showMnemonic")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let passphrase = ctx.passphrase();
-            let res = async {
-                ctx.config.require_passphrase_policy(&passphrase)?;
-                let mut provider =
-                    labcoat_core::system::connect(&ctx.config, passphrase.clone(), false).await?;
-                labcoat_core::wallet::init(&mut provider, &ctx.config, mnemonic, passphrase).await
-            }
-            .await;
+            let res: Result<labcoat_core::wallet::WalletInitResult, labcoat_core::LabcoatError> =
+                async {
+                    ctx.config.require_passphrase_policy(&passphrase)?;
+                    let mut provider =
+                        labcoat_core::system::connect(&ctx.config, passphrase.clone(), false)
+                            .await?;
+                    let mut result = labcoat_core::wallet::init(
+                        &mut provider,
+                        &ctx.config,
+                        mnemonic,
+                        passphrase,
+                    )
+                    .await?;
+                    // MCP transcripts are logs; never capture a generated
+                    // mnemonic in one unless the caller asked for it.
+                    if !show_mnemonic && result.mnemonic.is_some() {
+                        result.mnemonic = None;
+                        result.mnemonic_redacted = true;
+                    }
+                    Ok(result)
+                }
+                .await;
             res.map(|v| serde_json::to_value(v).unwrap())
                 .map_err(|e| (format!("[{}] {}", e.code, e.message), e.hint.to_string()))
         }
         "wallet_addresses" => {
             let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
             let res = async {
-                let provider =
-                    labcoat_core::system::connect(&ctx.config, ctx.passphrase(), true).await?;
+                let provider = ctx.wallet_provider().await?;
                 labcoat_core::wallet::addresses(&provider, count).await
             }
             .await;
@@ -248,8 +266,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
         }
         "wallet_utxos" => {
             let res = async {
-                let provider =
-                    labcoat_core::system::connect(&ctx.config, ctx.passphrase(), true).await?;
+                let provider = ctx.wallet_provider().await?;
                 labcoat_core::wallet::utxos(&provider).await
             }
             .await;

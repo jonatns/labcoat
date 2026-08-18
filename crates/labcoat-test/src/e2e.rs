@@ -53,6 +53,37 @@ pub struct Call {
     wallet: Option<Wallet>,
 }
 
+/// A two-wallet, full-fill Alkane exchange executed as one transaction.
+#[derive(Debug, Clone)]
+pub struct Exchange {
+    offered: String,
+    offered_amount: u64,
+    payment: String,
+    payment_amount: u64,
+    seller_wallet_file: PathBuf,
+    buyer: Wallet,
+}
+
+impl Exchange {
+    pub fn new(
+        offered: &str,
+        offered_amount: u64,
+        payment: &str,
+        payment_amount: u64,
+        seller_wallet_file: impl Into<PathBuf>,
+        buyer: &Wallet,
+    ) -> Self {
+        Self {
+            offered: offered.to_string(),
+            offered_amount,
+            payment: payment.to_string(),
+            payment_amount,
+            seller_wallet_file: seller_wallet_file.into(),
+            buyer: buyer.clone(),
+        }
+    }
+}
+
 impl Call {
     /// `contract` is a labcoat.lock name or `block:tx` id; `method` an ABI
     /// method name or decimal opcode.
@@ -257,6 +288,37 @@ impl E2e {
                 .get("revertReason")
                 .and_then(Value::as_str)
                 .map(String::from),
+            raw: result,
+        })
+    }
+
+    /// Atomically deliver `offered` from the seller and `payment` from the
+    /// buyer. The seller keystore is supplied explicitly; the buyer is the
+    /// command's normal signing wallet.
+    pub fn exchange(&self, exchange: Exchange) -> Result<Outcome> {
+        let args = [
+            "exchange".to_string(),
+            exchange.offered,
+            exchange.offered_amount.to_string(),
+            exchange.payment,
+            exchange.payment_amount.to_string(),
+            "--seller-wallet-file".to_string(),
+            exchange.seller_wallet_file.to_string_lossy().into_owned(),
+        ];
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let result = self.invoke(Some(&exchange.buyer), &borrowed)?;
+        Ok(Outcome {
+            status: result
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            txid: result
+                .get("txid")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            revert_reason: None,
             raw: result,
         })
     }

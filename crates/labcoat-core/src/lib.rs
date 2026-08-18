@@ -8,11 +8,13 @@
 
 pub mod abi;
 pub mod apply;
+pub mod atomic_exchange;
 pub mod compile;
 pub mod error;
 pub mod execute;
 pub mod lockfile;
 pub mod manifest;
+pub mod signer;
 pub mod simulate;
 pub mod sync;
 pub mod system;

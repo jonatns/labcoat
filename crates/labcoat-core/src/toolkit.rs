@@ -5,6 +5,7 @@ use crate::error::{LabcoatError, Result};
 use crate::execute::{
     find_created_alkane, find_return_status, spec_with_options, ExecuteOutcome, TxOptions,
 };
+use crate::signer::SignerSpec;
 use crate::system::ToolkitConfig;
 use crate::{lockfile, simulate as sim, sync, system, trace as trace_mod, wallet};
 use std::path::Path;
@@ -61,17 +62,17 @@ pub struct DeployRequest<'a> {
 /// .wasm.gz inputs are rejected to prevent double compression).
 pub async fn deploy(
     config: &ToolkitConfig,
-    passphrase: Option<String>,
+    signer: &SignerSpec,
     request: DeployRequest<'_>,
 ) -> Result<ExecuteOutcome> {
     let deployment_root = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    deploy_in(config, passphrase, &deployment_root, request).await
+    deploy_in(config, signer, &deployment_root, request).await
 }
 
 /// Deploy and record the resulting contract in a specific project directory.
 pub async fn deploy_in(
     config: &ToolkitConfig,
-    passphrase: Option<String>,
+    signer: &SignerSpec,
     deployment_root: &Path,
     request: DeployRequest<'_>,
 ) -> Result<ExecuteOutcome> {
@@ -109,9 +110,8 @@ pub async fn deploy_in(
         ));
     }
 
-    config.require_passphrase_policy(&passphrase)?;
     let input_requirements = options.input_requirements()?;
-    let mut provider = system::connect(config, passphrase, true).await?;
+    let mut provider = system::connect_signing(config, signer).await?.provider;
     let to_address = match &options.to {
         Some(address) => address.clone(),
         None => wallet::primary_address(&provider).await?,
@@ -212,7 +212,7 @@ pub struct CallRequest<'a> {
 /// Execute (state-changing call) against a deployed contract.
 pub async fn call(
     config: &ToolkitConfig,
-    passphrase: Option<String>,
+    signer: &SignerSpec,
     request: CallRequest<'_>,
 ) -> Result<ExecuteOutcome> {
     let CallRequest {
@@ -223,9 +223,8 @@ pub async fn call(
         fee_rate,
         options,
     } = request;
-    config.require_passphrase_policy(&passphrase)?;
     let input_requirements = options.input_requirements()?;
-    let mut provider = system::connect(config, passphrase, true).await?;
+    let mut provider = system::connect_signing(config, signer).await?.provider;
     let to_address = match &options.to {
         Some(address) => address.clone(),
         None => wallet::primary_address(&provider).await?,

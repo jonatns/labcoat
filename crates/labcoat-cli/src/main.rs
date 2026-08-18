@@ -52,6 +52,16 @@ struct Cli {
     #[arg(long, global = true)]
     fee_rate: Option<f32>,
 
+    /// Signing backend: keystore (default) or psbt-file:<dir> for external
+    /// PSBT signing
+    #[arg(long, global = true)]
+    signer: Option<String>,
+
+    /// Approve transaction signing without an interactive prompt (public
+    /// networks; regtest targets always auto-approve)
+    #[arg(long = "yes", global = true)]
+    assume_yes: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -196,6 +206,20 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Atomically exchange one wallet's Alkane asset for another wallet's asset
+    Exchange {
+        /// Asset sold by the seller: labcoat.lock name or block:tx id
+        offered: String,
+        /// Complete offered quantity delivered to the buyer
+        offered_amount: u64,
+        /// Asset paid by the buyer: labcoat.lock name or block:tx id
+        payment: String,
+        /// Complete payment quantity delivered to the seller
+        payment_amount: u64,
+        /// Seller keystore; --wallet-file is the buyer keystore
+        #[arg(long)]
+        seller_wallet_file: String,
+    },
     /// Reconcile the deployment manifest against the chain and show pending actions
     Plan {
         /// Manifest path (default alkanes.hcl)
@@ -337,6 +361,7 @@ async fn run(cli: Cli) -> i32 {
             rpc_url: cli.rpc_url.as_deref(),
             wallet_file: cli.wallet_file.as_deref(),
             fee_rate: cli.fee_rate,
+            signer: cli.signer.as_deref(),
         })
     } {
         Ok(settings) => settings,
@@ -360,6 +385,8 @@ async fn run(cli: Cli) -> i32 {
         &wallet_file,
         resolved.fee_rate,
     )
+    .with_signer(&resolved.signer)
+    .with_assume_yes(cli.assume_yes)
     .with_color(cli.color);
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
@@ -388,7 +415,7 @@ async fn run(cli: Cli) -> i32 {
             output::finish_contract(json, "test", result, output_options)
         }
         Commands::Wallet(cmd) => {
-            let (name, res) = contract::wallet(&ctx, cmd).await;
+            let (name, res) = contract::wallet(&ctx, cmd, json).await;
             output::finish_contract(json, name, res, output_options)
         }
         Commands::Build { package, out_dir } => {
@@ -463,6 +490,27 @@ async fn run(cli: Cli) -> i32 {
             } else {
                 contract::call(&ctx, &contract, &selector, &args, &tx).await
             };
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Exchange {
+            offered,
+            offered_amount,
+            payment,
+            payment_amount,
+            seller_wallet_file,
+        } => {
+            let progress =
+                output::Progress::new("Signing and broadcasting atomic exchange…", !json);
+            let (cmd_name, res) = contract::exchange(
+                &ctx,
+                &offered,
+                offered_amount,
+                &payment,
+                payment_amount,
+                &seller_wallet_file,
+            )
+            .await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
