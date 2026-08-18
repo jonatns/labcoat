@@ -471,6 +471,27 @@ Arguments and options:
 - `txid` (required)
 - `wait` (optional): Poll until the trace is available Values: `true`, `false`.
 
+### `labcoat generate`
+
+Generate typed application artifacts from labcoat.lock and built ABIs
+
+```text
+generate <COMMAND>
+```
+
+#### `labcoat generate web`
+
+Emit a self-contained TypeScript browser read client: network manifest, typed ABI descriptors, and a fetch-based client for indexed height, Alkanes balances, and ABI-typed simulate calls. Reads labcoat.lock and built ABIs only — no network access
+
+```text
+web [OPTIONS]
+```
+
+Arguments and options:
+
+- `out_dir` (optional): Output directory for the generated TypeScript module tree
+- `build_dir` (optional): Directory containing <package>.abi.json build artifacts
+
 ### `labcoat lock`
 
 labcoat.lock utilities
@@ -601,6 +622,7 @@ doctor
 - **Synchronization**: State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.
 - **labcoat.lock**: Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.
 - **Contract ABI**: Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.
+- **Generated web client**: `labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. The client is read-only — indexed height, Alkanes balances, ABI-typed simulate — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.
 
 ## alkanes-rs pin
 

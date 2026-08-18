@@ -55,6 +55,22 @@ pub enum LockCmd {
 }
 
 #[derive(Subcommand)]
+pub enum GenerateCmd {
+    /// Emit a self-contained TypeScript browser read client: network
+    /// manifest, typed ABI descriptors, and a fetch-based client for
+    /// indexed height, Alkanes balances, and ABI-typed simulate calls.
+    /// Reads labcoat.lock and built ABIs only — no network access.
+    Web {
+        /// Output directory for the generated TypeScript module tree
+        #[arg(long, default_value = "generated/web")]
+        out_dir: String,
+        /// Directory containing <package>.abi.json build artifacts
+        #[arg(long, default_value = "build")]
+        build_dir: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum AbiCmd {
     /// Fetch ABI metadata from a deployed contract's __meta export
     Fetch {
@@ -1287,6 +1303,47 @@ pub async fn balance(ctx: &Ctx, address: &str) -> (&'static str, CmdResult) {
         .await
         .map(|balances| serde_json::json!({ "address": address, "balances": balances }));
     ("balance", to_envelope(res))
+}
+
+pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
+    match cmd {
+        GenerateCmd::Web { out_dir, build_dir } => {
+            let res: Result<serde_json::Value, labcoat_core::LabcoatError> = (|| {
+                let cwd = std::env::current_dir().map_err(|e| {
+                    labcoat_core::LabcoatError::new(
+                        "CONFIG_INVALID",
+                        e.to_string(),
+                        "run Labcoat from the project root",
+                    )
+                })?;
+                let lockfile = labcoat_core::lockfile::load(&cwd)?;
+                let abis = labcoat_core::generate::load_build_abis(&cwd.join(&build_dir))?;
+                let inputs = labcoat_core::generate::WebInputs {
+                    network: ctx.config.network_id(),
+                    bitcoin_network: ctx.config.bitcoin_network_id(),
+                    rpc_url: &ctx.config.rpc_url,
+                    lockfile: &lockfile,
+                    abis: &abis,
+                };
+                let files = labcoat_core::generate::generate_web(&inputs)?;
+                let out_root = cwd.join(&out_dir);
+                labcoat_core::generate::write_files(&out_root, &files)?;
+                let contracts = lockfile
+                    .networks
+                    .get(ctx.config.network_id())
+                    .map(|network| network.len())
+                    .unwrap_or(0);
+                Ok(serde_json::json!({
+                    "network": ctx.config.network_id(),
+                    "outDir": out_dir,
+                    "contracts": contracts,
+                    "abis": abis.iter().map(|a| a.artifact.as_str()).collect::<Vec<_>>(),
+                    "files": files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+                }))
+            })();
+            ("generate-web", to_envelope(res))
+        }
+    }
 }
 
 pub fn lock(cmd: LockCmd) -> (&'static str, CmdResult) {

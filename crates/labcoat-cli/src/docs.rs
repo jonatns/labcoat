@@ -299,6 +299,10 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
                 name: "Contract ABI".into(),
                 detail: "Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.".into(),
             },
+            ProtocolReference {
+                name: "Generated web client".into(),
+                detail: "`labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. The client is read-only — indexed height, Alkanes balances, ABI-typed simulate — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.".into(),
+            },
         ],
     }
 }

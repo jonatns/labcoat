@@ -805,6 +805,36 @@
       },
       {
         "arguments": [],
+        "description": "Generate typed application artifacts from labcoat.lock and built ABIs",
+        "name": "generate",
+        "path": "labcoat generate",
+        "subcommands": [
+          {
+            "arguments": [
+              {
+                "description": "Output directory for the generated TypeScript module tree",
+                "id": "out_dir",
+                "possibleValues": [],
+                "required": false
+              },
+              {
+                "description": "Directory containing <package>.abi.json build artifacts",
+                "id": "build_dir",
+                "possibleValues": [],
+                "required": false
+              }
+            ],
+            "description": "Emit a self-contained TypeScript browser read client: network manifest, typed ABI descriptors, and a fetch-based client for indexed height, Alkanes balances, and ABI-typed simulate calls. Reads labcoat.lock and built ABIs only — no network access",
+            "name": "web",
+            "path": "labcoat generate web",
+            "subcommands": [],
+            "usage": "web [OPTIONS]"
+          }
+        ],
+        "usage": "generate <COMMAND>"
+      },
+      {
+        "arguments": [],
         "description": "labcoat.lock utilities",
         "name": "lock",
         "path": "labcoat lock",
@@ -1557,6 +1587,10 @@
       {
         "detail": "Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.",
         "name": "Contract ABI"
+      },
+      {
+        "detail": "`labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. The client is read-only — indexed height, Alkanes balances, ABI-typed simulate — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.",
+        "name": "Generated web client"
       }
     ],
     "version": "0.2.0"
