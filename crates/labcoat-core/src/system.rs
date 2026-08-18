@@ -391,8 +391,10 @@ mod tests {
 
     #[test]
     fn external_signers_need_no_passphrase_on_public_networks() {
-        let mut config = ToolkitConfig::default();
-        config.network = NetworkTarget::Mainnet;
+        let config = ToolkitConfig {
+            network: NetworkTarget::Mainnet,
+            ..ToolkitConfig::default()
+        };
         assert!(config
             .require_signer_policy(&SignerSpec::PsbtFile {
                 dir: PathBuf::from("psbts"),

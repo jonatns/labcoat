@@ -338,10 +338,10 @@ async fn buyer_clean_candidates(provider: &ConcreteProvider) -> Result<Vec<Candi
 }
 
 fn eligible(candidate: &Candidate, max_indexed_height: u64) -> bool {
-    !candidate.frozen
-        && !candidate.has_inscriptions
-        && !candidate.has_runes
-        && !(candidate.is_coinbase && candidate.confirmations < 100)
+    !(candidate.frozen
+        || candidate.has_inscriptions
+        || candidate.has_runes
+        || candidate.is_coinbase && candidate.confirmations < 100)
         && candidate
             .block_height
             .is_none_or(|height| height <= max_indexed_height)
@@ -1212,7 +1212,7 @@ pub async fn settle_exchange(
     }
     verify_signatures(&psbt, true)?;
     for input in &mut psbt.inputs {
-        let signature = input.tap_key_sig.clone().ok_or_else(|| {
+        let signature = input.tap_key_sig.ok_or_else(|| {
             exchange_error(
                 "EXCHANGE_SIGNATURE_MISSING",
                 "all exchange inputs must be signed",
