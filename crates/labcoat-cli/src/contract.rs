@@ -14,6 +14,11 @@ pub enum WalletCmd {
         /// Read the mnemonic from stdin (one line)
         #[arg(long)]
         mnemonic_stdin: bool,
+        /// Include a freshly generated mnemonic in machine-readable output
+        /// (--json / MCP). Interactive terminal output always shows it —
+        /// that is the one chance to write it down.
+        #[arg(long)]
+        show_mnemonic: bool,
     },
     /// Show receive addresses
     Addresses {
@@ -22,6 +27,16 @@ pub enum WalletCmd {
     },
     /// Show spendable UTXOs
     Utxos,
+    /// Sign a PSBT file with this wallet's keys (the offline half of the
+    /// psbt-file signer workflow)
+    SignPsbt {
+        /// Unsigned PSBT file (base64 or hex)
+        #[arg(long = "in")]
+        input: String,
+        /// Output path (defaults to `<in stem>.signed.psbt`)
+        #[arg(long = "out")]
+        output: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -53,6 +68,8 @@ pub enum AbiCmd {
 pub struct Ctx {
     pub config: ToolkitConfig,
     color: crate::output::ColorMode,
+    /// Signing backend spec string (`keystore` or `psbt-file:<dir>`).
+    signer: String,
 }
 
 impl Ctx {
@@ -68,8 +85,10 @@ impl Ctx {
                 rpc_url: rpc_url.to_string(),
                 wallet_file: PathBuf::from(wallet_file),
                 fee_rate: fee_rate.or(Some(2.0)),
+                assume_yes: false,
             },
             color: crate::output::ColorMode::Auto,
+            signer: "keystore".to_string(),
         }
     }
 
@@ -78,12 +97,23 @@ impl Ctx {
         self
     }
 
+    pub fn with_signer(mut self, signer: &str) -> Self {
+        self.signer = signer.to_string();
+        self
+    }
+
+    pub fn with_assume_yes(mut self, assume_yes: bool) -> Self {
+        self.config.assume_yes = assume_yes;
+        self
+    }
+
     fn warn(&self, message: &str) {
         crate::output::print_warning(message, self.color);
     }
 
-    /// Wallet passphrase: env var, with a loud dev default on regtest and a
-    /// hard error elsewhere.
+    /// Wallet passphrase: env var first; on regtest a loud dev default; on
+    /// public networks an interactive prompt when a terminal is available
+    /// (CI keeps using the env var).
     pub fn passphrase(&self) -> Option<String> {
         match std::env::var("LABCOAT_WALLET_PASSPHRASE") {
             Ok(p) if !p.is_empty() => Some(p),
@@ -91,11 +121,36 @@ impl Ctx {
                 if self.config.network.uses_regtest() {
                     self.warn("LABCOAT_WALLET_PASSPHRASE not set — using the fixed development passphrase (Labcoat Network and custom regtest only)");
                     Some("labcoat-dev".to_string())
+                } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                    rpassword::prompt_password(format!(
+                        "wallet passphrase ({}): ",
+                        self.config.network_id()
+                    ))
+                    .ok()
+                    .filter(|p| !p.is_empty())
                 } else {
                     None
                 }
             }
         }
+    }
+
+    /// The configured signing backend. Both backends carry the passphrase:
+    /// the keystore signs with it; psbt-file only unlocks for upstream's
+    /// mnemonic-derived PSBT metadata (signatures stay external).
+    pub fn signer_spec(
+        &self,
+    ) -> Result<labcoat_core::signer::SignerSpec, labcoat_core::LabcoatError> {
+        labcoat_core::signer::SignerSpec::parse(&self.signer, self.passphrase())
+    }
+
+    /// Provider with the keystore loaded for read paths (addresses, UTXOs).
+    pub async fn wallet_provider(
+        &self,
+    ) -> Result<labcoat_core::ConcreteProvider, labcoat_core::LabcoatError> {
+        let (labcoat_core::signer::SignerSpec::Keystore { passphrase }
+        | labcoat_core::signer::SignerSpec::PsbtFile { passphrase, .. }) = self.signer_spec()?;
+        labcoat_core::system::connect(&self.config, passphrase, true).await
     }
 }
 
@@ -403,9 +458,12 @@ pub struct EnvelopeError {
 
 pub type CmdResult = Result<serde_json::Value, EnvelopeError>;
 
-pub async fn wallet(ctx: &Ctx, cmd: WalletCmd) -> (&'static str, CmdResult) {
+pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, CmdResult) {
     match cmd {
-        WalletCmd::Init { mnemonic_stdin } => {
+        WalletCmd::Init {
+            mnemonic_stdin,
+            show_mnemonic,
+        } => {
             let mnemonic = if mnemonic_stdin {
                 let mut buf = String::new();
                 let _ = std::io::stdin().read_to_string(&mut buf);
@@ -425,15 +483,24 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd) -> (&'static str, CmdResult) {
                 ctx.config.require_passphrase_policy(&passphrase)?;
                 let mut provider =
                     labcoat_core::system::connect(&ctx.config, passphrase.clone(), false).await?;
-                labcoat_core::wallet::init(&mut provider, &ctx.config, mnemonic, passphrase).await
+                let mut result =
+                    labcoat_core::wallet::init(&mut provider, &ctx.config, mnemonic, passphrase)
+                        .await?;
+                // Machine-readable output (CI logs, MCP transcripts) must not
+                // capture the mnemonic unless explicitly asked to.
+                if json && !show_mnemonic && result.mnemonic.is_some() {
+                    result.mnemonic = None;
+                    result.mnemonic_redacted = true;
+                    ctx.warn("a mnemonic was generated but withheld from the JSON output; re-run with --show-mnemonic to capture it, or back up the keystore file");
+                }
+                Ok(result)
             }
             .await;
             ("wallet-init", to_envelope(res))
         }
         WalletCmd::Addresses { count } => {
             let res = async {
-                let provider =
-                    labcoat_core::system::connect(&ctx.config, ctx.passphrase(), true).await?;
+                let provider = ctx.wallet_provider().await?;
                 labcoat_core::wallet::addresses(&provider, count).await
             }
             .await;
@@ -441,12 +508,55 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd) -> (&'static str, CmdResult) {
         }
         WalletCmd::Utxos => {
             let res = async {
-                let provider =
-                    labcoat_core::system::connect(&ctx.config, ctx.passphrase(), true).await?;
+                let provider = ctx.wallet_provider().await?;
                 labcoat_core::wallet::utxos(&provider).await
             }
             .await;
             ("wallet-utxos", to_envelope(res))
+        }
+        WalletCmd::SignPsbt { input, output } => {
+            let res = async {
+                use labcoat_core::signer::Signer;
+                let raw = std::fs::read_to_string(&input).map_err(|e| {
+                    labcoat_core::LabcoatError::new(
+                        "CONFIG_INVALID",
+                        format!("cannot read {input}: {e}"),
+                        "pass the unsigned PSBT file with --in",
+                    )
+                })?;
+                let mut psbt = labcoat_core::signer::decode_psbt(raw.trim())?;
+                let provider =
+                    labcoat_core::system::connect(&ctx.config, ctx.passphrase(), true).await?;
+                let signer = labcoat_core::signer::KeystoreSigner::from_provider(&provider)?;
+                let signed = signer.sign_psbt(&mut psbt).await?;
+                let output = output.unwrap_or_else(|| {
+                    let path = std::path::Path::new(&input);
+                    let stem = path
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("request");
+                    path.with_file_name(format!("{stem}.signed.psbt"))
+                        .display()
+                        .to_string()
+                });
+                std::fs::write(&output, labcoat_core::signer::encode_psbt(&psbt)).map_err(|e| {
+                    labcoat_core::LabcoatError::new(
+                        "TOOLKIT_ERROR",
+                        format!("cannot write {output}: {e}"),
+                        "check the output path permissions",
+                    )
+                })?;
+                Ok(serde_json::json!({
+                    "in": input,
+                    "out": output,
+                    "signedInputs": signed,
+                    "walletFingerprint": signer
+                        .fingerprint()
+                        .map(|fingerprint| fingerprint.to_string()),
+                }))
+            }
+            .await;
+            ("wallet-sign-psbt", to_envelope(res))
         }
     }
 }
@@ -599,7 +709,7 @@ pub async fn deploy(
         let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
         let outcome = toolkit::deploy_in(
             &ctx.config,
-            ctx.passphrase(),
+            &ctx.signer_spec()?,
             &artifact.deployment_root,
             toolkit::DeployRequest {
                 wasm_path: &artifact.wasm_path,
@@ -824,7 +934,7 @@ pub async fn call(
             resolve_invocation(ctx, contract, selector, args, "call").await?;
         let outcome = toolkit::call(
             &ctx.config,
-            ctx.passphrase(),
+            &ctx.signer_spec()?,
             toolkit::CallRequest {
                 block,
                 tx,
@@ -1001,7 +1111,7 @@ pub async fn apply(
             return Ok(value);
         }
         let report =
-            labcoat_core::apply::apply(&ctx.config, ctx.passphrase(), &root, &path).await?;
+            labcoat_core::apply::apply(&ctx.config, &ctx.signer_spec()?, &root, &path).await?;
         Ok(serde_json::to_value(report).expect("serializable apply report"))
     }
     .await;

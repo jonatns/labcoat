@@ -52,6 +52,16 @@ struct Cli {
     #[arg(long, global = true)]
     fee_rate: Option<f32>,
 
+    /// Signing backend: keystore (default) or psbt-file:<dir> for external
+    /// PSBT signing
+    #[arg(long, global = true)]
+    signer: Option<String>,
+
+    /// Approve transaction signing without an interactive prompt (public
+    /// networks; regtest targets always auto-approve)
+    #[arg(long = "yes", global = true)]
+    assume_yes: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -351,6 +361,7 @@ async fn run(cli: Cli) -> i32 {
             rpc_url: cli.rpc_url.as_deref(),
             wallet_file: cli.wallet_file.as_deref(),
             fee_rate: cli.fee_rate,
+            signer: cli.signer.as_deref(),
         })
     } {
         Ok(settings) => settings,
@@ -374,6 +385,8 @@ async fn run(cli: Cli) -> i32 {
         &wallet_file,
         resolved.fee_rate,
     )
+    .with_signer(&resolved.signer)
+    .with_assume_yes(cli.assume_yes)
     .with_color(cli.color);
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
@@ -402,7 +415,7 @@ async fn run(cli: Cli) -> i32 {
             output::finish_contract(json, "test", result, output_options)
         }
         Commands::Wallet(cmd) => {
-            let (name, res) = contract::wallet(&ctx, cmd).await;
+            let (name, res) = contract::wallet(&ctx, cmd, json).await;
             output::finish_contract(json, name, res, output_options)
         }
         Commands::Build { package, out_dir } => {

@@ -6,9 +6,11 @@
 //! clap `Args`.
 
 use crate::error::{LabcoatError, Result};
+use crate::signer::{KeystoreSigner, PsbtFileSigner, RemoteSignerAdapter, Signer, SignerSpec};
 use alkanes_cli_common::provider::ConcreteProvider;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 /// A user-facing Labcoat deployment target.
 ///
@@ -97,6 +99,9 @@ pub struct ToolkitConfig {
     pub wallet_file: PathBuf,
     /// Fee rate in sat/vB for state-changing operations.
     pub fee_rate: Option<f32>,
+    /// Skip the per-transaction approval prompt on public networks
+    /// (`--yes`). Regtest targets always auto-approve.
+    pub assume_yes: bool,
 }
 
 impl Default for ToolkitConfig {
@@ -106,6 +111,7 @@ impl Default for ToolkitConfig {
             rpc_url: "http://127.0.0.1:18443".to_string(),
             wallet_file: PathBuf::from(".labcoat/wallet.json"),
             fee_rate: Some(2.0),
+            assume_yes: false,
         }
     }
 }
@@ -119,17 +125,28 @@ impl ToolkitConfig {
         self.network.bitcoin_network_id()
     }
 
-    /// Refuse footgun setups: mainnet/signet require an explicit passphrase.
-    pub fn require_passphrase_policy(&self, passphrase: &Option<String>) -> Result<()> {
-        let net = self.network_id();
-        if passphrase.is_none() && (net == "mainnet" || net == "signet") {
-            return Err(LabcoatError::new(
-                "WALLET_LOCKED",
-                format!("a wallet passphrase is required on {net}"),
-                "set LABCOAT_WALLET_PASSPHRASE",
-            ));
+    /// Refuse footgun setups. The keystore backend needs an explicit
+    /// passphrase on every non-regtest network (mainnet, signet, AND
+    /// testnet — real coins or not, a decryptable keystore deserves a real
+    /// passphrase). External backends carry no local secret to unlock.
+    pub fn require_signer_policy(&self, signer: &SignerSpec) -> Result<()> {
+        match signer {
+            SignerSpec::Keystore { passphrase: None } if !self.network.uses_regtest() => {
+                Err(LabcoatError::new(
+                    "WALLET_LOCKED",
+                    format!("a wallet passphrase is required on {}", self.network_id()),
+                    "set LABCOAT_WALLET_PASSPHRASE",
+                ))
+            }
+            _ => Ok(()),
         }
-        Ok(())
+    }
+
+    /// Back-compat shim for callers that still think in passphrases.
+    pub fn require_passphrase_policy(&self, passphrase: &Option<String>) -> Result<()> {
+        self.require_signer_policy(&SignerSpec::Keystore {
+            passphrase: passphrase.clone(),
+        })
     }
 }
 
@@ -194,12 +211,96 @@ pub async fn connect(
     provider.set_passphrase(passphrase);
 
     if wallet_needed {
+        check_keystore_hygiene(&config.wallet_file)?;
         ConcreteProvider::initialize(&mut provider)
             .await
             .map_err(|e| LabcoatError::classify(e.into()))?;
     }
 
     Ok(provider)
+}
+
+/// The KDF strength labcoat-created keystores use; files claiming less are
+/// rejected before decryption (the file records its own iteration count, so
+/// a tampered keystore could otherwise downgrade the KDF to nothing).
+const KEYSTORE_PBKDF2_FLOOR: u64 = 131_072;
+
+fn check_keystore_hygiene(path: &PathBuf) -> Result<()> {
+    let Ok(raw) = std::fs::read(path) else {
+        // Missing file surfaces as WALLET_MISSING from initialize().
+        return Ok(());
+    };
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            if metadata.permissions().mode() & 0o077 != 0 {
+                tracing::warn!(
+                    "{} is readable by other users; run `chmod 600 {}`",
+                    path.display(),
+                    path.display()
+                );
+            }
+        }
+    }
+
+    let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&raw) else {
+        return Ok(()); // initialize() reports unparseable keystores itself
+    };
+    if let Some(iterations) = parsed
+        .get("pbkdf2_params")
+        .and_then(|params| params.get("iterations"))
+        .and_then(|value| value.as_u64())
+    {
+        if iterations < KEYSTORE_PBKDF2_FLOOR {
+            return Err(LabcoatError::new(
+                "KEYSTORE_WEAK",
+                format!(
+                    "{} declares only {iterations} PBKDF2 iterations (labcoat requires at least {KEYSTORE_PBKDF2_FLOOR}); the file may have been tampered with",
+                    path.display()
+                ),
+                "restore the keystore from a trusted backup, or re-create it with `labcoat wallet init`",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A provider plus the signer that authorizes its transactions.
+pub struct Connected {
+    pub provider: ConcreteProvider,
+    pub signer: Arc<dyn Signer>,
+}
+
+/// Build a provider ready to sign through the configured backend.
+///
+/// - `Keystore`: unlock with the passphrase; the provider's own signing path
+///   stays active (identical to historical behavior) and the returned
+///   [`KeystoreSigner`] serves flows that sign PSBTs directly.
+/// - `PsbtFile`: install a [`RemoteSignerAdapter`] so every signature the
+///   upstream executor requests round-trips through the PSBT directory. The
+///   keystore is unlocked only when a passphrase is available — upstream's
+///   `get_internal_key` (PSBT metadata, not signing) still derives from the
+///   mnemonic at the pinned rev; signatures never come from the local
+///   keystore on this path.
+pub async fn connect_signing(config: &ToolkitConfig, spec: &SignerSpec) -> Result<Connected> {
+    config.require_signer_policy(spec)?;
+    match spec {
+        SignerSpec::Keystore { passphrase } => {
+            let provider = connect(config, passphrase.clone(), true).await?;
+            let signer: Arc<dyn Signer> = Arc::new(KeystoreSigner::from_provider(&provider)?);
+            Ok(Connected { provider, signer })
+        }
+        SignerSpec::PsbtFile { dir, passphrase } => {
+            let provider = connect(config, passphrase.clone(), true).await?;
+            let signer: Arc<dyn Signer> =
+                Arc::new(PsbtFileSigner::from_provider(&provider, dir.clone())?);
+            let provider =
+                provider.with_remote_signer(Some(Arc::new(RemoteSignerAdapter(signer.clone()))));
+            Ok(Connected { provider, signer })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -280,7 +381,23 @@ mod tests {
             .require_passphrase_policy(&Some("secret".to_string()))
             .is_ok());
 
+        // Testnet used to slip through the gate; it is a public network too.
+        config.network = NetworkTarget::Testnet;
+        assert!(config.require_passphrase_policy(&None).is_err());
+
         config.network = NetworkTarget::Mainnet;
         assert!(config.require_passphrase_policy(&None).is_err());
+    }
+
+    #[test]
+    fn external_signers_need_no_passphrase_on_public_networks() {
+        let mut config = ToolkitConfig::default();
+        config.network = NetworkTarget::Mainnet;
+        assert!(config
+            .require_signer_policy(&SignerSpec::PsbtFile {
+                dir: PathBuf::from("psbts"),
+                passphrase: None,
+            })
+            .is_ok());
     }
 }

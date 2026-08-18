@@ -14,6 +14,7 @@ struct ProjectConfig {
     rpc_url: Option<String>,
     wallet_file: Option<PathBuf>,
     fee_rate: Option<f32>,
+    signer: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +23,8 @@ pub struct ResolvedSettings {
     pub rpc_url: String,
     pub wallet_file: PathBuf,
     pub fee_rate: Option<f32>,
+    /// Signing backend spec: `keystore` (default) or `psbt-file:<dir>`.
+    pub signer: String,
 }
 
 #[derive(Default)]
@@ -30,6 +33,7 @@ pub struct Overrides<'a> {
     pub rpc_url: Option<&'a str>,
     pub wallet_file: Option<&'a str>,
     pub fee_rate: Option<f32>,
+    pub signer: Option<&'a str>,
 }
 
 pub fn resolve(overrides: Overrides<'_>) -> Result<ResolvedSettings, String> {
@@ -87,12 +91,19 @@ fn resolve_in_with(
         .or(env_fee_rate)
         .or(config.fee_rate)
         .or(Some(2.0));
+    let signer = choose_string(
+        overrides.signer,
+        env("LABCOAT_SIGNER"),
+        config.signer,
+        "keystore",
+    );
 
     Ok(ResolvedSettings {
         network,
         rpc_url,
         wallet_file,
         fee_rate,
+        signer,
     })
 }
 
@@ -102,6 +113,7 @@ pub fn labcoat_network() -> ResolvedSettings {
         rpc_url: DEFAULT_RPC_URL.to_string(),
         wallet_file: PathBuf::from(DEFAULT_WALLET_FILE),
         fee_rate: Some(2.0),
+        signer: "keystore".to_string(),
     }
 }
 
@@ -126,7 +138,7 @@ fn load(root: &Path) -> Result<ProjectConfig, String> {
     };
     toml::from_str(&raw).map_err(|e| {
         format!(
-            "invalid {}: {} (allowed keys: network, rpc_url, wallet_file, fee_rate; secrets belong in LABCOAT_* env vars)",
+            "invalid {}: {} (allowed keys: network, rpc_url, wallet_file, fee_rate, signer; secrets belong in LABCOAT_* env vars)",
             path.display(),
             e
         )
@@ -147,7 +159,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("labcoat.toml"),
-            "network = \"signet\"\nrpc_url = \"http://file\"\nfee_rate = 3.5\n",
+            "network = \"signet\"\nrpc_url = \"http://file\"\nfee_rate = 3.5\nsigner = \"psbt-file:./file-psbts\"\n",
         )
         .unwrap();
 
@@ -158,11 +170,13 @@ mod tests {
                 rpc_url: None,
                 wallet_file: None,
                 fee_rate: None,
+                signer: None,
             },
             |name| match name {
                 "LABCOAT_NETWORK" => Some("mainnet".into()),
                 "LABCOAT_RPC_URL" => Some("http://env".into()),
                 "LABCOAT_WALLET_FILE" => Some("env-wallet.json".into()),
+                "LABCOAT_SIGNER" => Some("psbt-file:./env-psbts".into()),
                 _ => None,
             },
         )
@@ -171,6 +185,7 @@ mod tests {
         assert_eq!(resolved.rpc_url, "http://env");
         assert_eq!(resolved.wallet_file, PathBuf::from("env-wallet.json"));
         assert_eq!(resolved.fee_rate, Some(3.5));
+        assert_eq!(resolved.signer, "psbt-file:./env-psbts");
 
         std::fs::remove_dir_all(root).ok();
     }

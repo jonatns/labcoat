@@ -19,6 +19,10 @@ pub struct WalletInitResult {
     /// chance to write it down.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mnemonic: Option<String>,
+    /// True when a mnemonic was generated but withheld from this output
+    /// (machine-readable contexts redact it unless explicitly requested).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub mnemonic_redacted: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +81,7 @@ pub async fn init(
             .load_wallet(wallet_config(config), passphrase)
             .await
             .map_err(|e| LabcoatError::classify(e.into()))?;
+        restrict_keystore_permissions(&config.wallet_file);
         return Ok(WalletInitResult {
             address: info.address,
             network: config.network_id().to_string(),
@@ -84,6 +89,7 @@ pub async fn init(
             wallet_file: config.wallet_file.display().to_string(),
             created: false,
             mnemonic: None,
+            mnemonic_redacted: false,
         });
     }
 
@@ -130,6 +136,8 @@ pub async fn init(
         }
     }
 
+    restrict_keystore_permissions(&config.wallet_file);
+
     Ok(WalletInitResult {
         address: info.address,
         network: config.network_id().to_string(),
@@ -137,7 +145,24 @@ pub async fn init(
         wallet_file: config.wallet_file.display().to_string(),
         created: true,
         mnemonic: if generated { info.mnemonic } else { None },
+        mnemonic_redacted: false,
     })
+}
+
+/// Owner-only permissions on the keystore. Upstream writes it 0644; the
+/// encrypted mnemonic inside deserves the same treatment as an SSH key.
+fn restrict_keystore_permissions(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            tracing::warn!("cannot set 0600 on {}: {error}", path.display());
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
 }
 
 /// First `count` receive addresses per script type.

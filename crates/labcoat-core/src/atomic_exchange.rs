@@ -7,6 +7,7 @@
 //! of loading both keystores into one coordinator.
 
 use crate::error::{LabcoatError, Result};
+use crate::signer::{KeystoreSigner, Signer};
 use crate::system::ToolkitConfig;
 use alkanes_cli_common::alkanes::execute::EnhancedAlkanesExecutor;
 pub use alkanes_cli_common::alkanes::types::AlkaneId;
@@ -14,18 +15,11 @@ use alkanes_cli_common::alkanes::types::{
     EnhancedExecuteParams, ExecutionState, InputRequirement, OrdinalsStrategy, OutputTarget,
     ProtostoneEdict, ProtostoneSpec, UtxoDataSource,
 };
-use alkanes_cli_common::provider::{ConcreteProvider, WalletState};
+use alkanes_cli_common::provider::ConcreteProvider;
 use alkanes_cli_common::traits::{BitcoinRpcProvider, WalletProvider};
-use bip39::Mnemonic;
-use bitcoin::bip32::{DerivationPath, Xpriv};
 use bitcoin::consensus::encode::serialize_hex;
-use bitcoin::hashes::Hash;
-use bitcoin::key::{TapTweak, UntweakedKeypair};
-use bitcoin::psbt::Psbt;
-use bitcoin::sighash::{Prevouts, SighashCache};
-use bitcoin::{Address, TapSighashType, Witness};
+use bitcoin::Witness;
 use serde::Serialize;
-use std::str::FromStr;
 
 const POST_BROADCAST_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -187,8 +181,10 @@ pub async fn run(
     };
 
     let mut psbt = ready.psbt;
-    let seller_signed = sign_owned_p2tr_inputs(seller, &mut psbt)?;
-    let buyer_signed = sign_owned_p2tr_inputs(buyer, &mut psbt)?;
+    let seller_signer = KeystoreSigner::from_provider(seller)?;
+    let buyer_signer = KeystoreSigner::from_provider(buyer)?;
+    let seller_signed = seller_signer.sign_psbt(&mut psbt).await?;
+    let buyer_signed = buyer_signer.sign_psbt(&mut psbt).await?;
     if seller_signed == 0 || buyer_signed == 0 {
         return Err(LabcoatError::new(
             "WALLET_ERROR",
@@ -236,111 +232,6 @@ pub async fn run(
         payment_amount: request.payment_amount,
         status: "success",
     })
-}
-
-/// Sign only P2TR key-path inputs whose previous-output address belongs to
-/// `provider`. Unknown inputs are intentionally left untouched for the other
-/// participant instead of being treated as an error by the one-wallet signer.
-fn sign_owned_p2tr_inputs(provider: &ConcreteProvider, psbt: &mut Psbt) -> Result<usize> {
-    let (keystore, mnemonic) = match provider.get_wallet_state() {
-        WalletState::Unlocked { keystore, mnemonic } => (keystore, mnemonic),
-        _ => {
-            return Err(LabcoatError::new(
-                "WALLET_LOCKED",
-                "atomic exchange participant wallet is not unlocked",
-                "provide LABCOAT_WALLET_PASSPHRASE",
-            ));
-        }
-    };
-    let network = provider.get_network();
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let mnemonic = Mnemonic::parse_in(bip39::Language::English, mnemonic)
-        .map_err(|error| LabcoatError::classify(error.into()))?;
-    let root = Xpriv::new_master(network, &mnemonic.to_seed(""))
-        .map_err(|error| LabcoatError::classify(error.into()))?;
-
-    let prevouts = psbt
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(index, input)| {
-            input.witness_utxo.clone().ok_or_else(|| {
-                LabcoatError::new(
-                    "WALLET_ERROR",
-                    format!("PSBT input {index} has no witness UTXO"),
-                    "atomic exchange requires fully populated segwit PSBT inputs",
-                )
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let transaction = psbt.unsigned_tx.clone();
-    let mut signed = 0;
-
-    for index in 0..psbt.inputs.len() {
-        if psbt.inputs[index].tap_key_sig.is_some() {
-            continue;
-        }
-        let prevout = &prevouts[index];
-        if !prevout.script_pubkey.is_p2tr() {
-            return Err(LabcoatError::new(
-                "WALLET_ERROR",
-                format!("atomic exchange input {index} is not P2TR"),
-                "use Labcoat's default P2TR wallet addresses",
-            ));
-        }
-        let address = Address::from_script(&prevout.script_pubkey, network).map_err(|error| {
-            LabcoatError::new(
-                "WALLET_ERROR",
-                format!("cannot decode exchange input {index} address: {error}"),
-                "use a standard P2TR previous output",
-            )
-        })?;
-        let Some(path) = find_p2tr_path(keystore, network, &address.to_string())? else {
-            continue;
-        };
-
-        let derived = root
-            .derive_priv(&secp, &path)
-            .map_err(|error| LabcoatError::classify(error.into()))?;
-        let untweaked = UntweakedKeypair::from(derived.to_keypair(&secp));
-        let tweaked = untweaked.tap_tweak(&secp, None);
-        let sighash = SighashCache::new(&transaction)
-            .taproot_key_spend_signature_hash(
-                index,
-                &Prevouts::All(&prevouts),
-                TapSighashType::Default,
-            )
-            .map_err(|error| LabcoatError::classify(error.into()))?;
-        let message = bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
-        let signature = secp.sign_schnorr_no_aux_rand(&message, &tweaked.to_keypair());
-        psbt.inputs[index].tap_key_sig = Some(bitcoin::taproot::Signature {
-            signature,
-            sighash_type: TapSighashType::Default,
-        });
-        signed += 1;
-    }
-
-    Ok(signed)
-}
-
-fn find_p2tr_path(
-    keystore: &alkanes_cli_common::keystore::Keystore,
-    network: bitcoin::Network,
-    wanted: &str,
-) -> Result<Option<DerivationPath>> {
-    for chain in 0..=1 {
-        for index in 0..1000 {
-            let info = keystore
-                .get_addresses(network, "p2tr", chain, index, 1)
-                .map_err(|error| LabcoatError::classify(error.into()))?;
-            if let Some(info) = info.first().filter(|info| info.address == wanted) {
-                return DerivationPath::from_str(&info.derivation_path)
-                    .map(Some)
-                    .map_err(|error| LabcoatError::classify(error.into()));
-            }
-        }
-    }
-    Ok(None)
 }
 
 #[cfg(test)]

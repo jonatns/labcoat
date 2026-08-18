@@ -115,7 +115,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
     let applied = if manifest_path.is_file() {
         let report = labcoat_core::apply::apply(
             &ctx.config,
-            ctx.passphrase(),
+            &ctx.signer_spec().map_err(core_error)?,
             &project_root,
             &manifest_path,
         )
