@@ -12,6 +12,7 @@ pub mod atomic_exchange;
 pub mod compile;
 pub mod error;
 pub mod execute;
+pub mod generate;
 pub mod lockfile;
 pub mod manifest;
 pub mod signer;

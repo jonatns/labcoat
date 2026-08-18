@@ -284,6 +284,9 @@ enum Commands {
         #[arg(long)]
         wait: bool,
     },
+    /// Generate typed application artifacts from labcoat.lock and built ABIs
+    #[command(subcommand)]
+    Generate(contract::GenerateCmd),
     /// labcoat.lock utilities
     #[command(subcommand)]
     Lock(contract::LockCmd),
@@ -630,6 +633,10 @@ async fn run(cli: Cli) -> i32 {
             );
             let (cmd_name, res) = contract::trace(&ctx, &txid, wait).await;
             progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Generate(cmd) => {
+            let (cmd_name, res) = contract::generate(&ctx, cmd);
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Lock(cmd) => {

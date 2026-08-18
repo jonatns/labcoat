@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "networks": {
+    "labcoat": {
+      "fire": {
+        "alkanesId": "4:65011",
+        "wasmSha256": "73767b02082691113f2035e0f5f88c50985c28ee9eab23f6ae58fd3821aff265",
+        "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+        "status": "success",
+        "deployedAt": 1700000000,
+        "chainId": "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+      },
+      "series": {
+        "alkanesId": "4:65014",
+        "wasmSha256": "8f3c2c41d651a8a03e517b93df0ded4ffe17a9d579cabf3503c2a9578965f02d",
+        "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+        "status": "success",
+        "deployedAt": 1700000001,
+        "chainId": "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+      },
+      "usd": {
+        "alkanesId": "4:65012",
+        "wasmSha256": "73767b02082691113f2035e0f5f88c50985c28ee9eab23f6ae58fd3821aff265",
+        "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+        "status": "success",
+        "deployedAt": 1700000002,
+        "chainId": "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+      },
+      "legacy": {
+        "alkanesId": "4:100",
+        "txid": "4444444444444444444444444444444444444444444444444444444444444444",
+        "status": "success",
+        "deployedAt": 1600000000
+      }
+    },
+    "signet": {
+      "other": {
+        "alkanesId": "9:1",
+        "txid": "5555555555555555555555555555555555555555555555555555555555555555",
+        "status": "success",
+        "deployedAt": 1500000000
+      }
+    }
+  }
+}
