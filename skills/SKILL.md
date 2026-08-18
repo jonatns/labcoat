@@ -133,7 +133,7 @@ fallback.
 - `network_fund` — Send BTC from the Labcoat Network faucet wallet to an address.
 - `network_reset` — Stop services and wipe all Labcoat Network chain data.
 - `network_logs` — Recent Labcoat Network service logs.
-- `wallet_init` — Create or load the project wallet keystore. Optional mnemonic (else generated).
+- `wallet_init` — Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.
 - `wallet_addresses` — Wallet receive addresses per script type.
 - `wallet_utxos` — Spendable wallet UTXOs.
 - `build` — Build Cargo contract packages and extract their Wasm-exported ABIs.
@@ -142,6 +142,8 @@ fallback.
 - `abi_verify` — Compare a deployed ABI with a locally built contract package.
 - `deploy` — Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.
 - `call` — Execute a state-changing contract call and wait for its trace.
+- `exchange_plan` — Build an owner-partitioned atomic exchange plan and return its base64 PSBT.
+- `exchange_settle` — Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact.
 - `simulate` — Simulate a deployed contract against live indexed chain state (no transaction).
 - `trace` — Decoded protostone traces for a transaction.
 - `balance` — Alkanes token balances held by an address.

@@ -265,6 +265,15 @@
                   "false"
                 ],
                 "required": false
+              },
+              {
+                "description": "Include a freshly generated mnemonic in machine-readable output (--json / MCP). Interactive terminal output always shows it — that is the one chance to write it down",
+                "id": "show_mnemonic",
+                "possibleValues": [
+                  "true",
+                  "false"
+                ],
+                "required": false
               }
             ],
             "description": "Create (or load) the project wallet. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv",
@@ -295,6 +304,48 @@
             "path": "labcoat wallet utxos",
             "subcommands": [],
             "usage": "utxos"
+          },
+          {
+            "arguments": [
+              {
+                "description": "Unsigned PSBT file (base64 or hex)",
+                "id": "input",
+                "possibleValues": [],
+                "required": true
+              },
+              {
+                "description": "Output path (defaults to `<in stem>.signed.psbt`)",
+                "id": "output",
+                "possibleValues": [],
+                "required": false
+              }
+            ],
+            "description": "Sign a PSBT file with this wallet's keys (the offline half of the psbt-file signer workflow)",
+            "name": "sign-psbt",
+            "path": "labcoat wallet sign-psbt",
+            "subcommands": [],
+            "usage": "sign-psbt [OPTIONS] --in <INPUT>"
+          },
+          {
+            "arguments": [
+              {
+                "description": "",
+                "id": "address",
+                "possibleValues": [],
+                "required": true
+              },
+              {
+                "description": "Exactly 32 bytes as lowercase or uppercase hexadecimal",
+                "id": "digest",
+                "possibleValues": [],
+                "required": true
+              }
+            ],
+            "description": "Sign a 32-byte application digest with the tweaked key controlling an owned P2TR address",
+            "name": "sign-digest",
+            "path": "labcoat wallet sign-digest",
+            "subcommands": [],
+            "usage": "sign-digest --address <ADDRESS> --digest <DIGEST>"
           }
         ],
         "usage": "wallet <COMMAND>"
@@ -518,6 +569,138 @@
       {
         "arguments": [
           {
+            "description": "Asset sold by the seller: labcoat.lock name or block:tx id",
+            "id": "offered",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Complete offered quantity delivered to the buyer",
+            "id": "offered_amount",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Asset paid by the buyer: labcoat.lock name or block:tx id",
+            "id": "payment",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Complete payment quantity delivered to the seller",
+            "id": "payment_amount",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Seller keystore; --wallet-file is the buyer keystore",
+            "id": "seller_wallet_file",
+            "possibleValues": [],
+            "required": true
+          }
+        ],
+        "description": "Atomically exchange one wallet's Alkane asset for another wallet's asset",
+        "name": "exchange",
+        "path": "labcoat exchange",
+        "subcommands": [],
+        "usage": "exchange --seller-wallet-file <SELLER_WALLET_FILE> <OFFERED> <OFFERED_AMOUNT> <PAYMENT> <PAYMENT_AMOUNT>"
+      },
+      {
+        "arguments": [
+          {
+            "description": "",
+            "id": "offered",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "offered_amount",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "payment",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "payment_amount",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "seller_address",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "buyer_address",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "plan_out",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "psbt_out",
+            "possibleValues": [],
+            "required": true
+          }
+        ],
+        "description": "Build an owner-partitioned exchange plan and unsigned PSBT",
+        "name": "exchange-plan",
+        "path": "labcoat exchange-plan",
+        "subcommands": [],
+        "usage": "exchange-plan --seller-address <SELLER_ADDRESS> --buyer-address <BUYER_ADDRESS> --plan-out <PLAN_OUT> --psbt-out <PSBT_OUT> <OFFERED> <OFFERED_AMOUNT> <PAYMENT> <PAYMENT_AMOUNT>"
+      },
+      {
+        "arguments": [
+          {
+            "description": "",
+            "id": "plan",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "psbt",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "seller_wallet_file",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "",
+            "id": "broadcast",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Validate a buyer-signed exchange PSBT, sign as seller, and optionally broadcast",
+        "name": "exchange-settle",
+        "path": "labcoat exchange-settle",
+        "subcommands": [],
+        "usage": "exchange-settle [OPTIONS] --plan <PLAN> --psbt <PSBT> --seller-wallet-file <SELLER_WALLET_FILE>"
+      },
+      {
+        "arguments": [
+          {
             "description": "Manifest path (default alkanes.hcl)",
             "id": "manifest",
             "possibleValues": [],
@@ -724,6 +907,81 @@
         "recovery": "set `LABCOAT_WALLET_PASSPHRASE`"
       },
       {
+        "code": "WALLET_ERROR",
+        "meaning": "wallet metadata, ownership, or signing failed",
+        "recovery": "inspect the wallet, PSBT prevouts, and expected derivation path"
+      },
+      {
+        "code": "SIGNER_UNSUPPORTED",
+        "meaning": "the selected signer lacks a required capability",
+        "recovery": "use the keystore signer or a compatible PSBT signer"
+      },
+      {
+        "code": "SIGNER_TIMEOUT",
+        "meaning": "an external signer did not return a PSBT in time",
+        "recovery": "sign the request file or raise `LABCOAT_PSBT_TIMEOUT_SECS`"
+      },
+      {
+        "code": "SIGNER_MISMATCH",
+        "meaning": "external signer output does not match the requested transaction",
+        "recovery": "sign the exact PSBT without changing inputs or outputs"
+      },
+      {
+        "code": "EXCHANGE_PLAN_INVALID",
+        "meaning": "exchange terms or fixed output layout are invalid",
+        "recovery": "rebuild the exchange plan from current wallet state"
+      },
+      {
+        "code": "EXCHANGE_PLAN_MISMATCH",
+        "meaning": "the supplied PSBT differs from its content-addressed plan",
+        "recovery": "use the PSBT emitted by `labcoat exchange-plan`"
+      },
+      {
+        "code": "EXCHANGE_INPUT_OWNERSHIP",
+        "meaning": "an exchange input is unsafe, ambiguous, or owned by the wrong party",
+        "recovery": "use clean P2TR inputs containing only the participant's required asset"
+      },
+      {
+        "code": "EXCHANGE_ASSET_UNSAFE",
+        "meaning": "an exchange input or output contains an unrelated or misrouted Alkane",
+        "recovery": "use single-asset owner inputs and rebuild the exchange plan"
+      },
+      {
+        "code": "EXCHANGE_SELLER_DEBIT",
+        "meaning": "the transaction would consume seller bitcoin value",
+        "recovery": "rebuild with buyer-funded outputs and fees"
+      },
+      {
+        "code": "EXCHANGE_SIGNATURE_MISSING",
+        "meaning": "a required buyer or seller signature is absent",
+        "recovery": "sign the PSBT with the expected participant wallet"
+      },
+      {
+        "code": "EXCHANGE_SIGNATURE_INVALID",
+        "meaning": "an exchange input signature failed verification",
+        "recovery": "discard the PSBT and recreate the plan"
+      },
+      {
+        "code": "EXCHANGE_SIGHASH_UNSUPPORTED",
+        "meaning": "an exchange signature is not Taproot SIGHASH_DEFAULT",
+        "recovery": "sign the complete unchanged transaction with SIGHASH_DEFAULT"
+      },
+      {
+        "code": "EXCHANGE_NETWORK_MISMATCH",
+        "meaning": "the live chain instance differs from the exchange plan",
+        "recovery": "discard stale plans after a network reset"
+      },
+      {
+        "code": "EXCHANGE_TIP_STALE",
+        "meaning": "the observed planning tip is no longer in the active chain",
+        "recovery": "rebuild the plan after the reorganization"
+      },
+      {
+        "code": "EXCHANGE_INPUT_SPENT",
+        "meaning": "a planned input has already been spent",
+        "recovery": "rebuild the plan with current UTXOs"
+      },
+      {
         "code": "RPC_UNREACHABLE",
         "meaning": "the configured Qubitcoin endpoint cannot be reached",
         "recovery": "run `labcoat status`"
@@ -907,11 +1165,14 @@
         "name": "network_logs"
       },
       {
-        "description": "Create or load the project wallet keystore. Optional mnemonic (else generated).",
+        "description": "Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
         "inputSchema": {
           "properties": {
             "mnemonic": {
               "type": "string"
+            },
+            "showMnemonic": {
+              "type": "boolean"
             }
           },
           "required": [],
@@ -1113,6 +1374,71 @@
           "type": "object"
         },
         "name": "call"
+      },
+      {
+        "description": "Build an owner-partitioned atomic exchange plan and return its base64 PSBT.",
+        "inputSchema": {
+          "properties": {
+            "buyerAddress": {
+              "type": "string"
+            },
+            "offered": {
+              "type": "string"
+            },
+            "offeredAmount": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "payment": {
+              "type": "string"
+            },
+            "paymentAmount": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sellerAddress": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "offered",
+            "offeredAmount",
+            "payment",
+            "paymentAmount",
+            "sellerAddress",
+            "buyerAddress"
+          ],
+          "type": "object"
+        },
+        "name": "exchange_plan"
+      },
+      {
+        "description": "Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact.",
+        "inputSchema": {
+          "properties": {
+            "broadcast": {
+              "type": "boolean"
+            },
+            "plan": {
+              "type": "object"
+            },
+            "psbt": {
+              "description": "base64 or hex buyer-signed PSBT",
+              "type": "string"
+            },
+            "sellerWalletFile": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "plan",
+            "psbt",
+            "sellerWalletFile",
+            "broadcast"
+          ],
+          "type": "object"
+        },
+        "name": "exchange_settle"
       },
       {
         "description": "Simulate a deployed contract against live indexed chain state (no transaction).",
