@@ -220,6 +220,7 @@ init [OPTIONS]
 Arguments and options:
 
 - `mnemonic_stdin` (optional): Read the mnemonic from stdin (one line) Values: `true`, `false`.
+- `show_mnemonic` (optional): Include a freshly generated mnemonic in machine-readable output (--json / MCP). Interactive terminal output always shows it — that is the one chance to write it down Values: `true`, `false`.
 
 #### `labcoat wallet addresses`
 
@@ -240,6 +241,32 @@ Show spendable UTXOs
 ```text
 utxos
 ```
+
+#### `labcoat wallet sign-psbt`
+
+Sign a PSBT file with this wallet's keys (the offline half of the psbt-file signer workflow)
+
+```text
+sign-psbt [OPTIONS] --in <INPUT>
+```
+
+Arguments and options:
+
+- `input` (required): Unsigned PSBT file (base64 or hex)
+- `output` (optional): Output path (defaults to `<in stem>.signed.psbt`)
+
+#### `labcoat wallet sign-digest`
+
+Sign a 32-byte application digest with the tweaked key controlling an owned P2TR address
+
+```text
+sign-digest --address <ADDRESS> --digest <DIGEST>
+```
+
+Arguments and options:
+
+- `address` (required)
+- `digest` (required): Exactly 32 bytes as lowercase or uppercase hexadecimal
 
 ### `labcoat build`
 
@@ -329,6 +356,56 @@ Arguments and options:
 - `refund` (optional): Protostone refund target (defaults to the pointer target)
 - `edicts` (optional): Edict `block:tx:amount:target` appended to the protostone (repeatable)
 - `dry_run` (optional): Validate inputs and show what would happen without broadcasting Values: `true`, `false`.
+
+### `labcoat exchange`
+
+Atomically exchange one wallet's Alkane asset for another wallet's asset
+
+```text
+exchange --seller-wallet-file <SELLER_WALLET_FILE> <OFFERED> <OFFERED_AMOUNT> <PAYMENT> <PAYMENT_AMOUNT>
+```
+
+Arguments and options:
+
+- `offered` (required): Asset sold by the seller: labcoat.lock name or block:tx id
+- `offered_amount` (required): Complete offered quantity delivered to the buyer
+- `payment` (required): Asset paid by the buyer: labcoat.lock name or block:tx id
+- `payment_amount` (required): Complete payment quantity delivered to the seller
+- `seller_wallet_file` (required): Seller keystore; --wallet-file is the buyer keystore
+
+### `labcoat exchange-plan`
+
+Build an owner-partitioned exchange plan and unsigned PSBT
+
+```text
+exchange-plan --seller-address <SELLER_ADDRESS> --buyer-address <BUYER_ADDRESS> --plan-out <PLAN_OUT> --psbt-out <PSBT_OUT> <OFFERED> <OFFERED_AMOUNT> <PAYMENT> <PAYMENT_AMOUNT>
+```
+
+Arguments and options:
+
+- `offered` (required)
+- `offered_amount` (required)
+- `payment` (required)
+- `payment_amount` (required)
+- `seller_address` (required)
+- `buyer_address` (required)
+- `plan_out` (required)
+- `psbt_out` (required)
+
+### `labcoat exchange-settle`
+
+Validate a buyer-signed exchange PSBT, sign as seller, and optionally broadcast
+
+```text
+exchange-settle [OPTIONS] --plan <PLAN> --psbt <PSBT> --seller-wallet-file <SELLER_WALLET_FILE>
+```
+
+Arguments and options:
+
+- `plan` (required)
+- `psbt` (required)
+- `seller_wallet_file` (required)
+- `broadcast` (optional): Values: `true`, `false`.
 
 ### `labcoat plan`
 
@@ -459,7 +536,7 @@ doctor
 | `network_fund` | Send BTC from the Labcoat Network faucet wallet to an address. |
 | `network_reset` | Stop services and wipe all Labcoat Network chain data. |
 | `network_logs` | Recent Labcoat Network service logs. |
-| `wallet_init` | Create or load the project wallet keystore. Optional mnemonic (else generated). |
+| `wallet_init` | Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true. |
 | `wallet_addresses` | Wallet receive addresses per script type. |
 | `wallet_utxos` | Spendable wallet UTXOs. |
 | `build` | Build Cargo contract packages and extract their Wasm-exported ABIs. |
@@ -468,6 +545,8 @@ doctor
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
 | `deploy` | Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
 | `call` | Execute a state-changing contract call and wait for its trace. |
+| `exchange_plan` | Build an owner-partitioned atomic exchange plan and return its base64 PSBT. |
+| `exchange_settle` | Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact. |
 | `simulate` | Simulate a deployed contract against live indexed chain state (no transaction). |
 | `trace` | Decoded protostone traces for a transaction. |
 | `balance` | Alkanes token balances held by an address. |
@@ -482,6 +561,21 @@ doctor
 | `CONFIG_INVALID` | configuration is invalid | run `labcoat doctor` |
 | `WALLET_MISSING` | the project wallet does not exist | run `labcoat wallet init` |
 | `WALLET_LOCKED` | the keystore could not be unlocked | set `LABCOAT_WALLET_PASSPHRASE` |
+| `WALLET_ERROR` | wallet metadata, ownership, or signing failed | inspect the wallet, PSBT prevouts, and expected derivation path |
+| `SIGNER_UNSUPPORTED` | the selected signer lacks a required capability | use the keystore signer or a compatible PSBT signer |
+| `SIGNER_TIMEOUT` | an external signer did not return a PSBT in time | sign the request file or raise `LABCOAT_PSBT_TIMEOUT_SECS` |
+| `SIGNER_MISMATCH` | external signer output does not match the requested transaction | sign the exact PSBT without changing inputs or outputs |
+| `EXCHANGE_PLAN_INVALID` | exchange terms or fixed output layout are invalid | rebuild the exchange plan from current wallet state |
+| `EXCHANGE_PLAN_MISMATCH` | the supplied PSBT differs from its content-addressed plan | use the PSBT emitted by `labcoat exchange-plan` |
+| `EXCHANGE_INPUT_OWNERSHIP` | an exchange input is unsafe, ambiguous, or owned by the wrong party | use clean P2TR inputs containing only the participant's required asset |
+| `EXCHANGE_ASSET_UNSAFE` | an exchange input or output contains an unrelated or misrouted Alkane | use single-asset owner inputs and rebuild the exchange plan |
+| `EXCHANGE_SELLER_DEBIT` | the transaction would consume seller bitcoin value | rebuild with buyer-funded outputs and fees |
+| `EXCHANGE_SIGNATURE_MISSING` | a required buyer or seller signature is absent | sign the PSBT with the expected participant wallet |
+| `EXCHANGE_SIGNATURE_INVALID` | an exchange input signature failed verification | discard the PSBT and recreate the plan |
+| `EXCHANGE_SIGHASH_UNSUPPORTED` | an exchange signature is not Taproot SIGHASH_DEFAULT | sign the complete unchanged transaction with SIGHASH_DEFAULT |
+| `EXCHANGE_NETWORK_MISMATCH` | the live chain instance differs from the exchange plan | discard stale plans after a network reset |
+| `EXCHANGE_TIP_STALE` | the observed planning tip is no longer in the active chain | rebuild the plan after the reorganization |
+| `EXCHANGE_INPUT_SPENT` | a planned input has already been spent | rebuild the plan with current UTXOs |
 | `RPC_UNREACHABLE` | the configured Qubitcoin endpoint cannot be reached | run `labcoat status` |
 | `INDEXER_LAG` | indexed height did not catch chain height | inspect `qubitcoind` logs |
 | `INSUFFICIENT_FUNDS` | spendable BTC cannot cover the operation | fund the wallet and mine a block |

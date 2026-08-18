@@ -37,6 +37,15 @@ pub enum WalletCmd {
         #[arg(long = "out")]
         output: Option<String>,
     },
+    /// Sign a 32-byte application digest with the tweaked key controlling an
+    /// owned P2TR address.
+    SignDigest {
+        #[arg(long)]
+        address: String,
+        /// Exactly 32 bytes as lowercase or uppercase hexadecimal.
+        #[arg(long)]
+        digest: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -558,6 +567,31 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, Cmd
             .await;
             ("wallet-sign-psbt", to_envelope(res))
         }
+        WalletCmd::SignDigest { address, digest } => {
+            let res = async {
+                use labcoat_core::signer::Signer;
+                let bytes = hex::decode(&digest).map_err(|_| {
+                    labcoat_core::LabcoatError::new(
+                        "CONFIG_INVALID",
+                        "--digest must be exactly 32 bytes of hexadecimal",
+                        "pass a 64-character digest without a 0x prefix",
+                    )
+                })?;
+                let digest: [u8; 32] = bytes.try_into().map_err(|_| {
+                    labcoat_core::LabcoatError::new(
+                        "CONFIG_INVALID",
+                        "--digest must be exactly 32 bytes",
+                        "pass a 64-character hexadecimal digest",
+                    )
+                })?;
+                let provider =
+                    labcoat_core::system::connect(&ctx.config, ctx.passphrase(), true).await?;
+                let signer = labcoat_core::signer::KeystoreSigner::from_provider(&provider)?;
+                signer.sign_schnorr_digest(&address, digest).await
+            }
+            .await;
+            ("wallet-sign-digest", to_envelope(res))
+        }
     }
 }
 
@@ -1034,6 +1068,129 @@ pub async fn exchange(
     }
     .await;
     ("exchange", to_envelope(res))
+}
+
+fn exchange_asset(
+    id: (u128, u128),
+    label: &str,
+) -> Result<labcoat_core::atomic_exchange::AlkaneId, labcoat_core::LabcoatError> {
+    Ok(labcoat_core::atomic_exchange::AlkaneId {
+        block: u64::try_from(id.0).map_err(|_| {
+            labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("{label} block {} does not fit u64", id.0),
+                "use a valid on-chain Alkane ID",
+            )
+        })?,
+        tx: u64::try_from(id.1).map_err(|_| {
+            labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("{label} tx {} does not fit u64", id.1),
+                "use a valid on-chain Alkane ID",
+            )
+        })?,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn exchange_plan(
+    ctx: &Ctx,
+    offered: &str,
+    offered_amount: u64,
+    payment: &str,
+    payment_amount: u64,
+    seller_address: &str,
+    buyer_address: &str,
+    plan_out: &str,
+    psbt_out: &str,
+) -> (&'static str, CmdResult) {
+    let res = async {
+        let offered = exchange_asset(resolve(&ctx.config, offered)?, "offered asset")?;
+        let payment = exchange_asset(resolve(&ctx.config, payment)?, "payment asset")?;
+        let mut provider = ctx.wallet_provider().await?;
+        let plan = labcoat_core::atomic_exchange::build_exchange_plan(
+            &mut provider,
+            &ctx.config,
+            labcoat_core::atomic_exchange::AtomicExchangeRequest {
+                offered,
+                offered_amount,
+                payment,
+                payment_amount,
+                seller_address: seller_address.to_string(),
+                buyer_address: buyer_address.to_string(),
+            },
+        )
+        .await?;
+        let plan_json = serde_json::to_string_pretty(&plan).expect("serializable exchange plan");
+        std::fs::write(plan_out, format!("{plan_json}\n")).map_err(|e| {
+            labcoat_core::LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!("cannot write {plan_out}: {e}"),
+                "check the plan output path",
+            )
+        })?;
+        std::fs::write(psbt_out, format!("{}\n", plan.psbt)).map_err(|e| {
+            labcoat_core::LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!("cannot write {psbt_out}: {e}"),
+                "check the PSBT output path",
+            )
+        })?;
+        Ok(serde_json::json!({ "plan": plan, "planOut": plan_out, "psbtOut": psbt_out }))
+    }
+    .await;
+    ("exchange-plan", to_envelope(res))
+}
+
+pub async fn exchange_settle(
+    ctx: &Ctx,
+    plan_path: &str,
+    psbt_path: &str,
+    seller_wallet_file: &str,
+    broadcast: bool,
+) -> (&'static str, CmdResult) {
+    let res = async {
+        let plan_raw = std::fs::read_to_string(plan_path).map_err(|e| {
+            labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("cannot read {plan_path}: {e}"),
+                "pass the ExchangePlanV1 JSON file",
+            )
+        })?;
+        let plan: labcoat_core::atomic_exchange::ExchangePlanV1 = serde_json::from_str(&plan_raw)
+            .map_err(|e| {
+            labcoat_core::LabcoatError::new(
+                "EXCHANGE_PLAN_INVALID",
+                format!("cannot decode exchange plan: {e}"),
+                "recreate the plan with `labcoat exchange-plan`",
+            )
+        })?;
+        let psbt_raw = std::fs::read_to_string(psbt_path).map_err(|e| {
+            labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("cannot read {psbt_path}: {e}"),
+                "pass the buyer-signed PSBT file",
+            )
+        })?;
+        let psbt = labcoat_core::signer::decode_psbt(psbt_raw.trim())?;
+        let mut seller_config = ctx.config.clone();
+        seller_config.wallet_file = PathBuf::from(seller_wallet_file);
+        let connected =
+            labcoat_core::system::connect_signing(&seller_config, &ctx.signer_spec()?).await?;
+        let mut provider = connected.provider;
+        let outcome = labcoat_core::atomic_exchange::settle_exchange(
+            &mut provider,
+            connected.signer.as_ref(),
+            &seller_config,
+            &plan,
+            psbt,
+            broadcast,
+        )
+        .await?;
+        Ok(outcome)
+    }
+    .await;
+    ("exchange-settle", to_envelope(res))
 }
 
 pub async fn simulate(

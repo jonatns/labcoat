@@ -220,6 +220,32 @@ enum Commands {
         #[arg(long)]
         seller_wallet_file: String,
     },
+    /// Build an owner-partitioned exchange plan and unsigned PSBT.
+    ExchangePlan {
+        offered: String,
+        offered_amount: u64,
+        payment: String,
+        payment_amount: u64,
+        #[arg(long)]
+        seller_address: String,
+        #[arg(long)]
+        buyer_address: String,
+        #[arg(long)]
+        plan_out: String,
+        #[arg(long)]
+        psbt_out: String,
+    },
+    /// Validate a buyer-signed exchange PSBT, sign as seller, and optionally broadcast.
+    ExchangeSettle {
+        #[arg(long)]
+        plan: String,
+        #[arg(long)]
+        psbt: String,
+        #[arg(long)]
+        seller_wallet_file: String,
+        #[arg(long)]
+        broadcast: bool,
+    },
     /// Reconcile the deployment manifest against the chain and show pending actions
     Plan {
         /// Manifest path (default alkanes.hcl)
@@ -511,6 +537,51 @@ async fn run(cli: Cli) -> i32 {
                 &seller_wallet_file,
             )
             .await;
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::ExchangePlan {
+            offered,
+            offered_amount,
+            payment,
+            payment_amount,
+            seller_address,
+            buyer_address,
+            plan_out,
+            psbt_out,
+        } => {
+            let progress = output::Progress::new("Building exchange plan…", !json);
+            let (cmd_name, res) = contract::exchange_plan(
+                &ctx,
+                &offered,
+                offered_amount,
+                &payment,
+                payment_amount,
+                &seller_address,
+                &buyer_address,
+                &plan_out,
+                &psbt_out,
+            )
+            .await;
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::ExchangeSettle {
+            plan,
+            psbt,
+            seller_wallet_file,
+            broadcast,
+        } => {
+            let progress = output::Progress::new(
+                if broadcast {
+                    "Validating, signing, and broadcasting exchange…"
+                } else {
+                    "Validating and signing exchange…"
+                },
+                !json,
+            );
+            let (cmd_name, res) =
+                contract::exchange_settle(&ctx, &plan, &psbt, &seller_wallet_file, broadcast).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
