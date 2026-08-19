@@ -166,6 +166,110 @@ impl AtomicExchangeRequest {
         }
         Ok(())
     }
+
+    /// Parse the exchange request file format (`labcoat exchange-plan
+    /// --request`). Strictly canonical: `version` 1, and every id component
+    /// and amount a canonical decimal string, so files round-trip
+    /// byte-exactly through [`Self::to_request_file`] and the generated web
+    /// serializer. Semantic checks stay in [`Self::validate`].
+    pub fn from_request_file(json: &str) -> Result<Self> {
+        let wire: ExchangeRequestFile = serde_json::from_str(json).map_err(|e| {
+            request_file_error(format!("exchange request file is not valid JSON: {e}"))
+        })?;
+        if wire.version != 1 {
+            return Err(request_file_error(format!(
+                "unsupported exchange request version {}",
+                wire.version
+            )));
+        }
+        Ok(Self {
+            offered: wire.offered.parse("offered")?,
+            offered_amount: parse_canonical_u64(&wire.offered_amount, "offeredAmount")?,
+            payment: wire.payment.parse("payment")?,
+            payment_amount: parse_canonical_u64(&wire.payment_amount, "paymentAmount")?,
+            seller_address: wire.seller_address,
+            buyer_address: wire.buyer_address,
+        })
+    }
+
+    /// Serialize to the exchange request file format: pretty-printed JSON
+    /// plus a trailing newline, byte-identical to the generated web
+    /// serializer's output for the same request.
+    pub fn to_request_file(&self) -> String {
+        let wire = ExchangeRequestFile {
+            version: 1,
+            offered: AlkaneRefWire::from(&self.offered),
+            offered_amount: self.offered_amount.to_string(),
+            payment: AlkaneRefWire::from(&self.payment),
+            payment_amount: self.payment_amount.to_string(),
+            seller_address: self.seller_address.clone(),
+            buyer_address: self.buyer_address.clone(),
+        };
+        let json = serde_json::to_string_pretty(&wire).expect("serializable exchange request");
+        format!("{json}\n")
+    }
+}
+
+/// Exchange request file wire shape. Field order is the serialized order;
+/// numbers travel as canonical decimal strings because the file is also
+/// produced by JavaScript, where u64 exceeds safe float precision.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExchangeRequestFile {
+    version: u8,
+    offered: AlkaneRefWire,
+    offered_amount: String,
+    payment: AlkaneRefWire,
+    payment_amount: String,
+    seller_address: String,
+    buyer_address: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AlkaneRefWire {
+    block: String,
+    tx: String,
+}
+
+impl AlkaneRefWire {
+    fn parse(&self, label: &str) -> Result<AlkaneId> {
+        Ok(AlkaneId {
+            block: parse_canonical_u64(&self.block, &format!("{label} block"))?,
+            tx: parse_canonical_u64(&self.tx, &format!("{label} tx"))?,
+        })
+    }
+}
+
+impl From<&AlkaneId> for AlkaneRefWire {
+    fn from(id: &AlkaneId) -> Self {
+        Self {
+            block: id.block.to_string(),
+            tx: id.tx.to_string(),
+        }
+    }
+}
+
+fn parse_canonical_u64(value: &str, label: &str) -> Result<u64> {
+    let canonical = value == "0"
+        || (value.as_bytes().first().is_some_and(|b| (b'1'..=b'9').contains(b))
+            && value.bytes().all(|b| b.is_ascii_digit()));
+    if !canonical {
+        return Err(request_file_error(format!(
+            "{label} must be a canonical decimal string, got {value:?}"
+        )));
+    }
+    value
+        .parse::<u64>()
+        .map_err(|_| request_file_error(format!("{label} {value} does not fit u64")))
+}
+
+fn request_file_error(message: String) -> LabcoatError {
+    LabcoatError::new(
+        "EXCHANGE_REQUEST_INVALID",
+        message,
+        "regenerate the request with the application that produced it",
+    )
 }
 
 fn exchange_error(code: &'static str, message: impl Into<String>) -> LabcoatError {
@@ -1321,5 +1425,61 @@ mod tests {
     #[test]
     fn plan_hash_is_domain_separated() {
         assert_ne!(tagged_hash(PLAN_TAG, b"x"), tagged_hash(b"other", b"x"));
+    }
+
+    /// The exact bytes of the request file format. The generated web
+    /// serializer (`generate web` exchange.ts) and downstream applications
+    /// pin the same literal, so a formatting change here is a breaking
+    /// change to the file format.
+    const REQUEST_FILE_FIXTURE: &str = r#"{
+  "version": 1,
+  "offered": {
+    "block": "4",
+    "tx": "1"
+  },
+  "offeredAmount": "100",
+  "payment": {
+    "block": "2",
+    "tx": "2"
+  },
+  "paymentAmount": "500",
+  "sellerAddress": "seller",
+  "buyerAddress": "buyer"
+}
+"#;
+
+    #[test]
+    fn request_file_round_trips_byte_exactly() {
+        assert_eq!(request().to_request_file(), REQUEST_FILE_FIXTURE);
+        let parsed = AtomicExchangeRequest::from_request_file(REQUEST_FILE_FIXTURE).unwrap();
+        assert_eq!(parsed, request());
+    }
+
+    #[test]
+    fn request_file_accepts_u64_range_amounts() {
+        let mut big = request();
+        big.offered_amount = u64::MAX;
+        let parsed = AtomicExchangeRequest::from_request_file(&big.to_request_file()).unwrap();
+        assert_eq!(parsed.offered_amount, u64::MAX);
+    }
+
+    #[test]
+    fn request_file_rejects_non_canonical_input() {
+        let cases = [
+            // Wrong version.
+            REQUEST_FILE_FIXTURE.replace("\"version\": 1", "\"version\": 2"),
+            // Number where a canonical decimal string is required.
+            REQUEST_FILE_FIXTURE.replace("\"offeredAmount\": \"100\"", "\"offeredAmount\": 100"),
+            // Leading zero is not canonical.
+            REQUEST_FILE_FIXTURE.replace("\"100\"", "\"0100\""),
+            // Beyond u64.
+            REQUEST_FILE_FIXTURE.replace("\"100\"", "\"18446744073709551616\""),
+            // Unknown field.
+            REQUEST_FILE_FIXTURE.replace("\"version\": 1,", "\"version\": 1, \"extra\": 1,"),
+        ];
+        for case in cases {
+            let error = AtomicExchangeRequest::from_request_file(&case).unwrap_err();
+            assert_eq!(error.code, "EXCHANGE_REQUEST_INVALID", "case: {case}");
+        }
     }
 }

@@ -7,6 +7,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 ### Added
 
 - add `labcoat generate web`: deterministic TypeScript browser read artifacts (network manifest, typed ABI descriptors, and a dependency-free fetch client for indexed height, Alkanes balances, and ABI-typed simulate) derived from `labcoat.lock` and built ABIs with no network access; see docs/GENERATE-WEB.md
+- add `labcoat exchange-plan --request <file>`: build the plan from a version-1 exchange request file (canonical-decimal-string JSON) instead of positional flags
+- add `exchange.ts` to `labcoat generate web`: a browser-side exchange request builder that validates and serializes the request file and renders the `exchange-plan` → `wallet sign-psbt` → `exchange-settle` ceremony commands; no signing or transaction construction in the browser
 
 ## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-31
 

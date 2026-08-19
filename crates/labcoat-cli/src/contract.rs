@@ -1109,32 +1109,61 @@ fn exchange_asset(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Where an `exchange-plan` request comes from: the positional/flag form,
+/// or a version-1 exchange request file (`--request`).
+pub enum ExchangeRequestSource {
+    Flags {
+        offered: String,
+        offered_amount: u64,
+        payment: String,
+        payment_amount: u64,
+        seller_address: String,
+        buyer_address: String,
+    },
+    File {
+        path: String,
+    },
+}
+
 pub async fn exchange_plan(
     ctx: &Ctx,
-    offered: &str,
-    offered_amount: u64,
-    payment: &str,
-    payment_amount: u64,
-    seller_address: &str,
-    buyer_address: &str,
+    source: ExchangeRequestSource,
     plan_out: &str,
     psbt_out: &str,
 ) -> (&'static str, CmdResult) {
     let res = async {
-        let offered = exchange_asset(resolve(&ctx.config, offered)?, "offered asset")?;
-        let payment = exchange_asset(resolve(&ctx.config, payment)?, "payment asset")?;
-        let mut provider = ctx.wallet_provider().await?;
-        let plan = labcoat_core::atomic_exchange::build_exchange_plan(
-            &mut provider,
-            &ctx.config,
-            labcoat_core::atomic_exchange::AtomicExchangeRequest {
+        let request = match source {
+            ExchangeRequestSource::Flags {
                 offered,
                 offered_amount,
                 payment,
                 payment_amount,
-                seller_address: seller_address.to_string(),
-                buyer_address: buyer_address.to_string(),
+                seller_address,
+                buyer_address,
+            } => labcoat_core::atomic_exchange::AtomicExchangeRequest {
+                offered: exchange_asset(resolve(&ctx.config, &offered)?, "offered asset")?,
+                offered_amount,
+                payment: exchange_asset(resolve(&ctx.config, &payment)?, "payment asset")?,
+                payment_amount,
+                seller_address,
+                buyer_address,
             },
+            ExchangeRequestSource::File { path } => {
+                let json = std::fs::read_to_string(&path).map_err(|e| {
+                    labcoat_core::LabcoatError::new(
+                        "CONFIG_INVALID",
+                        format!("cannot read {path}: {e}"),
+                        "pass an exchange request file produced by your application",
+                    )
+                })?;
+                labcoat_core::atomic_exchange::AtomicExchangeRequest::from_request_file(&json)?
+            }
+        };
+        let mut provider = ctx.wallet_provider().await?;
+        let plan = labcoat_core::atomic_exchange::build_exchange_plan(
+            &mut provider,
+            &ctx.config,
+            request,
         )
         .await?;
         let plan_json = serde_json::to_string_pretty(&plan).expect("serializable exchange plan");

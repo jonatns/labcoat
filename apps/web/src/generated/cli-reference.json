@@ -608,40 +608,46 @@
       {
         "arguments": [
           {
-            "description": "",
+            "description": "Asset sold by the seller: labcoat.lock name or block:tx id",
             "id": "offered",
             "possibleValues": [],
-            "required": true
+            "required": false
           },
           {
-            "description": "",
+            "description": "Complete offered quantity delivered to the buyer",
             "id": "offered_amount",
             "possibleValues": [],
-            "required": true
+            "required": false
           },
           {
-            "description": "",
+            "description": "Asset paid by the buyer: labcoat.lock name or block:tx id",
             "id": "payment",
             "possibleValues": [],
-            "required": true
+            "required": false
           },
           {
-            "description": "",
+            "description": "Complete payment quantity delivered to the seller",
             "id": "payment_amount",
             "possibleValues": [],
-            "required": true
+            "required": false
+          },
+          {
+            "description": "Exchange request file (version 1 JSON, e.g. from a generated web client); replaces the positional assets and address options",
+            "id": "request",
+            "possibleValues": [],
+            "required": false
           },
           {
             "description": "",
             "id": "seller_address",
             "possibleValues": [],
-            "required": true
+            "required": false
           },
           {
             "description": "",
             "id": "buyer_address",
             "possibleValues": [],
-            "required": true
+            "required": false
           },
           {
             "description": "",
@@ -660,7 +666,7 @@
         "name": "exchange-plan",
         "path": "labcoat exchange-plan",
         "subcommands": [],
-        "usage": "exchange-plan --seller-address <SELLER_ADDRESS> --buyer-address <BUYER_ADDRESS> --plan-out <PLAN_OUT> --psbt-out <PSBT_OUT> <OFFERED> <OFFERED_AMOUNT> <PAYMENT> <PAYMENT_AMOUNT>"
+        "usage": "exchange-plan [OPTIONS] --plan-out <PLAN_OUT> --psbt-out <PSBT_OUT> [OFFERED] [OFFERED_AMOUNT] [PAYMENT] [PAYMENT_AMOUNT]"
       },
       {
         "arguments": [
