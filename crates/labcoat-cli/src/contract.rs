@@ -71,6 +71,25 @@ pub enum GenerateCmd {
 }
 
 #[derive(Subcommand)]
+pub enum StateCmd {
+    /// List resources and active instances in this environment's durable
+    /// state
+    List,
+    /// Show one resource's active instance (with --history, every instance)
+    Show {
+        /// Resource address ("contract.counter") or bare contract name
+        resource: String,
+        /// Include the full append-only instance history
+        #[arg(long)]
+        history: bool,
+    },
+    /// Create version-2 durable state from the v1 labcoat.lock ledger,
+    /// backing the ledger up first. labcoat.lock stays in place as the
+    /// active-address book.
+    Migrate,
+}
+
+#[derive(Subcommand)]
 pub enum AbiCmd {
     /// Fetch ABI metadata from a deployed contract's __meta export
     Fetch {
@@ -111,6 +130,8 @@ impl Ctx {
                 wallet_file: PathBuf::from(wallet_file),
                 fee_rate: fee_rate.or(Some(2.0)),
                 assume_yes: false,
+                environment: "default".to_string(),
+                labcoat_instance_id: None,
             },
             color: crate::output::ColorMode::Auto,
             signer: "keystore".to_string(),
@@ -120,6 +141,22 @@ impl Ctx {
     pub fn with_color(mut self, color: crate::output::ColorMode) -> Self {
         self.color = color;
         self
+    }
+
+    pub fn with_environment(mut self, environment: &str) -> Self {
+        self.config.environment = environment.to_string();
+        self
+    }
+
+    /// Config for state-changing commands: on the managed Labcoat Network
+    /// the persistent instance UUID is attached (read-or-create) so
+    /// durable state can detect a reset chain before broadcasting.
+    fn mutating_config(&self) -> ToolkitConfig {
+        let mut config = self.config.clone();
+        if config.network == NetworkTarget::Labcoat {
+            config.labcoat_instance_id = isomer_core::instance_id().ok();
+        }
+        config
     }
 
     pub fn with_signer(mut self, signer: &str) -> Self {
@@ -758,7 +795,7 @@ pub async fn deploy(
         let artifact = resolve_deployment_artifact(package, wasm, name)?;
         let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
         let outcome = toolkit::deploy_in(
-            &ctx.config,
+            &ctx.mutating_config(),
             &ctx.signer_spec()?,
             &artifact.deployment_root,
             toolkit::DeployRequest {
@@ -1160,12 +1197,9 @@ pub async fn exchange_plan(
             }
         };
         let mut provider = ctx.wallet_provider().await?;
-        let plan = labcoat_core::atomic_exchange::build_exchange_plan(
-            &mut provider,
-            &ctx.config,
-            request,
-        )
-        .await?;
+        let plan =
+            labcoat_core::atomic_exchange::build_exchange_plan(&mut provider, &ctx.config, request)
+                .await?;
         let plan_json = serde_json::to_string_pretty(&plan).expect("serializable exchange plan");
         std::fs::write(plan_out, format!("{plan_json}\n")).map_err(|e| {
             labcoat_core::LabcoatError::new(
@@ -1313,7 +1347,8 @@ pub async fn apply(
             return Ok(value);
         }
         let report =
-            labcoat_core::apply::apply(&ctx.config, &ctx.signer_spec()?, &root, &path).await?;
+            labcoat_core::apply::apply(&ctx.mutating_config(), &ctx.signer_spec()?, &root, &path)
+                .await?;
         Ok(serde_json::to_value(report).expect("serializable apply report"))
     }
     .await;
@@ -1385,6 +1420,148 @@ pub fn lock(cmd: LockCmd) -> (&'static str, CmdResult) {
                     .map(|lockfile| serde_json::to_value(lockfile).expect("serializable")),
             ),
         ),
+    }
+}
+
+fn load_state_or_missing(
+    root: &std::path::Path,
+    environment: &str,
+) -> Result<labcoat_core::state::State, labcoat_core::LabcoatError> {
+    labcoat_core::state_backend::load(root, environment)?.ok_or_else(|| {
+        labcoat_core::LabcoatError::new(
+            "STATE_MISSING",
+            format!("no durable state for environment '{environment}'"),
+            "run `labcoat state migrate` to create durable state from labcoat.lock",
+        )
+    })
+}
+
+pub async fn state(ctx: &Ctx, environment: &str, cmd: StateCmd) -> (&'static str, CmdResult) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    match cmd {
+        StateCmd::List => {
+            let res = (|| {
+                let state = load_state_or_missing(&cwd, environment)?;
+                let resources: Vec<serde_json::Value> = state
+                    .resources
+                    .iter()
+                    .map(|(address, resource)| {
+                        let active = resource
+                            .active_instance
+                            .as_deref()
+                            .and_then(|id| resource.instances.iter().find(|i| i.instance_id == id));
+                        serde_json::json!({
+                            "address": address,
+                            "kind": resource.kind,
+                            "activeInstance": resource.active_instance,
+                            "alkanesId": active.map(|i| i.alkanes_id.clone()),
+                            "status": active.map(|i| i.status.clone()),
+                            "instances": resource.instances.len(),
+                        })
+                    })
+                    .collect();
+                Ok(serde_json::json!({
+                    "environment": state.environment,
+                    "lineage": state.lineage,
+                    "serial": state.serial,
+                    "chain": state.chain,
+                    "resources": resources,
+                }))
+            })();
+            ("state-list", to_envelope(res))
+        }
+        StateCmd::Show { resource, history } => {
+            let res = (|| {
+                let state = load_state_or_missing(&cwd, environment)?;
+                let address = if state.resources.contains_key(&resource) {
+                    resource.clone()
+                } else {
+                    labcoat_core::state::resource_address(&resource)
+                };
+                let record = state.resources.get(&address).ok_or_else(|| {
+                    labcoat_core::LabcoatError::new(
+                        "CONTRACT_NOT_FOUND",
+                        format!(
+                            "no resource '{address}' in environment '{}'",
+                            state.environment
+                        ),
+                        "run `labcoat state list` to see this environment's resources",
+                    )
+                })?;
+                let instances: Vec<&labcoat_core::state::Instance> = if history {
+                    record.instances.iter().collect()
+                } else {
+                    record
+                        .active_instance
+                        .as_deref()
+                        .and_then(|id| record.instances.iter().find(|i| i.instance_id == id))
+                        .into_iter()
+                        .collect()
+                };
+                Ok(serde_json::json!({
+                    "environment": state.environment,
+                    "resource": address,
+                    "kind": record.kind,
+                    "activeInstance": record.active_instance,
+                    "history": history,
+                    "instances": instances,
+                }))
+            })();
+            ("state-show", to_envelope(res))
+        }
+        StateCmd::Migrate => {
+            let res = async {
+                let network = ctx.config.network_id();
+                let block1_hash = toolkit::chain_instance_id(&ctx.config).await;
+                if block1_hash.is_none() {
+                    ctx.warn(
+                        "cannot reach the node — the chain identity will be backfilled by the next deploy against this environment",
+                    );
+                }
+                let labcoat_network_instance_id = if ctx.config.network == NetworkTarget::Labcoat {
+                    isomer_core::instance_id().ok()
+                } else {
+                    None
+                };
+                let chain = labcoat_core::state::ChainIdentity {
+                    network: network.to_string(),
+                    bitcoin_network: ctx.config.bitcoin_network_id().to_string(),
+                    block1_hash,
+                    labcoat_network_instance_id,
+                };
+                let now_millis = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let outcome = labcoat_core::state::migrate(
+                    &cwd,
+                    environment,
+                    network,
+                    chain,
+                    labcoat_core::state::new_lineage(),
+                    now_millis,
+                )?;
+                let display = |path: &std::path::Path| {
+                    path.strip_prefix(&cwd)
+                        .unwrap_or(path)
+                        .display()
+                        .to_string()
+                };
+                Ok(serde_json::json!({
+                    "environment": environment,
+                    "network": network,
+                    "statePath": display(&outcome.state_path),
+                    "backup": outcome.backup.as_deref().map(display),
+                    "resources": outcome.resources,
+                    "instances": outcome.instances,
+                    "serial": outcome.serial,
+                    "lineage": outcome.lineage,
+                    "lockfileRegenerated": outcome.lockfile_regenerated,
+                }))
+            }
+            .await;
+            ("state-migrate", to_envelope(res))
+        }
     }
 }
 

@@ -26,9 +26,10 @@ Settings resolve in this order:
 CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
 ```
 
-`labcoat.toml` supports `network`, `rpc_url`, `wallet_file`, and `fee_rate`.
-The default network is `labcoat` and the default Qubitcoin RPC endpoint is
-`http://127.0.0.1:18443`.
+`labcoat.toml` supports `network`, `rpc_url`, `wallet_file`, `fee_rate`,
+`signer`, and `environment` (the durable-state environment, default
+`default`). The default network is `labcoat` and the default Qubitcoin RPC
+endpoint is `http://127.0.0.1:18443`.
 
 `labcoat` selects Labcoat Network, Labcoat's local/private environment. It uses
 Bitcoin regtest protocol rules underneath but is not Signet. The separate

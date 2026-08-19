@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "lineage": "00000000-0000-4000-8000-000000000000",
+  "serial": 0,
+  "environment": "default",
+  "chain": {
+    "network": "labcoat",
+    "bitcoinNetwork": "regtest",
+    "block1Hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "labcoatNetworkInstanceId": "22222222-2222-4222-8222-222222222222"
+  },
+  "resources": {
+    "contract.counter": {
+      "kind": "contract",
+      "activeInstance": "instance-1",
+      "instances": [
+        {
+          "instanceId": "instance-1",
+          "origin": "imported",
+          "alkanesId": "2:1",
+          "wasmSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+          "status": "success",
+          "deployedAt": 1700000000000,
+          "chainId": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ]
+    },
+    "contract.registry": {
+      "kind": "contract",
+      "activeInstance": "instance-1",
+      "instances": [
+        {
+          "instanceId": "instance-1",
+          "origin": "imported",
+          "alkanesId": "4:99",
+          "txid": "adopted",
+          "status": "success",
+          "deployedAt": 1700000000500
+        }
+      ]
+    },
+    "contract.token": {
+      "kind": "contract",
+      "activeInstance": "instance-1",
+      "instances": [
+        {
+          "instanceId": "instance-1",
+          "origin": "imported",
+          "alkanesId": "2:2",
+          "wasmSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "txid": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "status": "revert",
+          "deployedAt": 1700000001000,
+          "chainId": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ]
+    }
+  },
+  "operations": []
+}

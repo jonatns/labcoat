@@ -249,6 +249,9 @@ fn build_document(command: &str, value: &Value, verbose: bool) -> Document {
         "wallet-init" => wallet_init_document(value),
         "build" | "test" => build_document_report(command, value, verbose),
         "lock-show" => lock_document(value, verbose),
+        "state-list" => state_list_document(value, verbose),
+        "state-show" => state_show_document(value, verbose),
+        "state-migrate" => state_migrate_document(value),
         "plan" => plan_document(value),
         "apply"
             if value
@@ -457,6 +460,15 @@ fn status_document(command: &str, value: &Value, verbose: bool) -> Document {
     document.fields(vec![
         ("Network", "Labcoat Network".to_string()),
         ("Bitcoin mode", format!("{bitcoin_mode} (local/private)")),
+        (
+            "Instance",
+            value_string(
+                status
+                    .get("instance_id")
+                    .or_else(|| status.get("instanceId"))
+                    .unwrap_or(&Value::Null),
+            ),
+        ),
         (
             "Block height",
             value_string(
@@ -769,6 +781,116 @@ fn lock_document(value: &Value, verbose: bool) -> Document {
         headers.push("Wasm SHA-256".into());
     }
     document.blocks.push(Block::Table(headers, rows));
+    document
+}
+
+fn state_list_document(value: &Value, verbose: bool) -> Document {
+    let mut document = Document::default();
+    document.headline(
+        Tone::Info,
+        format!("Durable state ({})", string_at(value, "environment")),
+    );
+    document.fields(fields(
+        value,
+        &[("Serial", "serial"), ("Lineage", "lineage")],
+    ));
+    if let Some(chain) = value.get("chain") {
+        document.fields(fields(
+            chain,
+            &[
+                ("Network", "network"),
+                ("Chain", "block1Hash"),
+                ("Instance", "labcoatNetworkInstanceId"),
+            ],
+        ));
+    }
+    let mut rows = Vec::new();
+    if let Some(resources) = value.get("resources").and_then(Value::as_array) {
+        for resource in resources {
+            let mut row = vec![
+                string_at(resource, "address"),
+                string_at(resource, "alkanesId"),
+                string_at(resource, "status"),
+                string_at(resource, "instances"),
+            ];
+            if verbose {
+                row.push(string_at(resource, "activeInstance"));
+            }
+            rows.push(row);
+        }
+    }
+    let mut headers = vec![
+        "Resource".into(),
+        "Alkanes ID".into(),
+        "Status".into(),
+        "Instances".into(),
+    ];
+    if verbose {
+        headers.push("Active instance".into());
+    }
+    document.blocks.push(Block::Table(headers, rows));
+    document
+}
+
+fn state_show_document(value: &Value, verbose: bool) -> Document {
+    let mut document = Document::default();
+    document.headline(Tone::Info, string_at(value, "resource"));
+    document.fields(fields(
+        value,
+        &[
+            ("Environment", "environment"),
+            ("Kind", "kind"),
+            ("Active instance", "activeInstance"),
+        ],
+    ));
+    let mut rows = Vec::new();
+    if let Some(instances) = value.get("instances").and_then(Value::as_array) {
+        for instance in instances {
+            let mut row = vec![
+                string_at(instance, "instanceId"),
+                string_at(instance, "origin"),
+                string_at(instance, "alkanesId"),
+                string_at(instance, "status"),
+                string_at(instance, "txid"),
+            ];
+            if verbose {
+                row.push(string_at(instance, "wasmSha256"));
+                row.push(string_at(instance, "chainId"));
+            }
+            rows.push(row);
+        }
+    }
+    let mut headers = vec![
+        "Instance".into(),
+        "Origin".into(),
+        "Alkanes ID".into(),
+        "Status".into(),
+        "Transaction".into(),
+    ];
+    if verbose {
+        headers.push("Wasm SHA-256".into());
+        headers.push("Chain".into());
+    }
+    document.blocks.push(Block::Table(headers, rows));
+    document
+}
+
+fn state_migrate_document(value: &Value) -> Document {
+    let mut document = Document::default();
+    document.headline(Tone::Success, "Durable state created");
+    document.fields(fields(
+        value,
+        &[
+            ("Environment", "environment"),
+            ("Network", "network"),
+            ("State file", "statePath"),
+            ("Backup", "backup"),
+            ("Resources", "resources"),
+            ("Instances", "instances"),
+            ("Serial", "serial"),
+            ("Lineage", "lineage"),
+        ],
+    ));
     document
 }
 
@@ -1320,6 +1442,56 @@ fn indent(value: &str, depth: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_list_renders_resources_with_chain_identity() {
+        let value = serde_json::json!({
+            "environment": "default",
+            "lineage": "00000000-0000-4000-8000-000000000000",
+            "serial": 1,
+            "chain": {
+                "network": "labcoat",
+                "bitcoinNetwork": "regtest",
+                "block1Hash": "11".repeat(32),
+                "labcoatNetworkInstanceId": "22222222-2222-4222-8222-222222222222"
+            },
+            "resources": [
+                { "address": "contract.counter", "kind": "contract",
+                  "activeInstance": "instance-2", "alkanesId": "2:9",
+                  "status": "success", "instances": 2 }
+            ]
+        });
+        let output = render_plain("state-list", &value, false, 80);
+        assert!(output.contains("Durable state (default)"));
+        assert!(output.contains("contract.counter"));
+        assert!(output.contains("2:9"));
+        assert!(!output.contains("Active instance"));
+        assert!(!output.contains("\u{1b}["));
+
+        let verbose = render_plain("state-list", &value, true, 120);
+        assert!(verbose.contains("Active instance"));
+        assert!(verbose.contains("instance-2"));
+    }
+
+    #[test]
+    fn state_migrate_reports_backup_and_counts() {
+        let value = serde_json::json!({
+            "environment": "default",
+            "network": "labcoat",
+            "statePath": ".labcoat/state/default/state.json",
+            "backup": ".labcoat/state/default/backups/labcoat.lock.1755000000000.bak",
+            "resources": 3,
+            "instances": 3,
+            "serial": 1,
+            "lineage": "00000000-0000-4000-8000-000000000000",
+            "lockfileRegenerated": true
+        });
+        let output = render_plain("state-migrate", &value, false, 80);
+        assert!(output.contains("✓ Durable state created"));
+        assert!(output.contains(".labcoat/state/default/state.json"));
+        assert!(output.contains("labcoat.lock.1755000000000.bak"));
+        assert!(!output.contains("\u{1b}["));
+    }
 
     #[test]
     fn simulation_is_concise_and_formats_gas() {

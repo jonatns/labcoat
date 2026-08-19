@@ -1,6 +1,9 @@
 # Durable state and declarative deployment plan
 
-Status: proposed design; not implemented or part of the supported product
+Status: design in progress. Milestone 1 (durable state foundation) is
+implemented for local development — see `docs/STATE.md` for what shipped
+and the deviations noted inline below. Every later milestone remains
+proposed and is not part of the supported product.
 
 ## Summary
 
@@ -75,17 +78,21 @@ verified state        active IDs, history, transactions, outputs
 
 The existing `labcoat.lock` is a version 1 per-network map from logical contract
 name to one deployment record. It has several correctness gaps for use as
-durable state:
+durable state (Milestone 1 closed the ones marked ✓ in version-2 state;
+`labcoat.lock` itself keeps its v1 semantics as the compatibility view):
 
-- Recording a deployment with the same name replaces the earlier record.
-- Loading silently returns empty state when the file is missing, unreadable, or
-  malformed. Corruption can therefore look like a fresh project and cause
-  accidental redeployment.
-- Saving writes the destination directly, without a temporary file, fsync,
-  atomic rename, backup, or process lock.
+- Recording a deployment with the same name replaces the earlier record. ✓
+  (version-2 state appends instances and moves an active pointer)
+- Loading is fail-closed for unreadable or malformed files
+  (`LOCKFILE_INVALID`), and saving already uses a temp file + fsync +
+  atomic rename — but there is no backup, parent-directory fsync, or
+  process lock. ✓ (the version-2 backend adds all three)
 - Network name is the only environment discriminator. It cannot distinguish
-  two regtest instances or detect a reset by itself.
+  two regtest instances or detect a reset by itself. ✓ (version-2 state
+  records the block-1 hash and the Labcoat Network instance UUID)
 - There is no operation journal, state serial, lineage, or concurrency check.
+  ✓ for serial/lineage/lease; the operation journal is schema-only until the
+  apply engine lands.
 - The deploy path supports ordinary sequential `CREATE` only.
 - Deploy with constructor arguments constructs a `[1,0,0,...]` cellpack and
   therefore assumes initializer opcode `0`. Standard upgradeable Alkanes use
@@ -94,8 +101,10 @@ durable state:
   metadata contains methods, opcodes, and parameter types.
 - `simulate` executes an existing deployed contract through Qubitcoin's Alkanes index; the
   current deploy dry-run only validates local input and prints intent.
-- The executor calls upstream `execute_full` as one operation, so Labcoat cannot
-  durably checkpoint each commit/reveal phase.
+- The executor already exposes commit/reveal phases and persists a pending
+  reveal to `.labcoat/pending/` after the commit broadcasts
+  (`execute.rs`), but those checkpoints are not yet journaled into
+  durable state.
 
 ## Architectural decisions
 
@@ -115,7 +124,11 @@ desired configuration <-> prior operational state <-> observed chain state
 
 ### State location and compatibility
 
-- Store canonical local state at `.labcoat/state/<environment>.json`.
+- Store canonical local state at `.labcoat/state/<environment>/state.json`
+  (as shipped in Milestone 1: a per-environment directory that also holds
+  the `state.lock` lease and `backups/`; the flat
+  `.labcoat/state/<network>.json` namespace already belongs to the apply
+  call journal and stays untouched).
 - Add an `environment` setting, defaulting to `default`, independently of
   `network`. For example, `dev` and `staging` can both use regtest or signet
   without sharing state.
@@ -322,7 +335,12 @@ before deciding whether to retry. Never blindly repeat a pending deployment.
 
 ## Durable local backend
 
-Introduce a `StateBackend` abstraction with operations equivalent to:
+Milestone 1 shipped the local implementation as concrete lease/commit
+operations (`state_backend.rs`) rather than a trait: with one
+implementation the abstraction is ceremony, and compare-and-swap is only
+meaningful on a held lease anyway. The `StateBackend` trait below is
+deferred to the first remote backend, which needs exactly the semantics
+the local lease + serial CAS already implement:
 
 ```rust
 trait StateBackend {
@@ -706,6 +724,10 @@ must call the same `labcoat-core` operations.
 ## Milestones
 
 ### Milestone 1: durable state foundation
+
+Status: delivered (see `docs/STATE.md`), including deploy-time instance
+recording so history accrues from day one; the operations journal is
+schema-only until the apply engine lands.
 
 - Define the version 2 state schema, lineage, serial, resources, instances, and
   operations.

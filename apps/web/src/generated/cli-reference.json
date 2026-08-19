@@ -858,6 +858,55 @@
       },
       {
         "arguments": [],
+        "description": "Durable deployment state (version-2, per environment)",
+        "name": "state",
+        "path": "labcoat state",
+        "subcommands": [
+          {
+            "arguments": [],
+            "description": "List resources and active instances in this environment's durable state",
+            "name": "list",
+            "path": "labcoat state list",
+            "subcommands": [],
+            "usage": "list"
+          },
+          {
+            "arguments": [
+              {
+                "description": "Resource address (\"contract.counter\") or bare contract name",
+                "id": "resource",
+                "possibleValues": [],
+                "required": true
+              },
+              {
+                "description": "Include the full append-only instance history",
+                "id": "history",
+                "possibleValues": [
+                  "true",
+                  "false"
+                ],
+                "required": false
+              }
+            ],
+            "description": "Show one resource's active instance (with --history, every instance)",
+            "name": "show",
+            "path": "labcoat state show",
+            "subcommands": [],
+            "usage": "show [OPTIONS] <RESOURCE>"
+          },
+          {
+            "arguments": [],
+            "description": "Create version-2 durable state from the v1 labcoat.lock ledger, backing the ledger up first. labcoat.lock stays in place as the active-address book",
+            "name": "migrate",
+            "path": "labcoat state migrate",
+            "subcommands": [],
+            "usage": "migrate"
+          }
+        ],
+        "usage": "state <COMMAND>"
+      },
+      {
+        "arguments": [],
         "description": "Model Context Protocol server (agent integration)",
         "name": "mcp",
         "path": "labcoat mcp",
@@ -1079,8 +1128,33 @@
       },
       {
         "code": "STATE_INVALID",
-        "meaning": "the .labcoat/state call journal cannot be read or parsed",
-        "recovery": "repair or delete the journal file (calls may re-execute)"
+        "meaning": "a .labcoat/state file (the apply call journal or durable environment state) cannot be read or parsed",
+        "recovery": "for the journal: repair or delete the file (calls may re-execute); for durable state: restore backups/state.json.prev"
+      },
+      {
+        "code": "STATE_MISSING",
+        "meaning": "no version-2 durable state exists for this environment",
+        "recovery": "run `labcoat state migrate`"
+      },
+      {
+        "code": "STATE_UNSUPPORTED",
+        "meaning": "the durable state schema version is not supported by this labcoat",
+        "recovery": "upgrade labcoat, or restore a backup from .labcoat/state/<environment>/backups"
+      },
+      {
+        "code": "STATE_LOCKED",
+        "meaning": "another labcoat process holds this environment's lease",
+        "recovery": "wait for the other process; a crashed holder releases the lease automatically"
+      },
+      {
+        "code": "STATE_CHAIN_MISMATCH",
+        "meaning": "durable state belongs to a different chain instance (e.g. before a `labcoat reset`)",
+        "recovery": "archive .labcoat/state/<environment> or use a different --environment"
+      },
+      {
+        "code": "STATE_CONFLICT",
+        "meaning": "durable state changed underneath the command, or already exists where none may",
+        "recovery": "re-run against current state (`labcoat state list`)"
       },
       {
         "code": "APPLY_BLOCKED",
@@ -1587,8 +1661,12 @@
         "name": "Synchronization"
       },
       {
-        "detail": "Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.",
+        "detail": "Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status. Remains the active-address book; `labcoat state migrate` regenerates it from durable state.",
         "name": "labcoat.lock"
+      },
+      {
+        "detail": ".labcoat/state/<environment>/state.json is the version-2 per-environment operational state (lineage, serial, chain identity, append-only instance history), created by `labcoat state migrate` and guarded by an OS lease (state.lock). Deploys append instances when it exists and refuse a reset or foreign chain before broadcasting. The flat .labcoat/state/<network>.json apply call journal is separate.",
+        "name": "Durable state"
       },
       {
         "detail": "Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.",

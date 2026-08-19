@@ -817,21 +817,42 @@ pub async fn apply(
                 wasm_sha256,
             } => {
                 let id = format!("4:{reserve}");
-                lockfile::record(
+                // Durable-state guard before the adoption is recorded: a
+                // reset or foreign chain aborts this action, and the lease
+                // covers both ledger writes.
+                let mut state_guard = crate::state::deploy_guard(
                     root,
-                    &network,
-                    &action.name,
-                    lockfile::Deployment {
-                        alkanes_id: id.clone(),
-                        wasm_sha256: Some(wasm_sha256.clone()),
-                        txid: "adopted".into(),
-                        block: None,
-                        status: "success".into(),
-                        deployed_at: now_millis(),
-                        chain_id: plan.chain_id.clone(),
-                    },
+                    &config.environment,
+                    &crate::state::observed_chain(config, plan.chain_id.clone()),
                 )
                 .map_err(|e| stop("deploy", &action.name, e))?;
+                let deployment = lockfile::Deployment {
+                    alkanes_id: id.clone(),
+                    wasm_sha256: Some(wasm_sha256.clone()),
+                    txid: "adopted".into(),
+                    block: None,
+                    status: "success".into(),
+                    deployed_at: now_millis(),
+                    chain_id: plan.chain_id.clone(),
+                };
+                lockfile::record(root, &network, &action.name, deployment.clone())
+                    .map_err(|e| stop("deploy", &action.name, e))?;
+                if let Some((mut lease, v2_state)) = state_guard.take() {
+                    if let Err(e) = crate::state::record_instance(
+                        &mut lease,
+                        v2_state,
+                        &action.name,
+                        &deployment,
+                        crate::state::InstanceOrigin::Adopted,
+                        crate::state::InstanceExtras {
+                            commit_txid: None,
+                            labcoat_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                            revert_reason: None,
+                        },
+                    ) {
+                        tracing::warn!("durable state not updated: {e}");
+                    }
+                }
                 resolved
                     .insert_contract(&action.name, &id)
                     .map_err(|e| stop("deploy", &action.name, e))?;

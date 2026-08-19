@@ -120,6 +120,22 @@ pub async fn deploy_in(
         .await
         .ok();
 
+    // Chain instance identity: block 1's hash changes on every reset,
+    // marking older records as stale. Best effort — a record without it
+    // is still valid, just unverifiable.
+    let chain_id = {
+        use alkanes_cli_common::traits::BitcoinRpcProvider;
+        BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok()
+    };
+    // Durable-state guard: when version-2 state exists for this
+    // environment, a reset or foreign chain aborts here — before any
+    // broadcast — and the environment lease is held across the deploy.
+    let mut state_guard = crate::state::deploy_guard(
+        deployment_root,
+        &config.environment,
+        &crate::state::observed_chain(config, chain_id.clone()),
+    )?;
+
     let spec = deploy_spec(target, cellpack_args, options);
 
     let result = crate::execute::run(
@@ -148,30 +164,40 @@ pub async fn deploy_in(
     let (status, revert_reason) = find_return_status(&traces);
 
     if let (Some(id), Some(name)) = (&alkanes_id, &contract_name) {
-        use alkanes_cli_common::traits::BitcoinRpcProvider;
         use sha2::Digest;
         let network = config.network_id();
-        // Chain instance identity: block 1's hash changes on every reset,
-        // marking older records as stale. Best effort — a record without it
-        // is still valid, just unverifiable.
-        let chain_id = BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok();
-        lockfile::record(
-            deployment_root,
-            network,
-            name,
-            lockfile::Deployment {
-                alkanes_id: id.clone(),
-                wasm_sha256: Some(hex::encode(sha2::Sha256::digest(&wasm))),
-                txid: result.reveal_txid.clone(),
-                block: None,
-                status: status.clone(),
-                deployed_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-                chain_id,
-            },
-        )?;
+        let deployment = lockfile::Deployment {
+            alkanes_id: id.clone(),
+            wasm_sha256: Some(hex::encode(sha2::Sha256::digest(&wasm))),
+            txid: result.reveal_txid.clone(),
+            block: None,
+            status: status.clone(),
+            deployed_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            chain_id,
+        };
+        lockfile::record(deployment_root, network, name, deployment.clone())?;
+        if let Some((mut lease, v2_state)) = state_guard.take() {
+            if let Err(e) = crate::state::record_instance(
+                &mut lease,
+                v2_state,
+                name,
+                &deployment,
+                crate::state::InstanceOrigin::Deployed,
+                crate::state::InstanceExtras {
+                    commit_txid: result.commit_txid.clone(),
+                    labcoat_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    revert_reason: revert_reason.clone(),
+                },
+            ) {
+                // labcoat.lock stays canonical in Milestone 1; failing a
+                // broadcast deployment over the history mirror would lose
+                // more than it protects.
+                tracing::warn!("durable state not updated: {e}");
+            }
+        }
     }
 
     Ok(ExecuteOutcome {
@@ -310,6 +336,14 @@ pub async fn trace(
     } else {
         trace_mod::trace(&provider, txid).await
     }
+}
+
+/// Chain instance identity: block 1's hash (block 0 is reset-invariant on
+/// regtest). Best-effort — `None` when the node is unreachable.
+pub async fn chain_instance_id(config: &ToolkitConfig) -> Option<String> {
+    use alkanes_cli_common::traits::BitcoinRpcProvider;
+    let provider = system::connect(config, None, false).await.ok()?;
+    BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok()
 }
 
 /// Resolve a contract's alkanes id from the lockfile.

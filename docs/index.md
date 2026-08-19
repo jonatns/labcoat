@@ -8,7 +8,8 @@ wallets, Labcoat Network, deployment, calls, simulation, and tracing.
 
 - [README and quick start](../README.md)
 - [Releasing Labcoat](RELEASING.md)
-- [Proposed durable state design (not implemented)](DURABLE-STATE-PLAN.md)
+- [Durable state (Milestone 1, shipped for local development)](STATE.md)
+- [Durable state design (later milestones proposed)](DURABLE-STATE-PLAN.md)
 - [Toolchain and upstream pins](../TOOLCHAIN.md)
 - [Agent workflow](../skills/SKILL.md)
 

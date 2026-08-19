@@ -6,6 +6,7 @@ use std::str::FromStr;
 const DEFAULT_NETWORK: &str = "labcoat";
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:18443";
 const DEFAULT_WALLET_FILE: &str = ".labcoat/wallet.json";
+const DEFAULT_ENVIRONMENT: &str = "default";
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15,6 +16,7 @@ struct ProjectConfig {
     wallet_file: Option<PathBuf>,
     fee_rate: Option<f32>,
     signer: Option<String>,
+    environment: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +27,8 @@ pub struct ResolvedSettings {
     pub fee_rate: Option<f32>,
     /// Signing backend spec: `keystore` (default) or `psbt-file:<dir>`.
     pub signer: String,
+    /// Durable-state environment (`.labcoat/state/<environment>/`).
+    pub environment: String,
 }
 
 #[derive(Default)]
@@ -34,6 +38,7 @@ pub struct Overrides<'a> {
     pub wallet_file: Option<&'a str>,
     pub fee_rate: Option<f32>,
     pub signer: Option<&'a str>,
+    pub environment: Option<&'a str>,
 }
 
 pub fn resolve(overrides: Overrides<'_>) -> Result<ResolvedSettings, String> {
@@ -97,6 +102,14 @@ fn resolve_in_with(
         config.signer,
         "keystore",
     );
+    let environment = choose_string(
+        overrides.environment,
+        env("LABCOAT_ENVIRONMENT"),
+        config.environment,
+        DEFAULT_ENVIRONMENT,
+    );
+    labcoat_core::state::validate_environment_name(&environment)
+        .map_err(|e| format!("{}: {}", e.message, e.hint))?;
 
     Ok(ResolvedSettings {
         network,
@@ -104,6 +117,7 @@ fn resolve_in_with(
         wallet_file,
         fee_rate,
         signer,
+        environment,
     })
 }
 
@@ -114,6 +128,7 @@ pub fn labcoat_network() -> ResolvedSettings {
         wallet_file: PathBuf::from(DEFAULT_WALLET_FILE),
         fee_rate: Some(2.0),
         signer: "keystore".to_string(),
+        environment: DEFAULT_ENVIRONMENT.to_string(),
     }
 }
 
@@ -138,7 +153,7 @@ fn load(root: &Path) -> Result<ProjectConfig, String> {
     };
     toml::from_str(&raw).map_err(|e| {
         format!(
-            "invalid {}: {} (allowed keys: network, rpc_url, wallet_file, fee_rate, signer; secrets belong in LABCOAT_* env vars)",
+            "invalid {}: {} (allowed keys: network, rpc_url, wallet_file, fee_rate, signer, environment; secrets belong in LABCOAT_* env vars)",
             path.display(),
             e
         )
@@ -159,7 +174,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("labcoat.toml"),
-            "network = \"signet\"\nrpc_url = \"http://file\"\nfee_rate = 3.5\nsigner = \"psbt-file:./file-psbts\"\n",
+            "network = \"signet\"\nrpc_url = \"http://file\"\nfee_rate = 3.5\nsigner = \"psbt-file:./file-psbts\"\nenvironment = \"file-env\"\n",
         )
         .unwrap();
 
@@ -171,12 +186,14 @@ mod tests {
                 wallet_file: None,
                 fee_rate: None,
                 signer: None,
+                environment: None,
             },
             |name| match name {
                 "LABCOAT_NETWORK" => Some("mainnet".into()),
                 "LABCOAT_RPC_URL" => Some("http://env".into()),
                 "LABCOAT_WALLET_FILE" => Some("env-wallet.json".into()),
                 "LABCOAT_SIGNER" => Some("psbt-file:./env-psbts".into()),
+                "LABCOAT_ENVIRONMENT" => Some("env-env".into()),
                 _ => None,
             },
         )
@@ -186,7 +203,44 @@ mod tests {
         assert_eq!(resolved.wallet_file, PathBuf::from("env-wallet.json"));
         assert_eq!(resolved.fee_rate, Some(3.5));
         assert_eq!(resolved.signer, "psbt-file:./env-psbts");
+        assert_eq!(resolved.environment, "env-env");
 
+        let from_file = resolve_in_with(
+            &root,
+            Overrides {
+                network: Some("regtest"),
+                rpc_url: Some("http://custom"),
+                ..Overrides::default()
+            },
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(from_file.environment, "file-env");
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn environment_defaults_and_is_validated_as_a_path_component() {
+        let root = std::env::temp_dir().join(format!(
+            "labcoat-settings-environment-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+
+        let resolved = resolve_in_with(&root, Overrides::default(), |_| None).unwrap();
+        assert_eq!(resolved.environment, "default");
+
+        let error = resolve_in_with(
+            &root,
+            Overrides {
+                environment: Some("../escape"),
+                ..Overrides::default()
+            },
+            |_| None,
+        )
+        .unwrap_err();
+        assert!(error.contains("environment names must be non-empty"));
         std::fs::remove_dir_all(root).ok();
     }
 
