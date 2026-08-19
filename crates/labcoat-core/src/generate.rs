@@ -7,8 +7,10 @@
 //! state, exactly like the lockfile itself is a ledger of verified
 //! deployments. The output is a self-contained module tree — no runtime
 //! dependencies — that browsers use for reads only: indexed height, Alkanes
-//! balances for an address, and ABI-typed `simulate` calls. No signing, no
-//! key material, no state mutation.
+//! balances for an address, and ABI-typed `simulate` calls — plus an
+//! exchange request builder that serializes the version-1 request file the
+//! `exchange-plan --request` CLI ceremony consumes. No signing, no key
+//! material, no state mutation.
 
 use crate::abi::{self, AbiDocument};
 use crate::error::{LabcoatError, Result};
@@ -145,6 +147,10 @@ pub fn generate_web(inputs: &WebInputs<'_>) -> Result<Vec<GeneratedFile>> {
     files.push(GeneratedFile {
         path: "client.ts".to_string(),
         contents: client_ts(),
+    });
+    files.push(GeneratedFile {
+        path: "exchange.ts".to_string(),
+        contents: exchange_ts(),
     });
     Ok(files)
 }
@@ -461,6 +467,10 @@ export const ABIS: Record<string, AbiDocument> = {{
 
 fn client_ts() -> String {
     format!("{GENERATED_HEADER}\n{CLIENT_TS_BODY}")
+}
+
+fn exchange_ts() -> String {
+    format!("{GENERATED_HEADER}\n{EXCHANGE_TS_BODY}")
 }
 
 /// The static read client. Wire protocol notes:
@@ -1116,6 +1126,135 @@ function decodeBalanceSheetItem(
 }
 "#;
 
+/// The exchange request builder. The serialized file format is version 1 and
+/// must stay byte-identical to `AtomicExchangeRequest::to_request_file` in
+/// `atomic_exchange.rs` (pinned there by `REQUEST_FILE_FIXTURE`): pretty
+/// JSON, two-space indent, fixed key order, every u64 a canonical decimal
+/// string, trailing newline. The browser builds and serializes the request;
+/// planning, signing, and settlement stay in the CLI ceremony.
+const EXCHANGE_TS_BODY: &str = r#"//
+// Exchange request builder for the CLI settlement ceremony. The browser
+// produces a version-1 exchange request file; `labcoat exchange-plan
+// --request` consumes it, the buyer signs the planned PSBT with
+// `labcoat wallet sign-psbt`, and `labcoat exchange-settle` validates,
+// signs seller-last, and broadcasts. No signing, no key material, and no
+// transaction construction happens here.
+
+import type { AlkaneRef } from "./client"
+
+const U64_MAX = (1n << 64n) - 1n
+
+/** One atomic two-wallet Alkane exchange, as Labcoat plans it. */
+export interface AtomicExchangeRequest {
+  /** Asset delivered to the buyer. */
+  offered: AlkaneRef
+  /** Complete offered quantity (u64 base units). */
+  offeredAmount: bigint
+  /** Asset delivered to the seller. */
+  payment: AlkaneRef
+  /** Complete payment quantity (u64 base units). */
+  paymentAmount: bigint
+  sellerAddress: string
+  buyerAddress: string
+}
+
+export class ExchangeRequestError extends Error {
+  constructor(
+    public readonly code: "EXCHANGE_REQUEST_INVALID",
+    message: string,
+  ) {
+    super(message)
+    this.name = "ExchangeRequestError"
+  }
+}
+
+function invalid(message: string): ExchangeRequestError {
+  return new ExchangeRequestError("EXCHANGE_REQUEST_INVALID", message)
+}
+
+function canonicalU64(value: bigint | string, label: string): string {
+  if (typeof value === "string") {
+    if (!/^(0|[1-9][0-9]*)$/.test(value)) {
+      throw invalid(`${label} must be a canonical decimal string, got ${JSON.stringify(value)}`)
+    }
+    value = BigInt(value)
+  }
+  if (value < 0n || value > U64_MAX) {
+    throw invalid(`${label} does not fit u64`)
+  }
+  return value.toString()
+}
+
+/**
+ * Serialize a request to the version-1 exchange request file consumed by
+ * `labcoat exchange-plan --request`. Validates the same invariants the CLI
+ * enforces, so an invalid trade fails in the browser instead of at the
+ * terminal. Deterministic: byte-identical to Labcoat's own serializer.
+ */
+export function serializeExchangeRequest(request: AtomicExchangeRequest): string {
+  const offeredBlock = canonicalU64(request.offered.block, "offered block")
+  const offeredTx = canonicalU64(request.offered.tx, "offered tx")
+  const paymentBlock = canonicalU64(request.payment.block, "payment block")
+  const paymentTx = canonicalU64(request.payment.tx, "payment tx")
+  const offeredAmount = canonicalU64(request.offeredAmount, "offeredAmount")
+  const paymentAmount = canonicalU64(request.paymentAmount, "paymentAmount")
+  if (request.offeredAmount <= 0n || request.paymentAmount <= 0n) {
+    throw invalid("exchange amounts must be greater than zero")
+  }
+  if (offeredBlock === paymentBlock && offeredTx === paymentTx) {
+    throw invalid("exchange assets must be different")
+  }
+  if (request.sellerAddress.length === 0 || request.buyerAddress.length === 0) {
+    throw invalid("seller and buyer addresses must not be empty")
+  }
+  if (request.sellerAddress === request.buyerAddress) {
+    throw invalid("seller and buyer addresses must be different")
+  }
+  const wire = {
+    version: 1,
+    offered: { block: offeredBlock, tx: offeredTx },
+    offeredAmount,
+    payment: { block: paymentBlock, tx: paymentTx },
+    paymentAmount,
+    sellerAddress: request.sellerAddress,
+    buyerAddress: request.buyerAddress,
+  }
+  return `${JSON.stringify(wire, null, 2)}\n`
+}
+
+/** File paths threaded through the rendered ceremony commands. */
+export interface CeremonyPaths {
+  /** Where the serialized exchange request was saved. */
+  requestPath?: string
+  planPath?: string
+  psbtPath?: string
+  buyerSignedPsbtPath?: string
+  /** Buyer keystore passed as the global --wallet-file. */
+  buyerWalletFile?: string
+  /** Seller keystore for the final seller-last signature. */
+  sellerWalletFile?: string
+}
+
+/**
+ * The exact CLI ceremony that settles a serialized request: plan as the
+ * buyer, buyer-sign the PSBT, then validate + seller-sign + broadcast.
+ * Placeholders (<...>) mark paths the operator must fill in.
+ */
+export function exchangeCeremonyCommands(paths: CeremonyPaths = {}): string[] {
+  const request = paths.requestPath ?? "exchange-request.json"
+  const plan = paths.planPath ?? "exchange-plan.json"
+  const psbt = paths.psbtPath ?? "exchange.psbt"
+  const signed = paths.buyerSignedPsbtPath ?? "exchange.buyer-signed.psbt"
+  const buyerWallet = paths.buyerWalletFile ?? "<buyer-wallet.json>"
+  const sellerWallet = paths.sellerWalletFile ?? "<seller-wallet.json>"
+  return [
+    `labcoat --wallet-file ${buyerWallet} exchange-plan --request ${request} --plan-out ${plan} --psbt-out ${psbt}`,
+    `labcoat --wallet-file ${buyerWallet} wallet sign-psbt --in ${psbt} --out ${signed}`,
+    `labcoat --wallet-file ${buyerWallet} exchange-settle --plan ${plan} --psbt ${signed} --seller-wallet-file ${sellerWallet} --broadcast`,
+  ]
+}
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1229,7 +1368,8 @@ mod tests {
                 "abi/document.ts",
                 "abi/token.ts",
                 "abi/index.ts",
-                "client.ts"
+                "client.ts",
+                "exchange.ts"
             ]
         );
         for file in &first {

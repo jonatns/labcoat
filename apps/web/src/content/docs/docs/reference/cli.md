@@ -378,17 +378,18 @@ Arguments and options:
 Build an owner-partitioned exchange plan and unsigned PSBT
 
 ```text
-exchange-plan --seller-address <SELLER_ADDRESS> --buyer-address <BUYER_ADDRESS> --plan-out <PLAN_OUT> --psbt-out <PSBT_OUT> <OFFERED> <OFFERED_AMOUNT> <PAYMENT> <PAYMENT_AMOUNT>
+exchange-plan [OPTIONS] --plan-out <PLAN_OUT> --psbt-out <PSBT_OUT> [OFFERED] [OFFERED_AMOUNT] [PAYMENT] [PAYMENT_AMOUNT]
 ```
 
 Arguments and options:
 
-- `offered` (required)
-- `offered_amount` (required)
-- `payment` (required)
-- `payment_amount` (required)
-- `seller_address` (required)
-- `buyer_address` (required)
+- `offered` (optional): Asset sold by the seller: labcoat.lock name or block:tx id
+- `offered_amount` (optional): Complete offered quantity delivered to the buyer
+- `payment` (optional): Asset paid by the buyer: labcoat.lock name or block:tx id
+- `payment_amount` (optional): Complete payment quantity delivered to the seller
+- `request` (optional): Exchange request file (version 1 JSON, e.g. from a generated web client); replaces the positional assets and address options
+- `seller_address` (optional)
+- `buyer_address` (optional)
 - `plan_out` (required)
 - `psbt_out` (required)
 

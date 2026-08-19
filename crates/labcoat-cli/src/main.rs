@@ -222,14 +222,26 @@ enum Commands {
     },
     /// Build an owner-partitioned exchange plan and unsigned PSBT.
     ExchangePlan {
-        offered: String,
-        offered_amount: u64,
-        payment: String,
-        payment_amount: u64,
+        /// Asset sold by the seller: labcoat.lock name or block:tx id
+        #[arg(required_unless_present = "request", conflicts_with = "request")]
+        offered: Option<String>,
+        /// Complete offered quantity delivered to the buyer
+        #[arg(required_unless_present = "request", conflicts_with = "request")]
+        offered_amount: Option<u64>,
+        /// Asset paid by the buyer: labcoat.lock name or block:tx id
+        #[arg(required_unless_present = "request", conflicts_with = "request")]
+        payment: Option<String>,
+        /// Complete payment quantity delivered to the seller
+        #[arg(required_unless_present = "request", conflicts_with = "request")]
+        payment_amount: Option<u64>,
+        /// Exchange request file (version 1 JSON, e.g. from a generated web
+        /// client); replaces the positional assets and address options
         #[arg(long)]
-        seller_address: String,
-        #[arg(long)]
-        buyer_address: String,
+        request: Option<String>,
+        #[arg(long, required_unless_present = "request", conflicts_with = "request")]
+        seller_address: Option<String>,
+        #[arg(long, required_unless_present = "request", conflicts_with = "request")]
+        buyer_address: Option<String>,
         #[arg(long)]
         plan_out: String,
         #[arg(long)]
@@ -548,24 +560,26 @@ async fn run(cli: Cli) -> i32 {
             offered_amount,
             payment,
             payment_amount,
+            request,
             seller_address,
             buyer_address,
             plan_out,
             psbt_out,
         } => {
             let progress = output::Progress::new("Building exchange plan…", !json);
-            let (cmd_name, res) = contract::exchange_plan(
-                &ctx,
-                &offered,
-                offered_amount,
-                &payment,
-                payment_amount,
-                &seller_address,
-                &buyer_address,
-                &plan_out,
-                &psbt_out,
-            )
-            .await;
+            let source = match request {
+                Some(path) => contract::ExchangeRequestSource::File { path },
+                // Clap enforces required_unless_present, so the flag form is complete here.
+                None => contract::ExchangeRequestSource::Flags {
+                    offered: offered.expect("clap requires offered"),
+                    offered_amount: offered_amount.expect("clap requires offered_amount"),
+                    payment: payment.expect("clap requires payment"),
+                    payment_amount: payment_amount.expect("clap requires payment_amount"),
+                    seller_address: seller_address.expect("clap requires seller_address"),
+                    buyer_address: buyer_address.expect("clap requires buyer_address"),
+                },
+            };
+            let (cmd_name, res) = contract::exchange_plan(&ctx, source, &plan_out, &psbt_out).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
