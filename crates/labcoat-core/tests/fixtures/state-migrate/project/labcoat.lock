@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "networks": {
+    "labcoat": {
+      "counter": {
+        "alkanesId": "2:1",
+        "wasmSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+        "status": "success",
+        "deployedAt": 1700000000000,
+        "chainId": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "registry": {
+        "alkanesId": "4:99",
+        "txid": "adopted",
+        "status": "success",
+        "deployedAt": 1700000000500
+      },
+      "token": {
+        "alkanesId": "2:2",
+        "wasmSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "txid": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "status": "revert",
+        "deployedAt": 1700000001000,
+        "chainId": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    "signet": {
+      "counter": {
+        "alkanesId": "7:3",
+        "txid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "success",
+        "deployedAt": 1690000000000
+      }
+    }
+  }
+}

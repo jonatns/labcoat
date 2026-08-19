@@ -14,7 +14,7 @@ pub struct Lockfile {
     pub networks: BTreeMap<String, BTreeMap<String, Deployment>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Deployment {
     pub alkanes_id: String,

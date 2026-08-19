@@ -7,6 +7,7 @@
 pub mod binary_manager;
 pub mod config;
 pub mod faucet;
+pub mod instance_id;
 pub mod labcoat_network;
 pub mod process_manager;
 pub mod rpc;
@@ -16,6 +17,7 @@ pub use binary_manager::{BinaryInfo, BinaryManager, BinaryStatus};
 pub use config::{
     get_bin_dir, get_data_dir, get_logs_dir, get_qubitcoin_dir, get_runtime_dir, IsomerConfig,
 };
+pub use instance_id::{instance_id, instance_id_if_exists};
 pub use labcoat_network::LabcoatNetwork;
 pub use process_manager::{LogEntry, ProcessManager, ServiceId};
 pub use state::{ServiceInfo, ServiceStatus, SystemStatus};

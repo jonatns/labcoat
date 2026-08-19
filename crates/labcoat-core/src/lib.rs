@@ -17,6 +17,8 @@ pub mod lockfile;
 pub mod manifest;
 pub mod signer;
 pub mod simulate;
+pub mod state;
+pub mod state_backend;
 pub mod sync;
 pub mod system;
 pub mod toolkit;

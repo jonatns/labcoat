@@ -98,6 +98,7 @@ impl LabcoatNetwork {
         let mut status = SystemStatus {
             network: NETWORK_ID.to_string(),
             bitcoin_network: BITCOIN_NETWORK_ID.to_string(),
+            instance_id: crate::instance_id::instance_id().ok(),
             services,
             block_height: 0,
             mempool_size: 0,

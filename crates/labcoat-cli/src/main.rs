@@ -57,6 +57,10 @@ struct Cli {
     #[arg(long, global = true)]
     signer: Option<String>,
 
+    /// Durable-state environment (defaults to "default")
+    #[arg(long, global = true)]
+    environment: Option<String>,
+
     /// Approve transaction signing without an interactive prompt (public
     /// networks; regtest targets always auto-approve)
     #[arg(long = "yes", global = true)]
@@ -302,6 +306,9 @@ enum Commands {
     /// labcoat.lock utilities
     #[command(subcommand)]
     Lock(contract::LockCmd),
+    /// Durable deployment state (version-2, per environment)
+    #[command(subcommand)]
+    State(contract::StateCmd),
     /// Model Context Protocol server (agent integration)
     #[command(subcommand)]
     Mcp(McpCmd),
@@ -403,6 +410,7 @@ async fn run(cli: Cli) -> i32 {
             wallet_file: cli.wallet_file.as_deref(),
             fee_rate: cli.fee_rate,
             signer: cli.signer.as_deref(),
+            environment: cli.environment.as_deref(),
         })
     } {
         Ok(settings) => settings,
@@ -428,6 +436,7 @@ async fn run(cli: Cli) -> i32 {
     )
     .with_signer(&resolved.signer)
     .with_assume_yes(cli.assume_yes)
+    .with_environment(&resolved.environment)
     .with_color(cli.color);
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
@@ -655,6 +664,10 @@ async fn run(cli: Cli) -> i32 {
         }
         Commands::Lock(cmd) => {
             let (cmd_name, res) = contract::lock(cmd);
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::State(cmd) => {
+            let (cmd_name, res) = contract::state(&ctx, &resolved.environment, cmd).await;
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,
@@ -961,6 +974,18 @@ mod envelope_tests {
 
         let labcoat = Cli::try_parse_from(["labcoat", "--network", "labcoat", "status"]).unwrap();
         assert!(validate_labcoat_network_overrides(&labcoat).is_ok());
+    }
+
+    #[test]
+    fn state_cli_has_the_expected_shape() {
+        assert!(Cli::try_parse_from(["labcoat", "state", "list"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "state", "show", "counter"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "state", "show", "counter", "--history"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "state", "migrate"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "--environment", "dev", "state", "list"]).is_ok());
+        assert!(Cli::try_parse_from(["labcoat", "state"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "state", "show"]).is_err());
+        assert!(Cli::try_parse_from(["labcoat", "state", "forget", "counter"]).is_err());
     }
 
     #[test]

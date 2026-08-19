@@ -509,6 +509,43 @@ Show the lockfile
 show
 ```
 
+### `labcoat state`
+
+Durable deployment state (version-2, per environment)
+
+```text
+state <COMMAND>
+```
+
+#### `labcoat state list`
+
+List resources and active instances in this environment's durable state
+
+```text
+list
+```
+
+#### `labcoat state show`
+
+Show one resource's active instance (with --history, every instance)
+
+```text
+show [OPTIONS] <RESOURCE>
+```
+
+Arguments and options:
+
+- `resource` (required): Resource address ("contract.counter") or bare contract name
+- `history` (optional): Include the full append-only instance history Values: `true`, `false`.
+
+#### `labcoat state migrate`
+
+Create version-2 durable state from the v1 labcoat.lock ledger, backing the ledger up first. labcoat.lock stays in place as the active-address book
+
+```text
+migrate
+```
+
 ### `labcoat mcp`
 
 Model Context Protocol server (agent integration)
@@ -610,7 +647,12 @@ doctor
 | `CONTRACT_NOT_FOUND` | a contract name or ID could not be resolved | run `labcoat lock show` |
 | `LOCKFILE_INVALID` | labcoat.lock exists but cannot be read or parsed | repair the JSON, or delete labcoat.lock to start a fresh ledger |
 | `MANIFEST_INVALID` | the alkanes.hcl deployment manifest failed to parse or validate | fix the reported block; references are `alkane.<name>.<field>` / `contract.<name>.<field>`, and conditionals, loops, and functions are not supported |
-| `STATE_INVALID` | the .labcoat/state call journal cannot be read or parsed | repair or delete the journal file (calls may re-execute) |
+| `STATE_INVALID` | a .labcoat/state file (the apply call journal or durable environment state) cannot be read or parsed | for the journal: repair or delete the file (calls may re-execute); for durable state: restore backups/state.json.prev |
+| `STATE_MISSING` | no version-2 durable state exists for this environment | run `labcoat state migrate` |
+| `STATE_UNSUPPORTED` | the durable state schema version is not supported by this labcoat | upgrade labcoat, or restore a backup from .labcoat/state/<environment>/backups |
+| `STATE_LOCKED` | another labcoat process holds this environment's lease | wait for the other process; a crashed holder releases the lease automatically |
+| `STATE_CHAIN_MISMATCH` | durable state belongs to a different chain instance (e.g. before a `labcoat reset`) | archive .labcoat/state/<environment> or use a different --environment |
+| `STATE_CONFLICT` | durable state changed underneath the command, or already exists where none may | re-run against current state (`labcoat state list`) |
 | `APPLY_BLOCKED` | an action cannot proceed without manual intervention | read the action's detail in `labcoat plan` |
 | `TOOLKIT_ERROR` | the underlying contract toolkit failed | read the error hint |
 | `BINARY_CRASH` | a Labcoat Network service exited | inspect `labcoat logs` |
@@ -621,7 +663,8 @@ doctor
 - **Deploy**: Targets [1, 0]; raw Wasm is compressed inside a taproot commit/reveal envelope.
 - **Protostone outputs**: Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.
 - **Synchronization**: State-changing operations wait until the Alkanes index reaches chain height before reading fresh state.
-- **labcoat.lock**: Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status.
+- **labcoat.lock**: Per-network deployment ledger mapping names to Alkanes IDs, Wasm hashes, transaction IDs, and status. Remains the active-address book; `labcoat state migrate` regenerates it from durable state.
+- **Durable state**: .labcoat/state/<environment>/state.json is the version-2 per-environment operational state (lineage, serial, chain identity, append-only instance history), created by `labcoat state migrate` and guarded by an OS lease (state.lock). Deploys append instances when it exists and refuse a reset or foreign chain before broadcasting. The flat .labcoat/state/<network>.json apply call journal is separate.
 - **Contract ABI**: Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.
 - **Generated web client**: `labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. The client is read-only — indexed height, Alkanes balances, ABI-typed simulate — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.
 

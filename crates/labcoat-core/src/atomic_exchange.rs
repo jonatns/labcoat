@@ -252,7 +252,10 @@ impl From<&AlkaneId> for AlkaneRefWire {
 
 fn parse_canonical_u64(value: &str, label: &str) -> Result<u64> {
     let canonical = value == "0"
-        || (value.as_bytes().first().is_some_and(|b| (b'1'..=b'9').contains(b))
+        || (value
+            .as_bytes()
+            .first()
+            .is_some_and(|b| (b'1'..=b'9').contains(b))
             && value.bytes().all(|b| b.is_ascii_digit()));
     if !canonical {
         return Err(request_file_error(format!(
