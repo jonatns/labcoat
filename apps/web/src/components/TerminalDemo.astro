@@ -1,0 +1,133 @@
+---
+// A hello-alkane session, abridged. Each output is what `labcoat` prints on
+// stdout in human mode (stderr progress and logs are left out). init, test,
+// and up were captured from real runs; deploy, call, and trace were rendered
+// by the CLI's own formatter (crates/labcoat-cli/src/output.rs) from the
+// result shapes those commands return, so their transaction IDs and fees are
+// examples. Keep these in step with the renderer when its wording changes.
+const steps = [
+  {
+    id: 'init',
+    command: 'labcoat init hello-alkane',
+    output: `✓ Project initialized
+
+Project    hello-alkane
+Contract   counter
+Directory  ~/hello-alkane
+
+Next: labcoat test  ·  labcoat up  ·  labcoat wallet init`,
+  },
+  {
+    id: 'test',
+    command: 'labcoat test',
+    output: `✓ Tests passed
+
+Contract
+counter`,
+  },
+  {
+    id: 'up',
+    command: 'labcoat up',
+    output: `✓ Labcoat Network is ready
+
+Network       Labcoat Network
+Bitcoin mode  regtest (local/private)
+Instance      c774c71c-cb63-4049-b56d-39501c85ae66
+Block height  101
+Mempool       0
+
+Service    Status     Port   Version
+Qubitcoin  ✓ running  18443  cli-v0.2.0
+
+JSON-RPC  http://127.0.0.1:18443`,
+  },
+  {
+    id: 'deploy',
+    command: 'labcoat deploy counter',
+    output: `✓ Deploy succeeded
+
+Contract            counter
+Alkanes ID          2:1
+Transaction         9c41e0f7d2a85b36c1e04f9a7d3b2e6c58a1f0d94b7e23c6a5d8f1b0e9c47a32
+Commit transaction  3f8b2d61a7c94e05b8d1f6a3c29e7b04d5a6f8e1c3b72d9a04e6f5c8b1d3a297
+Fee                 4,318 sats
+Commit fee          211 sats`,
+  },
+  {
+    id: 'call',
+    command: 'labcoat call counter increment',
+    output: `✓ Call succeeded
+
+Contract     counter
+Target       2:1
+Method       increment
+Opcode       1
+Transaction  4f2ac83e19b7d6a05e2c9f41b8d37a6e0c5f2b9d18a4e7c63b0d5f9a2e81c901
+Fee          368 sats
+Return       1
+
+Run \`labcoat trace 4f2ac83e19b7d6a05e2c9f41b8d37a6e0c5f2b9d18a4e7c63b0d5f9a2e81c901\` or add \`--verbose\` for trace details.`,
+  },
+  {
+    id: 'trace',
+    command: 'labcoat trace 4f2ac83e19b7d6a05e2c9f41b8d37a6e0c5f2b9d18a4e7c63b0d5f9a2e81c901 --wait',
+    output: `› Transaction trace
+
+Transaction  4f2ac83e19b7d6a05e2c9f41b8d37a6e0c5f2b9d18a4e7c63b0d5f9a2e81c901
+
+• Protostone 1
+  • call 0:0 -> 2:1  inputs [1]
+  • return 1  fuel used 20419`,
+  },
+];
+
+const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Color only what the CLI colors: the headline's status mark.
+const highlight = (output: string) =>
+  output
+    .split('\n')
+    .map((line, index) => {
+      const safe = escape(line);
+      if (index !== 0) return safe;
+      if (line.startsWith('✓')) return `<span class="t-ok">${safe}</span>`;
+      if (line.startsWith('✗')) return `<span class="t-err">${safe}</span>`;
+      return `<span class="t-info">${safe}</span>`;
+    })
+    .join('\n');
+---
+
+<figure class="terminal" aria-labelledby="terminal-title">
+  <figcaption class="terminal-bar">
+    <span class="terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span id="terminal-title">~/hello-alkane</span>
+  </figcaption>
+  <div class="terminal-tabs" role="tablist" aria-label="A first Labcoat session">
+    {steps.map((step, index) => (
+      <button
+        type="button"
+        role="tab"
+        id={`step-${step.id}`}
+        aria-controls={`step-${step.id}-output`}
+        aria-selected={index === 0 ? 'true' : 'false'}
+        tabindex={index === 0 ? 0 : -1}
+        data-terminal-tab
+      >
+        {step.id}
+      </button>
+    ))}
+  </div>
+  {steps.map((step, index) => (
+    <div
+      class="terminal-panel"
+      role="tabpanel"
+      id={`step-${step.id}-output`}
+      aria-labelledby={`step-${step.id}`}
+      tabindex="0"
+      hidden={index !== 0}
+    >
+      <pre><code><span class="t-prompt" aria-hidden="true">$ </span><span class="t-command" data-terminal-command>{step.command}</span>
+<Fragment set:html={highlight(step.output)} /></code></pre>
+    </div>
+  ))}
+</figure>

@@ -169,11 +169,22 @@ h1#_top {
 }
 
 /* Tables: reference pages are mostly tables, so give them the readout
- * treatment — mono column labels, quiet rules, scrolling when narrow. */
-.sl-markdown-content table {
-  display: block;
+ * treatment — mono column labels, quiet rules. Each table sits in a
+ * focusable .table-scroll region (src/plugins/rehype-scroll-tables.mjs)
+ * that scrolls when the table is wider than the column. */
+.sl-markdown-content .table-scroll {
   max-width: 100%;
   overflow-x: auto;
+}
+
+.sl-markdown-content .table-scroll:focus-visible {
+  outline: 2px solid var(--acid);
+  outline-offset: 2px;
+}
+
+.sl-markdown-content table {
+  display: table;
+  width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
 }
