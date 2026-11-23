@@ -16,8 +16,9 @@ exact commit below. Never use a moving branch ref.
 |---|---|
 | Repo | `https://github.com/kungfuflex/alkanes-rs` |
 | Branch | `main` |
-| **Pinned commit** | `714843c416e2ab57352a33f05b8461cf3f540f5a` |
-| Recorded | 2026-07-27 |
+| **Pinned commit** | `ea38c878931ff4b6dd64dd011962f2203d6e0a35` |
+| Tag | `v3.0.0-rc.4` |
+| Recorded | 2026-11-23 |
 
 Transitive git deps of alkanes-rs are declared as branch refs upstream
 (`emasm-rs@master`) or immutable tags (`metashrew@v9.0.5-rc.8`). Cargo forbids `[patch]`-ing a git

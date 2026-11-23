@@ -19,10 +19,16 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ### Changed
 
+- upgrade alkanes-rs to `v3.0.0-rc.4` (`ea38c87`) for the CLI, generated projects, and the managed Alkanes indexer: it brings the Halborn audit fixes and DIESEL v3. On Labcoat Network both the post-audit consensus rules and DIESEL v3 are active from block 0, matching post-fork mainnet behavior; projects created by earlier releases keep their pinned revision until updated. Metashrew and Qubitcoin are unchanged
+- fail closed with `CONFIG_INVALID` when alkanes-rs rejects the selected network's parameters, instead of continuing with no network configured
 - `labcoat init` writes a `rust-toolchain.toml` pinning Rust 1.100.0 with the `wasm32-unknown-unknown` and `wasm32-wasip1` targets, so rustup installs the tested toolchain on the first build with no manual `rustup target add`; generated projects now require rustup
 - drop the Rust 1.86 compatibility pins (`time`, `serde_with`) from generated projects, removing their unused-dependency warnings
 - upgrade `labcoat-test` to wasmtime 51, resolving the wasmtime and WASI security advisories in the native contract test harness
 - build the CLI with Rust 1.100.0; the release workflow had still pinned 1.86.0
+
+### Fixed
+
+- make `labcoat test --e2e` honor `LABCOAT_TEST_CRATE_PATH` like `labcoat test`, so CI and packagers can run e2e tests before the release tag exists
 
 ## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-31
 

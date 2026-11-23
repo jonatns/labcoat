@@ -9,7 +9,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 /// alkanes-rs pin — keep in sync with TOOLCHAIN.md and the project template.
-pub const ALKANES_RS_REV: &str = "714843c416e2ab57352a33f05b8461cf3f540f5a";
+pub const ALKANES_RS_REV: &str = "ea38c878931ff4b6dd64dd011962f2203d6e0a35";
 /// Rust toolchain generated projects pin in `rust-toolchain.toml`. It matches
 /// the workspace `rust-toolchain.toml`, so contracts build with the exact
 /// toolchain each Labcoat release is tested with (see TOOLCHAIN.md).
