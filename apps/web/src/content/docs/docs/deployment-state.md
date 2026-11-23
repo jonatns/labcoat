@@ -75,7 +75,7 @@ directory, or switch to a fresh `--environment`, to continue on the new chain.
 
 ```text
 labcoat.lock                              active ids per network
-.labcoat/state/<network>.json             apply call journal
+deployments/<network>.json                deploy.rs run file
 .labcoat/state/<environment>/state.json   durable state
 .labcoat/state/<environment>/state.lock   environment lease
 .labcoat/state/<environment>/backups/     previous state and migration backups

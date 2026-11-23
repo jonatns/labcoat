@@ -248,5 +248,7 @@ labcoat down
   signers.
 - [Web apps](/docs/web-apps/) generates a browser client that can read these
   balances and prepare exchange requests.
-- [Declarative deployments](/docs/deployments/) deploys tokens like these from
-  a manifest, with `reserve` IDs you know in advance.
+- [Deployment scripts](/docs/deployments/) deploys tokens like these from
+  `deploy.rs`, with `reserve` IDs you know in advance.
+- [An upgradeable contract](/docs/tutorials/upgradeable-contract/) puts a
+  contract behind a proxy and replaces its code without changing its id.

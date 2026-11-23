@@ -43,7 +43,7 @@ the first verified download. Updating the CLI is the explicit runtime upgrade.
 | Runtime | Exactly tied to the CLI release; never selected from an independent latest channel. |
 | `labcoat-test` | Generated projects pin the same immutable `cli-vX.Y.Z` Git tag. |
 | Web documentation | Tracks `main`; it may describe unreleased changes. |
-| Project files | Commit `Cargo.lock`, `rust-toolchain.toml`, `labcoat.toml`, `alkanes.hcl`, and relevant `labcoat.lock` state; run `labcoat upgrade` after a CLI upgrade. |
+| Project files | Commit `Cargo.lock`, `rust-toolchain.toml`, `labcoat.toml`, `deploy.rs`, the `deployments/` run files of shared networks, and relevant `labcoat.lock` state; run `labcoat upgrade` after a CLI upgrade. |
 
 ## Supported scope
 
@@ -53,8 +53,8 @@ Current:
 - Labcoat Network runtime on macOS arm64 and Linux x86_64;
 - Rust contract scaffolding, native Wasm tests, and package builds;
 - local wallets, deployment, calls, simulation, traces, JSON, and MCP;
-- declarative deployments with `alkanes.hcl`, `plan`, and `apply`, plus
-  network e2e tests;
+- deployment scripts with `deploy.rs`, `plan`, `apply`, and `import`, the
+  standard upgradeable proxy and beacon contracts, plus network e2e tests;
 - atomic two-wallet exchanges, locally or through a PSBT ceremony;
 - generated TypeScript read clients (`labcoat generate web`);
 - local durable deployment state (`labcoat state`);
@@ -64,7 +64,8 @@ Planned, not available:
 
 - production-ready mainnet deployment controls;
 - shared, remote, or mainnet-ready durable state and hosted operation;
-- resumable multi-step apply, upgradeable proxies, and beacons;
+- automatic recovery of an apply interrupted mid-broadcast, and checks that
+  an upgrade's storage layout is compatible;
 - team access controls.
 
 Unsupported:

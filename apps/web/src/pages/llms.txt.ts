@@ -17,13 +17,14 @@ Source: https://github.com/jonatns/labcoat
 - [Installation](https://labcoat.sh/docs/getting-started/installation/): Native macOS and Linux installation
 - [Quick start](https://labcoat.sh/docs/getting-started/quickstart/): Empty directory to decoded trace
 - [Tutorial: tokens and exchanges](https://labcoat.sh/docs/tutorials/token-exchange/): Write a token, deploy it from two wallets, and swap atomically
+- [Tutorial: an upgradeable contract](https://labcoat.sh/docs/tutorials/upgradeable-contract/): Put a contract behind a beacon proxy and upgrade it
 - [Automation](https://labcoat.sh/docs/automation/): JSON envelopes and MCP
 
 ## Build with Labcoat
 - [Projects and configuration](https://labcoat.sh/docs/projects-configuration/): Layout, settings precedence, and labcoat.lock
 - [Labcoat Network and wallets](https://labcoat.sh/docs/labcoat-network/): Local chain lifecycle and wallets
 - [Contracts](https://labcoat.sh/docs/contracts/): Test, build, deploy, simulate, call, and trace
-- [Declarative deployments](https://labcoat.sh/docs/deployments/): alkanes.hcl, plan/apply, and e2e tests
+- [Deployment scripts](https://labcoat.sh/docs/deployments/): deploy.rs, plan/apply/import, upgradeable contracts, and e2e tests
 - [Atomic exchanges](https://labcoat.sh/docs/exchanges/): Two-wallet asset swaps and the PSBT ceremony
 - [Web apps](https://labcoat.sh/docs/web-apps/): Generated TypeScript read client
 - [Deployment state](https://labcoat.sh/docs/deployment-state/): Durable per-environment deployment history

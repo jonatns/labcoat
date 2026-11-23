@@ -6,6 +6,14 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ### Added
 
+- add deployment scripts: declare a multi-step deployment in `deploy.rs` (the project's `deploy` Cargo example target) with `labcoat_test::deploy`, review it with `labcoat plan`, and execute it with `labcoat apply --broadcast`. The script only declares steps — contracts (with reserved ids, named initializers, and named arguments), template clones, external references bound per network, and configuration calls — and Labcoat runs each one once per network, recording it in `deployments/<network>.json`; see the deployment scripts guide
+- pin deployment steps instead of converging them: a contract, clone, or call that already ran and no longer matches `deploy.rs`, or that references a replaced contract, is a `conflict` that `apply` refuses with `DEPLOYMENT_CONFLICT`; `plan` and `apply` take `--replace <step>` to deploy a new instance (or run a call again), keeping the earlier instance in the record's history
+- add upgradeable contract deployments: `d.implementation` redeploys when its code changes, and `d.beacon`, `d.beacon_proxy`, `d.proxy`, and `d.setting` keep an upgradeable pointer in sync by reading the current value and writing only when it differs, spending and returning the auth token the deploy minted
+- add `labcoat new <name> --template auth-token|upgradeable|upgradeable-beacon|beacon-proxy`: vendor the standard alkanes-rs upgradeable contracts into a project as contract packages
+- add `labcoat import <name> <block:tx>` (and the `import` MCP tool): record a contract that already exists on chain as a deployment step after comparing its ABI with the local build, without deploying
+- add `--abi <contract>` to `labcoat call` and `labcoat simulate` (and `abi` to the matching MCP tools): resolve the method name against another contract's ABI, for calls through a proxy
+- add `labcoat test --e2e` support for deployment scripts: the run resets the network and applies `deploy.rs` before the tests; `E2e::contract` resolves any contract or external step, `E2e::created` returns an Alkane a deploy created, and `Call::abi`, `E2e::simulate_via`, and `E2e::simulate_uint_via` call through a proxy
+- add an upgradeable contract tutorial and an `upgradeable-counter` example
 - add `labcoat upgrade [--dry-run]`: align an existing project's alkanes-rs revisions, `labcoat-test` release tag, and `rust-toolchain.toml` with the installed CLI, preserving the rest of `Cargo.toml`; `labcoat doctor` adds a project pins check that names every stale pin
 - add MCP tools `state_list`, `state_show`, `state_migrate`, and `generate_web`, matching their CLI commands
 - add `labcoat doctor` checks for rustup and for whether the project's pinned Rust toolchain is missing, installed, pending installation, or different from the installed CLI's
@@ -30,6 +38,7 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ### Fixed
 
+- fund a deploy's commit transaction from the wallet's largest UTXOs: in a wallet holding several small change outputs, the commit could be funded with almost no change, leaving the reveal to re-select an input the commit had just spent and fail as a conflicting replacement
 - stop `labcoat reset` from declaring its own `--yes`, which clashed with the global `--yes`: every `labcoat reset` invocation panicked in debug builds and the flag was ambiguous in release builds. `-y` and the global `--yes` both skip the prompt
 - index the first block mined after `labcoat down` and `labcoat up`: an upstream runtime defect made both indexers drop it, so funding right after a restart never reached the wallet. Resuming a chain now mines two empty warm-up blocks first; the release acceptance flow covers the restart
 - keep every atomic exchange output single-asset: surplus from partially spent inputs now returns to its owner in its own change output instead of joining the counterparty's delivery, so both wallets can use their exchange outputs in later exchanges

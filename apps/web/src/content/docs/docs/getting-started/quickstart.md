@@ -77,5 +77,7 @@ labcoat down
 
 - [Tokens and exchanges](/docs/tutorials/token-exchange/) builds on this
   project: a fixed-supply token, two wallets, and an atomic swap.
-- [Declarative deployments](/docs/deployments/) replaces one-off deploys with a
-  manifest you can apply repeatably.
+- [Deployment scripts](/docs/deployments/) replaces one-off deploys with a
+  script that declares the whole deployment and runs each step once.
+- [An upgradeable contract](/docs/tutorials/upgradeable-contract/) puts this
+  project's Counter behind a proxy and upgrades it.

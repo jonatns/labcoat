@@ -49,6 +49,7 @@ export default defineConfig({
             { label: 'Installation', slug: 'docs/getting-started/installation' },
             { label: 'Quick start', slug: 'docs/getting-started/quickstart' },
             { label: 'Tutorial: tokens & exchanges', slug: 'docs/tutorials/token-exchange' },
+            { label: 'Tutorial: an upgradeable contract', slug: 'docs/tutorials/upgradeable-contract' },
           ],
         },
         {
@@ -57,7 +58,7 @@ export default defineConfig({
             { label: 'Projects & configuration', slug: 'docs/projects-configuration' },
             { label: 'Labcoat Network & wallets', slug: 'docs/labcoat-network' },
             { label: 'Contracts', slug: 'docs/contracts' },
-            { label: 'Declarative deployments', slug: 'docs/deployments' },
+            { label: 'Deployment scripts', slug: 'docs/deployments' },
             { label: 'Atomic exchanges', slug: 'docs/exchanges' },
             { label: 'Web apps', slug: 'docs/web-apps' },
             { label: 'Deployment state', slug: 'docs/deployment-state' },

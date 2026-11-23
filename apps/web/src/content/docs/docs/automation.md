@@ -39,7 +39,7 @@ labcoat mcp serve
 ```
 
 The stdio MCP server exposes Labcoat Network, wallet, build, test, deployment,
-manifest plan and apply, call, simulation, trace, balance, atomic exchange,
+deployment plan, apply, and import, call, simulation, trace, balance, atomic exchange,
 durable state, and web generation tools, using the same typed operations as
 the CLI.
 

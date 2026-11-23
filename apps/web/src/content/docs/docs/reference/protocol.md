@@ -13,7 +13,7 @@ accept short strings of up to 16 bytes, packed into one cell.
 ## Deployment envelopes
 
 Deployment targets cellpack `[1, 0]`, meaning “create a new alkane at the next
-free ID,” or `[3, N]` with `--reserve N` (or `reserve = N` in `alkanes.hcl`),
+free ID,” or `[3, N]` with `--reserve N` (or `.reserve(N)` in `deploy.rs`),
 which creates it at the predictable ID `4:N`. The raw Wasm module is compressed
 and placed in a taproot witness envelope across a commit/reveal transaction
 pair.
