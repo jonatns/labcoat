@@ -20,6 +20,7 @@ export default defineConfig({
       customCss: ['./src/styles/global.css'],
       components: {
         Banner: './src/components/DocsBanner.astro',
+        Head: './src/components/DocsHead.astro',
       },
       social: [
         {

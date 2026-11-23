@@ -1,6 +1,7 @@
 ---
 import Brand from '@/components/Brand.astro';
 import CopyCommand from '@/components/CopyCommand.astro';
+import FontPreload from '@/components/FontPreload.astro';
 import Icon from '@/components/Icon.astro';
 import ProtocolRunner from '@/components/ProtocolRunner.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
@@ -32,6 +33,7 @@ const softwareSchema = {
     <meta name="theme-color" content="#0a0d0b" />
     <link rel="canonical" href="https://labcoat.sh/" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <FontPreload />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Labcoat" />
     <meta property="og:title" content={brand.metaTitle} />
