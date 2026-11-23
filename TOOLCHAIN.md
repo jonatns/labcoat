@@ -41,11 +41,20 @@ change in its own reviewed PR. CI verifies the pin is reachable from `main`.
 
 | Tool | Version | Where enforced |
 |---|---|---|
-| Rust | 1.88.0 | `rust-toolchain.toml` (≥ alkanes-rs upstream's 1.86; raised because freshly resolved transitive deps — icu 2.3 via url/idna — require 1.88) |
+| Rust | 1.100.0 | `rust-toolchain.toml`, `ci.yml`, and `release-cli.yml` (latest stable; see below) |
 | wasm targets | `wasm32-unknown-unknown`, `wasm32-wasip1` | deploy artifacts use unknown-unknown; native contract tests use WASIp1 |
 | protoc | any ≥3 (`protobuf-compiler`) | required to build `labcoat-core` (prost-build 0.12 does not vendor protoc) |
 | LLVM Clang | wasm32 backend | required by secp256k1-sys while compiling contracts; Homebrew LLVM is auto-detected on macOS |
 | WASI libc | system package | required for `wasm32-wasip1` contract tests on Linux (`apt install wasi-libc`) |
+
+Rust has no LTS channel; the recommended toolchain is the latest stable
+release. The workspace pins that release exactly so local, CI, and release
+builds match, and bumps it deliberately (update all three files together,
+then run `cargo clippy --workspace --all-targets -- -D warnings`, since new
+releases add lints). This pin builds the Labcoat CLI and workspace only.
+Generated projects compile contracts and `labcoat-test` with the user's own
+toolchain, so the template and `labcoat-test` keep their Rust 1.86-compatible
+dependency pins until the supported project toolchain is raised on purpose.
 
 Contract compilation needs `clang`; on macOS install Homebrew `llvm`
 because Apple Clang does not ship a WebAssembly backend. Debian and Ubuntu

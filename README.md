@@ -89,7 +89,7 @@ newer runtime files. Upgrade the CLI to receive a newer runtime.
 
 ## Develop Labcoat
 
-The workspace is pinned to Rust 1.88.0 (see `rust-toolchain.toml`).
+The workspace is pinned to Rust 1.100.0, the latest stable release (see `rust-toolchain.toml`).
 
 ```bash
 cargo fmt --all -- --check

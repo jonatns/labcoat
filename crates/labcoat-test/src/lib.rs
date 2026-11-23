@@ -599,8 +599,10 @@ mod tests {
         let encoded =
             serialize_context(&context, 9, &[Value::U128(10), Value::String("AB".into())]).unwrap();
         let words: Vec<u128> = encoded
-            .chunks_exact(16)
-            .map(|word| u128::from_le_bytes(word.try_into().unwrap()))
+            .as_chunks::<16>()
+            .0
+            .iter()
+            .map(|word| u128::from_le_bytes(*word))
             .collect();
         assert_eq!(words, vec![1, 2, 3, 4, 5, 1, 6, 7, 8, 9, 10, 0x4241]);
     }
