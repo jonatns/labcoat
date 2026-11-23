@@ -27,6 +27,9 @@ labcoat up
 - [Install Labcoat](/docs/getting-started/installation/) on macOS or Linux.
 - Follow the [quick start](/docs/getting-started/quickstart/) from an empty
   directory to a deployed contract.
+- Deploy a multi-contract topology with [plan and apply](/docs/deployments/).
+- Swap assets between wallets with [atomic exchanges](/docs/exchanges/).
+- Read deployed contracts from a browser with a [generated web client](/docs/web-apps/).
 - Integrate an AI agent through [MCP or JSON envelopes](/docs/automation/).
 - Read the generated [CLI reference](/docs/reference/cli/).
 - Review [stability and releases](/docs/reference/stability/) before

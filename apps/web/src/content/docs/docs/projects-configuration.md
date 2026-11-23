@@ -9,14 +9,22 @@ interactively. Existing destinations are never overlaid. Add another minimal
 contract later with `labcoat new token`.
 
 ```text
-contracts/          Rust contract sources
-tests/              Native integration tests
-Cargo.toml          Host-side test project
-labcoat.toml        Public project configuration
-labcoat.lock        Per-network deployment ledger, created on deploy
+contracts/           Rust contract sources
+tests/               Native integration tests; tests/e2e.rs runs on Labcoat Network
+Cargo.toml           Host-side test project
+alkanes.hcl          Declarative deployment topology for plan and apply
+labcoat.toml         Public project configuration
+labcoat.lock         Per-network deployment ledger, created on deploy
+rust-toolchain.toml  Pinned Rust toolchain and WebAssembly targets
 AGENTS.md            Concise instructions for coding agents
 SKILL.md             Complete Labcoat agent workflow
 ```
+
+Commit `rust-toolchain.toml` and the `Cargo.lock` created by the first build.
+The toolchain file pins the Rust release Labcoat is tested with, and rustup
+installs it on first use. See [Declarative deployments](/docs/deployments/)
+for `alkanes.hcl` and [Deployment state](/docs/deployment-state/) for
+durable deployment history.
 
 ## Settings precedence
 

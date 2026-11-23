@@ -41,7 +41,9 @@ labcoat deploy --wasm /path/to/my-token.wasm --name my-token
 
 Package deployment always recompiles the selected contract, uses a Bitcoin
 commit/reveal envelope, waits for the create trace, and records the resulting
-`block:tx` ID in `labcoat.lock`.
+`block:tx` ID in `labcoat.lock`. To deploy several contracts that reference
+each other, describe them in `alkanes.hcl` and use
+[plan and apply](/docs/deployments/).
 
 ## Simulate and call
 
