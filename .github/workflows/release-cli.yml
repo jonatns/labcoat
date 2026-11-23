@@ -346,6 +346,15 @@ jobs:
           call=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" call counter increment --json)
           txid=$(jq -r '.result.txid // .result.revealTxid' <<<"$call")
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" trace "$txid" --wait --json
+          # A resumed chain must index the first user block after restart.
+          before=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" wallet utxos --json | jq '.result | length')
+          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" down --json
+          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" up --no-download --ci --json
+          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" fund "$address" 1 --json
+          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" mine 1 --json
+          after=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" wallet utxos --json | jq '.result | length')
+          test "$after" -gt "$before"
+          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" simulate counter get_count --json
           cd "$GITHUB_WORKSPACE"
           dist/labcoat-linux-x86_64 down --json
           trap - EXIT

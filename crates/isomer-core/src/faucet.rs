@@ -127,6 +127,8 @@ pub fn bootstrap_blocking(config: &IsomerConfig) -> Result<(), String> {
 
     let mut state = load_or_create()?;
     if !state.utxos.is_empty() {
+        let address = key_material(&state)?.2.to_string();
+        absorb_first_index_run(config, &address)?;
         return wait_for_indexers(config);
     }
     let address = key_material(&state)?.2.to_string();
@@ -157,6 +159,45 @@ pub fn bootstrap_blocking(config: &IsomerConfig) -> Result<(), String> {
     }
     save(&state)?;
     wait_for_indexers(config)
+}
+
+/// Blocks mined when an existing chain resumes, before any user transaction.
+const RESUME_WARMUP_BLOCKS: u64 = 2;
+
+/// Work around an upstream indexer defect when an existing chain resumes.
+///
+/// Metashrew's runtime grows each indexer's WASM memory to its 4 GB maximum
+/// at startup (`force_initial_memory_commit`), so the first block executed
+/// afterwards traps with an out-of-memory error. Qubitcoin then moves on
+/// without retrying, permanently dropping that block from the alkanes and
+/// esplora indexes. On a fresh chain the genesis block absorbs the failure;
+/// on a resumed chain the first block would be a user's (for example the
+/// funding transaction after `labcoat up`), so its outputs would never be
+/// indexed.
+///
+/// Mine empty blocks before any user activity: the first absorbs the failed
+/// execution and the next one advances the indexers to the chain tip. They
+/// carry only a coinbase to the faucet address, which the faucet never
+/// spends, so nothing of value is lost from the index. Skipped when the
+/// mempool is non-empty, because those transactions would land in the
+/// sacrificial block.
+fn absorb_first_index_run(config: &IsomerConfig, address: &str) -> Result<(), String> {
+    let mempool = crate::rpc::call_blocking(config, "getmempoolinfo", serde_json::json!([]))
+        .ok()
+        .and_then(|info| info.get("size").and_then(serde_json::Value::as_u64));
+    if mempool != Some(0) {
+        tracing::warn!(
+            ?mempool,
+            "skipping indexer warm-up: mempool is not known to be empty"
+        );
+        return Ok(());
+    }
+    crate::rpc::call_blocking(
+        config,
+        "generatetoaddress",
+        serde_json::json!([RESUME_WARMUP_BLOCKS, address]),
+    )?;
+    Ok(())
 }
 
 fn wait_for_indexers(config: &IsomerConfig) -> Result<(), String> {
