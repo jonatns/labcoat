@@ -96,16 +96,60 @@ fn rustup_toolchain_installed(channel: &str) -> Option<bool> {
     )
 }
 
+/// Whether the project's alkanes-rs, metashrew, and labcoat-test pins match
+/// the installed CLI. The toolchain pin has its own check.
+fn project_pins_check(root: &Path) -> Check {
+    const NAME: &str = "project pins";
+    match crate::upgrade::plan(root) {
+        Ok(report) if report.managed == 0 => warn(
+            NAME,
+            "Cargo.toml has no alkanes-rs or labcoat-test git dependencies",
+            "compare Cargo.toml with a project from `labcoat init`",
+        ),
+        Ok(report) => {
+            let stale: Vec<String> = report
+                .changes
+                .iter()
+                .filter(|change| change.file == "Cargo.toml")
+                .map(|change| {
+                    format!(
+                        "{} ({} → {})",
+                        change.item,
+                        change.from.as_deref().unwrap_or("unpinned"),
+                        change.to
+                    )
+                })
+                .collect();
+            if stale.is_empty() {
+                ok(
+                    NAME,
+                    format!(
+                        "alkanes-rs and labcoat-test match Labcoat {}",
+                        env!("CARGO_PKG_VERSION")
+                    ),
+                )
+            } else {
+                warn(
+                    NAME,
+                    format!(
+                        "pinned for a different Labcoat release: {}",
+                        stale.join(", ")
+                    ),
+                    "run `labcoat upgrade` (preview with --dry-run), then `labcoat test`",
+                )
+            }
+        }
+        Err(error) => warn(NAME, error.message, error.hint),
+    }
+}
+
 fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Option<bool>) -> Check {
     const NAME: &str = "project toolchain";
     match pinned {
         None => warn(
             NAME,
             "no rust-toolchain.toml; contracts build with your default Rust toolchain",
-            format!(
-                "add rust-toolchain.toml with `[toolchain]` channel = \"{expected}\" and targets \
-                 wasm32-unknown-unknown and wasm32-wasip1 (labcoat init writes one)"
-            ),
+            format!("run `labcoat upgrade` to pin Rust {expected} and the WebAssembly targets"),
         ),
         Some(channel) if channel != expected => warn(
             NAME,
@@ -160,6 +204,9 @@ pub async fn run() -> Vec<Check> {
             labcoat_core::compile::PROJECT_RUST_TOOLCHAIN,
             installed,
         ));
+    }
+    if let Some(root) = project.as_deref() {
+        checks.push(project_pins_check(root));
     }
     if wasm_target_pending {
         checks.push(ok(
