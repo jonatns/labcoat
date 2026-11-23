@@ -36,6 +36,24 @@
       {
         "arguments": [
           {
+            "description": "Show the pins that would change without writing anything",
+            "id": "dry_run",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          }
+        ],
+        "description": "Align this project's alkanes-rs, labcoat-test, and Rust toolchain pins with the installed CLI",
+        "name": "upgrade",
+        "path": "labcoat upgrade",
+        "subcommands": [],
+        "usage": "upgrade [OPTIONS]"
+      },
+      {
+        "arguments": [
+          {
             "description": "Optional Cargo contract package whose host test should run (with --e2e: a test-name filter instead)",
             "id": "package",
             "possibleValues": [],
@@ -1641,6 +1659,61 @@
           "type": "object"
         },
         "name": "apply"
+      },
+      {
+        "description": "List resources and active instances in this environment's durable deployment state.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "state_list"
+      },
+      {
+        "description": "Show one resource's active instance from durable state; history: true includes every earlier instance.",
+        "inputSchema": {
+          "properties": {
+            "history": {
+              "type": "boolean"
+            },
+            "resource": {
+              "description": "resource address (contract.counter) or bare contract name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resource"
+          ],
+          "type": "object"
+        },
+        "name": "state_show"
+      },
+      {
+        "description": "Create version-2 durable state from labcoat.lock, backing up the ledger first. Refuses to overwrite existing state.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "state_migrate"
+      },
+      {
+        "description": "Write a typed TypeScript browser read client from labcoat.lock and built ABIs (no network access).",
+        "inputSchema": {
+          "properties": {
+            "buildDir": {
+              "description": "directory with <package>.abi.json files (default build)",
+              "type": "string"
+            },
+            "outDir": {
+              "description": "output directory (default generated/web)",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "name": "generate_web"
       }
     ],
     "protocol": [

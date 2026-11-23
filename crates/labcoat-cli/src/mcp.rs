@@ -72,6 +72,14 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"manifest": {"type": "string", "description": "manifest path (default alkanes.hcl)"}}), &[]),
         tool("apply", "Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan.",
             json!({"manifest": {"type": "string", "description": "manifest path (default alkanes.hcl)"}, "broadcast": {"type": "boolean", "description": "actually broadcast transactions"}}), &[]),
+        tool("state_list", "List resources and active instances in this environment's durable deployment state.",
+            json!({}), &[]),
+        tool("state_show", "Show one resource's active instance from durable state; history: true includes every earlier instance.",
+            json!({"resource": {"type": "string", "description": "resource address (contract.counter) or bare contract name"}, "history": {"type": "boolean"}}), &["resource"]),
+        tool("state_migrate", "Create version-2 durable state from labcoat.lock, backing up the ledger first. Refuses to overwrite existing state.",
+            json!({}), &[]),
+        tool("generate_web", "Write a typed TypeScript browser read client from labcoat.lock and built ABIs (no network access).",
+            json!({"outDir": {"type": "string", "description": "output directory (default generated/web)"}, "buildDir": {"type": "string", "description": "directory with <package>.abi.json files (default build)"}}), &[]),
     ]
 }
 
@@ -508,6 +516,40 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let (_, res) = contract::apply(ctx, manifest, broadcast).await;
+            res.map_err(fail)
+        }
+        "state_list" | "state_show" | "state_migrate" => {
+            let cmd = match name {
+                "state_list" => contract::StateCmd::List,
+                "state_migrate" => contract::StateCmd::Migrate,
+                _ => contract::StateCmd::Show {
+                    resource: args
+                        .get("resource")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    history: args
+                        .get("history")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                },
+            };
+            let environment = ctx.config.environment.clone();
+            let (_, res) = contract::state(ctx, &environment, cmd).await;
+            res.map_err(fail)
+        }
+        "generate_web" => {
+            let string = |key: &str, default: &str| {
+                args.get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(default)
+                    .to_string()
+            };
+            let cmd = contract::GenerateCmd::Web {
+                out_dir: string("outDir", "generated/web"),
+                build_dir: string("buildDir", "build"),
+            };
+            let (_, res) = contract::generate(ctx, cmd);
             res.map_err(fail)
         }
         other => Err((format!("unknown tool: {other}"), "call tools/list".into())),

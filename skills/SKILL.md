@@ -168,6 +168,10 @@ fallback.
 - `balance` — Alkanes token balances held by an address.
 - `plan` — Reconcile the alkanes.hcl deployment manifest against labcoat.lock and chain state; shows pending actions without loading a signer.
 - `apply` — Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan.
+- `state_list` — List resources and active instances in this environment's durable deployment state.
+- `state_show` — Show one resource's active instance from durable state; history: true includes every earlier instance.
+- `state_migrate` — Create version-2 durable state from labcoat.lock, backing up the ledger first. Refuses to overwrite existing state.
+- `generate_web` — Write a typed TypeScript browser read client from labcoat.lock and built ABIs (no network access).
 <!-- END GENERATED MCP TOOLS -->
 
 ## Ground rules
