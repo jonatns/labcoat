@@ -1,0 +1,655 @@
+/*
+ * Homepage styles. Loaded only by src/pages/index.astro; the tokens, fonts,
+ * and base element rules come from global.css, which the docs share.
+ *
+ * Direction: the product's own output carries the page. Large type only in
+ * the hero, hairline rules between sections, acid green for the primary
+ * action and for what the CLI itself colors. No glows, no decorative cards.
+ */
+
+.landing-page {
+  --gutter: clamp(1rem, 4vw, 3rem);
+  --measure: 75rem;
+  min-width: 320px;
+  overflow-x: hidden;
+}
+
+.site-header,
+.hero,
+.section,
+.closing,
+.site-footer {
+  width: min(100%, var(--measure));
+  margin-inline: auto;
+  padding-inline: max(var(--gutter), env(safe-area-inset-left, 0px)) max(var(--gutter), env(safe-area-inset-right, 0px));
+}
+
+/* Header ------------------------------------------------------------------ */
+
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 3vw, 2.5rem);
+  min-height: 4rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-decoration: none;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+}
+
+.site-header nav {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 2.5vw, 1.75rem);
+  margin-left: auto;
+}
+
+.site-header nav a,
+.site-footer nav a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.site-header nav a:hover,
+.site-footer nav a:hover {
+  color: var(--ink);
+}
+
+.theme-toggle {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--ink-muted);
+  color: var(--ink);
+}
+
+.theme-icon {
+  width: 18px;
+  height: 18px;
+}
+
+:root[data-theme='dark'] .theme-icon-moon,
+:root[data-theme='light'] .theme-icon-sun {
+  display: none;
+}
+
+/* Hero -------------------------------------------------------------------- */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: clamp(2.5rem, 5vw, 4.5rem);
+  padding-block: clamp(2.5rem, 6vw, 4.5rem) clamp(3.5rem, 7vw, 6rem);
+}
+
+.eyebrow {
+  margin: 0 0 1.25rem;
+  color: var(--acid);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 0;
+  /* Two lines at every width: "From Rust source" / "to decoded trace." */
+  font-size: clamp(2.1rem, 8.4vw, 3.3rem);
+  font-weight: 620;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+
+.hero h1 span,
+.hero h1 em {
+  display: block;
+}
+
+.hero h1 em {
+  color: var(--acid);
+  font-style: normal;
+}
+
+.hero-lede {
+  max-width: 34rem;
+  margin: 1.5rem 0 2rem;
+  color: var(--ink-soft);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.copy-command {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  width: min(100%, 34rem);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-family: var(--font-mono);
+}
+
+.copy-command .prompt {
+  padding-left: 1rem;
+  color: var(--acid);
+  font-weight: 700;
+}
+
+.copy-command code {
+  min-width: 0;
+  padding: 0 0.7rem;
+  padding-block: 0.7rem;
+  color: var(--ink);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.copy-command button {
+  display: flex;
+  min-width: 4.75rem;
+  min-height: 48px;
+  padding: 0 0.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.copy-command button:hover,
+.copy-command button[data-copied='true'] {
+  background: var(--acid-dim);
+  color: var(--acid);
+}
+
+.copy-command button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.hero-support {
+  margin: 0.65rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.75rem 0 0;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0 1.2rem;
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.button-primary {
+  background: var(--acid);
+  color: oklch(12% 0.03 140);
+}
+
+:root[data-theme='light'] .button-primary {
+  color: oklch(98% 0.01 115);
+}
+
+.button-primary:hover {
+  background: var(--acid-strong);
+}
+
+.button-ghost {
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.button-ghost:hover {
+  border-color: var(--ink-muted);
+}
+
+.maturity-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  max-width: 34rem;
+  margin: 2rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.maturity-notice > svg {
+  flex: none;
+  margin-top: 0.15rem;
+  color: var(--warning);
+}
+
+/* Terminal ---------------------------------------------------------------- */
+
+.hero-demo {
+  min-width: 0;
+}
+
+.terminal {
+  margin: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.terminal-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 2.4rem;
+  padding: 0 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--ground);
+  color: var(--ink-muted);
+  font: 0.72rem var(--font-mono);
+}
+
+.terminal-lights {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.terminal-lights i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.terminal-tabs {
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line-soft);
+  scrollbar-width: none;
+}
+
+.terminal-tabs button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-muted);
+  font: 0.78rem var(--font-mono);
+  cursor: pointer;
+}
+
+.terminal-tabs button:hover {
+  color: var(--ink);
+}
+
+.terminal-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--acid);
+  color: var(--ink);
+}
+
+.terminal-tabs button:focus-visible,
+.terminal-panel:focus-visible,
+.code-window pre:focus-visible {
+  outline: 2px solid var(--acid);
+  outline-offset: -2px;
+}
+
+.terminal-panel pre,
+.code-window pre {
+  margin: 0;
+  overflow-x: auto;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  line-height: 1.7;
+}
+
+.terminal-panel {
+  overflow-x: auto;
+}
+
+.terminal-panel pre {
+  overflow: visible;
+  width: max-content;
+  min-width: 100%;
+  /* Room for the tallest step (up), so switching steps never moves the page. */
+  min-height: calc(14 * 1.7em + 2.5rem);
+  padding: 1.25rem;
+}
+
+.t-prompt { color: var(--acid); }
+.t-command { color: var(--ink); }
+.t-ok { color: var(--acid); }
+.t-err { color: var(--red); }
+.t-info { color: var(--blue); }
+
+.demo-note {
+  margin: 0.75rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.demo-note a {
+  color: var(--ink-soft);
+  text-underline-offset: 0.2em;
+}
+
+/* Sections ---------------------------------------------------------------- */
+
+.section {
+  padding-block: clamp(3.5rem, 7vw, 5.5rem);
+  border-top: 1px solid var(--line-soft);
+}
+
+.section-intro {
+  max-width: 44rem;
+  margin-bottom: 2.5rem;
+}
+
+.section h2,
+.closing h2 {
+  margin: 0;
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
+  font-weight: 620;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.section-intro p {
+  margin: 1rem 0 0;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.landing-page :is(p, dd, li) > code {
+  color: var(--ink);
+  font-size: 0.88em;
+}
+
+.text-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+  color: var(--acid);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+/* `labcoat --help`, abridged: command on the left, its real help text. */
+.command-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: clamp(1.5rem, 4vw, 3.5rem);
+  margin: 0;
+}
+
+.command-list div,
+.feature-list div {
+  min-width: 0;
+  padding-block: 0.95rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.command-list dt code {
+  color: var(--acid);
+  font-size: 0.84rem;
+}
+
+.command-list dd,
+.feature-list dd {
+  margin: 0.3rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.systems-layout,
+.agents-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(2rem, 5vw, 4rem);
+}
+
+.code-window {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.agents-layout {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+.agents-layout pre {
+  font-size: 0.72rem;
+}
+
+.code-window figcaption {
+  padding: 0.6rem 1rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--ground);
+  color: var(--ink-muted);
+  font: 0.72rem var(--font-mono);
+  white-space: nowrap;
+}
+
+.code-window pre {
+  padding: 1.1rem 1.25rem;
+}
+
+.code-window .code-window-output {
+  border-top: 1px solid var(--line);
+  background: var(--ground);
+}
+
+.code-window .k { color: var(--acid); }
+.code-window .s,
+.code-window .j-str { color: var(--amber); }
+.code-window .n,
+.code-window .j-bool { color: var(--blue); }
+.code-window .r { color: var(--ink); text-decoration: underline dotted var(--ink-muted); text-underline-offset: 0.25em; }
+.code-window .j-key { color: var(--ink); }
+.code-window .j-code { color: var(--red); }
+
+.feature-list {
+  margin: 0;
+}
+
+.feature-list div:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.feature-list dt {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 620;
+}
+
+.agents-copy h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 620;
+}
+
+.agents-copy p {
+  margin: 0.4rem 0 1.75rem;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.link-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
+  margin: -0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link-list a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--ink-soft);
+  font: 0.82rem var(--font-mono);
+  text-underline-offset: 0.25em;
+}
+
+.link-list a:hover {
+  color: var(--acid);
+}
+
+/* Closing and footer ------------------------------------------------------- */
+
+.closing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding-block: clamp(3.5rem, 7vw, 5.5rem);
+  border-top: 1px solid var(--line-soft);
+  text-align: center;
+}
+
+.closing .copy-command {
+  text-align: left;
+}
+
+.closing p {
+  margin: 0;
+}
+
+.closing p a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  text-underline-offset: 0.25em;
+}
+
+.site-footer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem 2rem;
+  padding-block: 2rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.site-footer > p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+}
+
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
+}
+
+.site-footer nav a {
+  font-size: 0.8rem;
+}
+
+.footer-meta {
+  grid-column: 1 / -1;
+}
+
+/* Narrow layouts ----------------------------------------------------------- */
+
+@media (min-width: 64.01rem) {
+  .hero h1 {
+    font-size: clamp(2.6rem, 3.6vw, 3.3rem);
+  }
+}
+
+@media (max-width: 64rem) {
+  .hero,
+  .systems-layout,
+  .agents-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-copy {
+    max-width: 40rem;
+  }
+}
+
+@media (max-width: 48rem) {
+  .command-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .site-footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 26rem) {
+  .site-header nav a[href^='/docs/tutorials'] {
+    display: none;
+  }
+
+  .hero-actions .button {
+    flex: 1 1 auto;
+  }
+}

@@ -2,11 +2,15 @@ import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
 import brand from '../../brand.json';
+import rehypeScrollTables from './src/plugins/rehype-scroll-tables.mjs';
 
 export default defineConfig({
   site: 'https://labcoat.sh',
   output: 'static',
   trailingSlash: 'ignore',
+  markdown: {
+    rehypePlugins: [rehypeScrollTables],
+  },
   integrations: [
     starlight({
       title: brand.name,
