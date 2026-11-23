@@ -4,7 +4,7 @@ Thank you for helping improve Labcoat. The project is pre-1.0 and focused on a d
 
 ## Set up the workspace
 
-CLI development requires Rust 1.86.0 plus the `wasm32-unknown-unknown` and
+CLI development requires Rust 1.88.0 plus the `wasm32-unknown-unknown` and
 `wasm32-wasip1` targets. Website work additionally requires Node.js 22 or newer
 and pnpm 11.13.0. Docker is not required.
 
