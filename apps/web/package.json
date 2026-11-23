@@ -29,7 +29,7 @@
     "@axe-core/playwright": "^4.14.0",
     "@lhci/cli": "^0.16.1",
     "@playwright/test": "^1.65.1",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "sharp": "^0.35.5",
     "typescript": "~5.9.3"
   }
