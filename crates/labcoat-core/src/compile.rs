@@ -14,6 +14,9 @@ pub const ALKANES_RS_REV: &str = "ea38c878931ff4b6dd64dd011962f2203d6e0a35";
 /// the workspace `rust-toolchain.toml`, so contracts build with the exact
 /// toolchain each Labcoat release is tested with (see TOOLCHAIN.md).
 pub const PROJECT_RUST_TOOLCHAIN: &str = "1.100.0";
+/// metashrew tag generated projects use for `metashrew-support`; it is the
+/// same SourceId as the pinned alkanes-rs revision's transitive dependency.
+pub const METASHREW_TAG: &str = "v9.0.5-rc.8";
 /// metashrew rev matching alkanes-rs's Cargo.lock at the pinned commit.
 pub const METASHREW_REV: &str = "22824e4ce8812751bd85b4dfff0da66b4ee025df";
 

@@ -35,14 +35,15 @@ const FILES: &[(&str, &str)] = &[
         "labcoat.toml",
         include_str!("../templates/default/labcoat.toml"),
     ),
-    (
-        "rust-toolchain.toml",
-        include_str!("../templates/default/rust-toolchain.toml"),
-    ),
+    ("rust-toolchain.toml", TOOLCHAIN_TEMPLATE),
     (".gitignore", include_str!("../templates/default/gitignore")),
     ("AGENTS.md", include_str!("../templates/default/AGENTS.md")),
     ("SKILL.md", include_str!("../templates/default/SKILL.md")),
 ];
+
+/// Template for a project's `rust-toolchain.toml` (`{{RUST_TOOLCHAIN}}`).
+pub(crate) const TOOLCHAIN_TEMPLATE: &str =
+    include_str!("../templates/default/rust-toolchain.toml");
 
 const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml");
 const CONTRACT_SOURCE: &str = include_str!("../templates/contract/src/lib.rs");
@@ -144,7 +145,7 @@ fn new_contract_from(start: &Path, name: &str) -> CmdResult {
     Ok(serde_json::json!({ "contract": name, "files": files }))
 }
 
-fn find_project_root(start: &Path) -> Option<PathBuf> {
+pub(crate) fn find_project_root(start: &Path) -> Option<PathBuf> {
     start.ancestors().find_map(|candidate| {
         (candidate.join("labcoat.toml").is_file() && candidate.join("Cargo.toml").is_file())
             .then(|| candidate.to_path_buf())
@@ -367,7 +368,10 @@ mod tests {
         let manifest = include_str!("../templates/default/Cargo.toml");
         assert!(manifest.contains(labcoat_core::compile::ALKANES_RS_REV));
         assert!(manifest.contains(
-            "metashrew-support = { git = \"https://github.com/kungfuflex/metashrew\", tag = \"v9.0.5-rc.8\" }"
+            &format!(
+                "metashrew-support = {{ git = \"https://github.com/kungfuflex/metashrew\", tag = \"{}\" }}",
+                labcoat_core::compile::METASHREW_TAG
+            )
         ));
         assert!(!manifest.contains("sandshrewmetaprotocols/metashrew"));
         let workspace_manifest = include_str!("../../../Cargo.toml");

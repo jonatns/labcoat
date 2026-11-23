@@ -13,6 +13,7 @@ mod project;
 mod settings;
 mod test_command;
 mod trace_view;
+mod upgrade;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use isomer_core::LabcoatNetwork;
@@ -81,6 +82,12 @@ enum Commands {
     New {
         /// Contract package name in kebab-case
         name: String,
+    },
+    /// Align this project's alkanes-rs, labcoat-test, and Rust toolchain pins with the installed CLI
+    Upgrade {
+        /// Show the pins that would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Build WASIp1 WebAssembly and run native Rust integration tests
     Test {
@@ -388,6 +395,9 @@ async fn run(cli: Cli) -> i32 {
     if let Commands::New { name } = &cli.command {
         return output::finish_contract(json, "new", project::new_contract(name), output_options);
     }
+    if let Commands::Upgrade { dry_run } = &cli.command {
+        return output::finish_contract(json, "upgrade", upgrade::run(*dry_run), output_options);
+    }
     let labcoat_network_command = cli.command.labcoat_network_command_name();
     if let Err(message) = validate_labcoat_network_overrides(&cli) {
         return output::finish_contract(
@@ -440,6 +450,7 @@ async fn run(cli: Cli) -> i32 {
     .with_color(cli.color);
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
+        Commands::Upgrade { .. } => unreachable!("upgrade handled before configuration loading"),
         Commands::New { .. } => {
             unreachable!("contract scaffolding handled before configuration loading")
         }
