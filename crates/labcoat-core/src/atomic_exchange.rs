@@ -79,8 +79,14 @@ pub struct ExchangePlanInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExchangeOutputRole {
+    /// The offered asset delivered to the buyer.
     BuyerAssets,
+    /// The payment asset delivered to the seller, plus every seller input sat.
     SellerSettlement,
+    /// Offered-asset surplus returned to the seller in its own output.
+    SellerChange,
+    /// Payment-asset surplus returned to the buyer in its own output.
+    BuyerChange,
     BuyerBitcoinChange,
     Runestone,
 }
@@ -350,6 +356,8 @@ fn plan_digest(
             ExchangeOutputRole::SellerSettlement => 1,
             ExchangeOutputRole::BuyerBitcoinChange => 2,
             ExchangeOutputRole::Runestone => 3,
+            ExchangeOutputRole::SellerChange => 4,
+            ExchangeOutputRole::BuyerChange => 5,
         });
         bytes.extend_from_slice(&output.value.to_le_bytes());
         bytes.extend_from_slice(&(output.script_pubkey.len() as u32).to_le_bytes());
@@ -529,36 +537,57 @@ fn owner_for_script(script: &ScriptBuf, seller: &ScriptBuf) -> Result<ExchangeOw
     }
 }
 
-fn expected_output_assets(
+/// One asset-carrying output of the fixed exchange layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AssetOutput {
+    role: ExchangeOutputRole,
+    owner: ExchangeOwner,
+    asset: PlanAsset,
+}
+
+/// The asset-carrying outputs, in transaction order.
+///
+/// Every output carries exactly one asset, so both parties can reuse what
+/// they receive as clean single-asset inputs in a later exchange. Surplus
+/// from partially spent inputs returns to its owner in a dedicated change
+/// output instead of riding along with the counterparty's delivery.
+fn asset_layout(
     request: &AtomicExchangeRequest,
     offered_total: u64,
     payment_total: u64,
-) -> (Vec<PlanAsset>, Vec<PlanAsset>) {
-    let mut buyer = vec![PlanAsset {
-        block: request.offered.block,
-        tx: request.offered.tx,
-        amount: request.offered_amount,
-    }];
-    if payment_total > request.payment_amount {
-        buyer.push(PlanAsset {
-            block: request.payment.block,
-            tx: request.payment.tx,
-            amount: payment_total - request.payment_amount,
-        });
-    }
-    let mut seller = vec![PlanAsset {
-        block: request.payment.block,
-        tx: request.payment.tx,
-        amount: request.payment_amount,
-    }];
+) -> Vec<AssetOutput> {
+    let asset = |id: &AlkaneId, amount: u64| PlanAsset {
+        block: id.block,
+        tx: id.tx,
+        amount,
+    };
+    let mut layout = vec![
+        AssetOutput {
+            role: ExchangeOutputRole::BuyerAssets,
+            owner: ExchangeOwner::Buyer,
+            asset: asset(&request.offered, request.offered_amount),
+        },
+        AssetOutput {
+            role: ExchangeOutputRole::SellerSettlement,
+            owner: ExchangeOwner::Seller,
+            asset: asset(&request.payment, request.payment_amount),
+        },
+    ];
     if offered_total > request.offered_amount {
-        seller.push(PlanAsset {
-            block: request.offered.block,
-            tx: request.offered.tx,
-            amount: offered_total - request.offered_amount,
+        layout.push(AssetOutput {
+            role: ExchangeOutputRole::SellerChange,
+            owner: ExchangeOwner::Seller,
+            asset: asset(&request.offered, offered_total - request.offered_amount),
         });
     }
-    (buyer, seller)
+    if payment_total > request.payment_amount {
+        layout.push(AssetOutput {
+            role: ExchangeOutputRole::BuyerChange,
+            owner: ExchangeOwner::Buyer,
+            asset: asset(&request.payment, payment_total - request.payment_amount),
+        });
+    }
+    layout
 }
 
 fn validate_runestone_edicts(
@@ -597,36 +626,18 @@ fn validate_runestone_edicts(
             "exchange protostone routing fields differ from the fixed contract",
         ));
     }
-    let mut expected = vec![
-        (
-            request.offered.block as u128,
-            request.offered.tx as u128,
-            request.offered_amount as u128,
-            0u128,
-        ),
-        (
-            request.payment.block as u128,
-            request.payment.tx as u128,
-            request.payment_amount as u128,
-            1u128,
-        ),
-    ];
-    if offered_total > request.offered_amount {
-        expected.push((
-            request.offered.block as u128,
-            request.offered.tx as u128,
-            (offered_total - request.offered_amount) as u128,
-            1,
-        ));
-    }
-    if payment_total > request.payment_amount {
-        expected.push((
-            request.payment.block as u128,
-            request.payment.tx as u128,
-            (payment_total - request.payment_amount) as u128,
-            0,
-        ));
-    }
+    let mut expected: Vec<_> = asset_layout(request, offered_total, payment_total)
+        .iter()
+        .enumerate()
+        .map(|(index, output)| {
+            (
+                output.asset.block as u128,
+                output.asset.tx as u128,
+                output.asset.amount as u128,
+                index as u128,
+            )
+        })
+        .collect();
     expected.sort_unstable();
     let mut actual: Vec<_> = protostone
         .edicts
@@ -637,7 +648,7 @@ fn validate_runestone_edicts(
     if actual != expected {
         return Err(exchange_error(
             "EXCHANGE_ASSET_UNSAFE",
-            "Runestone edicts do not exactly deliver the quote and owner surpluses",
+            "Runestone edicts do not deliver exactly one asset to each planned output",
         ));
     }
     Ok(())
@@ -748,38 +759,26 @@ pub async fn build_exchange_plan(
         .try_fold(0u64, |sum, c| sum.checked_add(c.output.value.to_sat()))
         .ok_or_else(|| exchange_error("EXCHANGE_PLAN_INVALID", "seller input value overflow"))?;
     let seller_output_sats = seller_input_sats.max(DUST_LIMIT);
-    let mut edicts = vec![
-        ProtostoneEdict {
-            alkane_id: request.offered.clone(),
-            amount: request.offered_amount,
-            target: OutputTarget::Output(0),
-        },
-        ProtostoneEdict {
-            alkane_id: request.payment.clone(),
-            amount: request.payment_amount,
-            target: OutputTarget::Output(1),
-        },
-    ];
-    if offered_total > request.offered_amount {
-        edicts.push(ProtostoneEdict {
-            alkane_id: request.offered.clone(),
-            amount: offered_total - request.offered_amount,
-            target: OutputTarget::Output(1),
-        });
-    }
-    if payment_total > request.payment_amount {
-        edicts.push(ProtostoneEdict {
-            alkane_id: request.payment.clone(),
-            amount: payment_total - request.payment_amount,
-            target: OutputTarget::Output(0),
-        });
-    }
+    let layout = asset_layout(&request, offered_total, payment_total);
+    let edicts: Vec<ProtostoneEdict> = layout
+        .iter()
+        .enumerate()
+        .map(|(index, output)| ProtostoneEdict {
+            alkane_id: output.asset.id(),
+            amount: output.asset.amount,
+            target: OutputTarget::Output(index as u32),
+        })
+        .collect();
+    let to_addresses: Vec<String> = layout
+        .iter()
+        .map(|output| match output.owner {
+            ExchangeOwner::Buyer => request.buyer_address.clone(),
+            ExchangeOwner::Seller => request.seller_address.clone(),
+        })
+        .collect();
     let params = EnhancedExecuteParams {
         fee_rate: config.fee_rate,
-        to_addresses: vec![
-            request.buyer_address.clone(),
-            request.seller_address.clone(),
-        ],
+        to_addresses,
         from_addresses: Some(vec![
             request.buyer_address.clone(),
             request.seller_address.clone(),
@@ -917,23 +916,14 @@ pub async fn build_exchange_plan(
             assets: candidate.assets.clone(),
         });
     }
-    let (buyer_assets, seller_assets) =
-        expected_output_assets(&request, offered_total, payment_total);
     let mut outputs = Vec::new();
     for (index, output) in psbt.unsigned_tx.output.iter().enumerate() {
-        let role = if index == 0 {
-            ExchangeOutputRole::BuyerAssets
-        } else if index == 1 {
-            ExchangeOutputRole::SellerSettlement
-        } else if output.script_pubkey.is_op_return() {
-            ExchangeOutputRole::Runestone
-        } else {
-            ExchangeOutputRole::BuyerBitcoinChange
-        };
-        let assets = match role {
-            ExchangeOutputRole::BuyerAssets => buyer_assets.clone(),
-            ExchangeOutputRole::SellerSettlement => seller_assets.clone(),
-            _ => Vec::new(),
+        let (role, assets) = match layout.get(index) {
+            Some(planned) => (planned.role.clone(), vec![planned.asset.clone()]),
+            None if output.script_pubkey.is_op_return() => {
+                (ExchangeOutputRole::Runestone, Vec::new())
+            }
+            None => (ExchangeOutputRole::BuyerBitcoinChange, Vec::new()),
         };
         outputs.push(ExchangePlanOutput {
             index: index as u32,
@@ -1042,63 +1032,6 @@ pub fn validate_exchange_plan(plan: &ExchangePlanV1, psbt: &Psbt) -> Result<()> 
             ));
         }
     }
-    if !(3..=4).contains(&plan.outputs.len()) {
-        return Err(exchange_error(
-            "EXCHANGE_PLAN_INVALID",
-            "exchange must contain buyer assets, seller settlement, optional buyer change, and Runestone outputs",
-        ));
-    }
-    if plan.outputs[0].role != ExchangeOutputRole::BuyerAssets
-        || plan.outputs[0].value != DUST_LIMIT
-        || psbt.unsigned_tx.output[0].script_pubkey != buyer
-    {
-        return Err(exchange_error(
-            "EXCHANGE_PLAN_INVALID",
-            "v0 must be the 546-sat buyer P2TR asset output",
-        ));
-    }
-    let final_index = plan.outputs.len() - 1;
-    if plan.outputs[final_index].role != ExchangeOutputRole::Runestone
-        || psbt.unsigned_tx.output[final_index].value.to_sat() != 0
-        || !psbt.unsigned_tx.output[final_index]
-            .script_pubkey
-            .is_op_return()
-        || !plan.outputs[final_index].assets.is_empty()
-    {
-        return Err(exchange_error(
-            "EXCHANGE_PLAN_INVALID",
-            "the final output must be the zero-sat Runestone OP_RETURN",
-        ));
-    }
-    if final_index == 3
-        && (plan.outputs[2].role != ExchangeOutputRole::BuyerBitcoinChange
-            || plan.outputs[2].value < DUST_LIMIT
-            || psbt.unsigned_tx.output[2].script_pubkey != buyer
-            || !plan.outputs[2].assets.is_empty())
-    {
-        return Err(exchange_error(
-            "EXCHANGE_PLAN_INVALID",
-            "v2 must be asset-free buyer P2TR change above dust",
-        ));
-    }
-    let seller_inputs: u64 = plan
-        .inputs
-        .iter()
-        .filter(|i| i.owner == ExchangeOwner::Seller)
-        .map(|i| i.value)
-        .sum();
-    let seller_output = plan.outputs.get(1).ok_or_else(|| {
-        exchange_error("EXCHANGE_PLAN_INVALID", "missing seller settlement output")
-    })?;
-    if seller_output.role != ExchangeOutputRole::SellerSettlement
-        || seller_output.value != seller_inputs.max(DUST_LIMIT)
-        || psbt.unsigned_tx.output[1].script_pubkey != seller
-    {
-        return Err(exchange_error(
-            "EXCHANGE_SELLER_DEBIT",
-            "seller settlement output does not return all seller input sats",
-        ));
-    }
     let mut offered_total = 0u64;
     let mut payment_total = 0u64;
     for input in &plan.inputs {
@@ -1125,12 +1058,81 @@ pub fn validate_exchange_plan(plan: &ExchangePlanV1, psbt: &Psbt) -> Result<()> 
             "selected inputs do not fund the quoted asset amounts",
         ));
     }
-    let (buyer_assets, seller_assets) =
-        expected_output_assets(&plan.request, offered_total, payment_total);
-    if plan.outputs[0].assets != buyer_assets || plan.outputs[1].assets != seller_assets {
+
+    // Asset outputs first, then optional asset-free buyer change, then the
+    // Runestone. Every asset output carries exactly one asset to its owner.
+    let layout = asset_layout(&plan.request, offered_total, payment_total);
+    let asset_outputs = layout.len();
+    if !(asset_outputs + 1..=asset_outputs + 2).contains(&plan.outputs.len()) {
         return Err(exchange_error(
-            "EXCHANGE_ASSET_UNSAFE",
-            "output asset allocation does not match quoted delivery and owner surplus",
+            "EXCHANGE_PLAN_INVALID",
+            "exchange must contain its asset outputs, optional buyer change, and a Runestone output",
+        ));
+    }
+    for (index, planned) in layout.iter().enumerate() {
+        let output = &plan.outputs[index];
+        let owner_script = match planned.owner {
+            ExchangeOwner::Buyer => &buyer,
+            ExchangeOwner::Seller => &seller,
+        };
+        let value_ok = match planned.role {
+            // Seller sats are checked separately: settlement returns all of them.
+            ExchangeOutputRole::SellerSettlement => true,
+            _ => output.value == DUST_LIMIT,
+        };
+        if output.role != planned.role
+            || !value_ok
+            || &psbt.unsigned_tx.output[index].script_pubkey != owner_script
+        {
+            return Err(exchange_error(
+                "EXCHANGE_PLAN_INVALID",
+                format!(
+                    "v{index} must be the 546-sat {:?} output for its owner",
+                    planned.role
+                ),
+            ));
+        }
+        if output.assets != [planned.asset.clone()] {
+            return Err(exchange_error(
+                "EXCHANGE_ASSET_UNSAFE",
+                "output asset allocation does not match quoted delivery and owner surplus",
+            ));
+        }
+    }
+    let final_index = plan.outputs.len() - 1;
+    if plan.outputs[final_index].role != ExchangeOutputRole::Runestone
+        || psbt.unsigned_tx.output[final_index].value.to_sat() != 0
+        || !psbt.unsigned_tx.output[final_index]
+            .script_pubkey
+            .is_op_return()
+        || !plan.outputs[final_index].assets.is_empty()
+    {
+        return Err(exchange_error(
+            "EXCHANGE_PLAN_INVALID",
+            "the final output must be the zero-sat Runestone OP_RETURN",
+        ));
+    }
+    if final_index == asset_outputs + 1
+        && (plan.outputs[asset_outputs].role != ExchangeOutputRole::BuyerBitcoinChange
+            || plan.outputs[asset_outputs].value < DUST_LIMIT
+            || psbt.unsigned_tx.output[asset_outputs].script_pubkey != buyer
+            || !plan.outputs[asset_outputs].assets.is_empty())
+    {
+        return Err(exchange_error(
+            "EXCHANGE_PLAN_INVALID",
+            "the output after the asset outputs must be asset-free buyer P2TR change above dust",
+        ));
+    }
+    let seller_inputs: u64 = plan
+        .inputs
+        .iter()
+        .filter(|i| i.owner == ExchangeOwner::Seller)
+        .map(|i| i.value)
+        .sum();
+    if plan.outputs[1].value != seller_inputs.max(DUST_LIMIT) {
+        return Err(exchange_error(
+            "EXCHANGE_SELLER_DEBIT",
+            "seller settlement output does not return all seller input sats",
         ));
     }
     validate_runestone_edicts(psbt, &plan.request, offered_total, payment_total)?;
@@ -1405,24 +1407,73 @@ mod tests {
     }
 
     #[test]
-    fn output_asset_change_is_partitioned_by_owner() {
-        let (buyer, seller) = expected_output_assets(&request(), 125, 700);
+    fn surplus_returns_to_its_owner_in_its_own_output() {
+        // request(): seller offers 100 of 4:1 for 500 of 2:2.
+        let layout = asset_layout(&request(), 125, 700);
+        let summary: Vec<_> = layout
+            .iter()
+            .map(|o| {
+                (
+                    o.role.clone(),
+                    o.owner,
+                    o.asset.block,
+                    o.asset.tx,
+                    o.asset.amount,
+                )
+            })
+            .collect();
         assert_eq!(
-            buyer[1],
-            PlanAsset {
-                block: 2,
-                tx: 2,
-                amount: 200
-            }
+            summary,
+            vec![
+                (
+                    ExchangeOutputRole::BuyerAssets,
+                    ExchangeOwner::Buyer,
+                    4,
+                    1,
+                    100
+                ),
+                (
+                    ExchangeOutputRole::SellerSettlement,
+                    ExchangeOwner::Seller,
+                    2,
+                    2,
+                    500
+                ),
+                (
+                    ExchangeOutputRole::SellerChange,
+                    ExchangeOwner::Seller,
+                    4,
+                    1,
+                    25
+                ),
+                (
+                    ExchangeOutputRole::BuyerChange,
+                    ExchangeOwner::Buyer,
+                    2,
+                    2,
+                    200
+                ),
+            ]
         );
+    }
+
+    #[test]
+    fn exact_inputs_need_no_change_outputs() {
+        let layout = asset_layout(&request(), 100, 500);
+        let roles: Vec<_> = layout.iter().map(|o| o.role.clone()).collect();
         assert_eq!(
-            seller[1],
-            PlanAsset {
-                block: 4,
-                tx: 1,
-                amount: 25
-            }
+            roles,
+            vec![
+                ExchangeOutputRole::BuyerAssets,
+                ExchangeOutputRole::SellerSettlement
+            ]
         );
+        // Only one side has surplus: one change output, owned by that side.
+        let layout = asset_layout(&request(), 100, 650);
+        assert_eq!(layout.len(), 3);
+        assert_eq!(layout[2].role, ExchangeOutputRole::BuyerChange);
+        assert_eq!(layout[2].owner, ExchangeOwner::Buyer);
+        assert_eq!(layout[2].asset.amount, 150);
     }
 
     #[test]
