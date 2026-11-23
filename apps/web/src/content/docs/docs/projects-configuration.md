@@ -50,9 +50,9 @@ Never put a mnemonic or passphrase in `labcoat.toml` or on the command line.
 
 - Set `LABCOAT_WALLET_PASSPHRASE` for the keystore passphrase.
 - Set `LABCOAT_MNEMONIC` or use `wallet init --mnemonic-stdin` for recovery.
-- Mainnet and signet refuse wallet operations without an explicit passphrase.
+- Mainnet, signet, and testnet refuse keystore signing without an explicit passphrase.
 
-## Deployment state
+## Deployment lockfile
 
 `labcoat.lock` maps contract names to network-specific IDs, hashes, transaction
 IDs, and deployment status. Commit it when deployments are part of shared
