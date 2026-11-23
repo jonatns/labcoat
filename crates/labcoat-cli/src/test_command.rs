@@ -126,6 +126,13 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
         None
     };
 
+    // Honor LABCOAT_TEST_CRATE_PATH like `labcoat test` does, so CI and
+    // packagers can run e2e tests before the release tag exists.
+    let workspace = labcoat_core::workspace::discover(&project_root).map_err(core_error)?;
+    let _local_harness =
+        labcoat_core::compile::explicit_local_labcoat_test_override(&workspace.root)
+            .map_err(core_error)?;
+
     let labcoat_bin = std::env::current_exe().map_err(io_error)?;
     let mut command = std::process::Command::new("cargo");
     if let Some(path) = local_labcoat_test_path() {

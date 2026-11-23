@@ -172,7 +172,15 @@ pub async fn connect(
                 "use one of: labcoat, regtest, signet, testnet, mainnet",
             )
         })?;
-    alkanes_cli_common::network::set_network(params);
+    // alkanes-rs v3 validates the parameters and leaves the network unset on
+    // error; continuing would panic later in address derivation.
+    alkanes_cli_common::network::set_network(params).map_err(|e| {
+        LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("invalid parameters for Bitcoin network '{network}': {e}"),
+            "use one of: labcoat, regtest, signet, testnet, mainnet",
+        )
+    })?;
 
     // The keystore writer assumes its parent directory exists.
     if let Some(parent) = config.wallet_file.parent() {
@@ -311,6 +319,24 @@ mod tests {
     use super::*;
     use alkanes_cli_common::commands::{Commands, EsploraCommands};
     use alkanes_cli_common::rpc::{determine_rpc_call_type, get_rpc_url, RpcCallType};
+
+    #[test]
+    fn every_network_target_passes_alkanes_network_validation() {
+        // alkanes-rs v3 validates parameters in `set_network`; `connect` fails
+        // closed on an error, so every selectable network must validate.
+        for target in [
+            NetworkTarget::Labcoat,
+            NetworkTarget::Regtest,
+            NetworkTarget::Signet,
+            NetworkTarget::Testnet,
+            NetworkTarget::Mainnet,
+        ] {
+            let id = target.bitcoin_network_id();
+            let params = alkanes_cli_common::network::NetworkParams::from_network_str(id)
+                .unwrap_or_else(|e| panic!("{id}: {e}"));
+            params.validate().unwrap_or_else(|e| panic!("{id}: {e}"));
+        }
+    }
 
     #[tokio::test]
     async fn provider_routes_legacy_esplora_commands_to_qubitcoin() {

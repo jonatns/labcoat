@@ -10,8 +10,8 @@ members = ["contracts/*"]
 
 [workspace.dependencies]
 # Keep these revisions synchronized with the Labcoat release and TOOLCHAIN.md.
-alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714843c416e2ab57352a33f05b8461cf3f540f5a" }
-alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714843c416e2ab57352a33f05b8461cf3f540f5a" }
+alkanes-runtime = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "ea38c878931ff4b6dd64dd011962f2203d6e0a35" }
+alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "ea38c878931ff4b6dd64dd011962f2203d6e0a35" }
 metashrew-support = { git = "https://github.com/kungfuflex/metashrew", tag = "v9.0.5-rc.8" }
 anyhow = "1.0"
 
