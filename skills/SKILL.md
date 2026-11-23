@@ -110,6 +110,25 @@ resets the chain, applies the manifest, and runs `#[ignore]`d Rust tests
 using `labcoat_test::e2e::E2e` (disposable wallets, calls, balances,
 mining).
 
+Swap two Alkane assets atomically between two wallets in one transaction.
+On Labcoat Network one command signs with both keystores (the project
+wallet is the buyer); on public networks use the seller-last PSBT ceremony
+`exchange-plan` → `wallet sign-psbt` → `exchange-settle --broadcast`, where
+each party signs only its own inputs:
+
+```bash
+labcoat exchange token 100 usd 7500 --seller-wallet-file seller.json --json
+labcoat exchange-plan --request exchange-request.json --plan-out plan.json --psbt-out exchange.psbt --json
+```
+
+`labcoat generate web` writes a typed, read-only TypeScript client
+(`generated/web/`: manifest, ABI descriptors, `simulate`, balances, and an
+exchange request builder) from `labcoat.lock` and `build/*.abi.json` with
+no network access; regenerate after every deploy or reset.
+`labcoat state migrate` opts a project into durable deployment history
+(`state list`, `state show <name> --history`); afterwards a deploy onto a
+reset chain fails with `STATE_CHAIN_MISMATCH` before broadcasting.
+
 ## 6. Trace
 
 ```bash
