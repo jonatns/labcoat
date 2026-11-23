@@ -41,20 +41,25 @@ change in its own reviewed PR. CI verifies the pin is reachable from `main`.
 
 | Tool | Version | Where enforced |
 |---|---|---|
-| Rust | 1.100.0 | `rust-toolchain.toml`, `ci.yml`, and `release-cli.yml` (latest stable; see below) |
+| Rust | 1.100.0 | `rust-toolchain.toml`, `ci.yml`, `release-cli.yml`, and `PROJECT_RUST_TOOLCHAIN` (latest stable; see below) |
 | wasm targets | `wasm32-unknown-unknown`, `wasm32-wasip1` | deploy artifacts use unknown-unknown; native contract tests use WASIp1 |
 | protoc | any ≥3 (`protobuf-compiler`) | required to build `labcoat-core` (prost-build 0.12 does not vendor protoc) |
 | LLVM Clang | wasm32 backend | required by secp256k1-sys while compiling contracts; Homebrew LLVM is auto-detected on macOS |
 | WASI libc | system package | required for `wasm32-wasip1` contract tests on Linux (`apt install wasi-libc`) |
 
 Rust has no LTS channel; the recommended toolchain is the latest stable
-release. The workspace pins that release exactly so local, CI, and release
-builds match, and bumps it deliberately (update all three files together,
-then run `cargo clippy --workspace --all-targets -- -D warnings`, since new
-releases add lints). This pin builds the Labcoat CLI and workspace only.
-Generated projects compile contracts and `labcoat-test` with the user's own
-toolchain, so the template and `labcoat-test` keep their Rust 1.86-compatible
-dependency pins until the supported project toolchain is raised on purpose.
+release. The workspace pins that release exactly so local, CI, release, and
+project builds match. Bump it deliberately: update `rust-toolchain.toml`,
+`ci.yml`, `release-cli.yml`, and `PROJECT_RUST_TOOLCHAIN` together, then run
+`cargo clippy --workspace --all-targets -- -D warnings`, because new releases
+add lints.
+
+Generated projects pin the same release. `labcoat init` writes a
+`rust-toolchain.toml` from `PROJECT_RUST_TOOLCHAIN` in
+`crates/labcoat-core/src/compile.rs`, and rustup installs that toolchain and
+both WebAssembly targets on the first build. A unit test keeps the constant
+equal to this workspace's `rust-toolchain.toml`. `labcoat doctor` warns when an
+existing project's pin differs from the installed CLI's.
 
 Contract compilation needs `clang`; on macOS install Homebrew `llvm`
 because Apple Clang does not ship a WebAssembly backend. Debian and Ubuntu

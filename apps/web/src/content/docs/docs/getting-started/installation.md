@@ -92,7 +92,8 @@ labcoat binaries
 
 ## Compilation prerequisites
 
-Contract compilation requires Cargo and LLVM Clang with a WebAssembly backend.
+Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
+a WebAssembly backend.
 
 ```bash
 # macOS
@@ -101,6 +102,14 @@ brew install llvm
 # Debian or Ubuntu
 sudo apt install clang wasi-libc
 ```
+
+You do not need to install a particular Rust version or WebAssembly target.
+`labcoat init` writes a `rust-toolchain.toml` that pins the Rust release
+Labcoat is tested with, and rustup installs that toolchain with the
+`wasm32-unknown-unknown` and `wasm32-wasip1` targets on the project's first
+build. Commit the file: it keeps every machine and CI run on the same
+compiler, which keeps contract bytecode reproducible. When you upgrade the
+CLI, `labcoat doctor` reports a project pin that no longer matches.
 
 Then run:
 

@@ -6,6 +6,7 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ### Added
 
+- add `labcoat doctor` checks for rustup and for whether the project's pinned Rust toolchain is missing, installed, pending installation, or different from the installed CLI's
 - add `labcoat state migrate`: create version-2 per-environment durable state at `.labcoat/state/<environment>/state.json` from the v1 `labcoat.lock` ledger, with a timestamped backup, a compare-and-swap serial, an exclusive environment lease, and a byte-identical regenerated address book; see docs/STATE.md
 - add `labcoat state list` and `labcoat state show <resource> [--history]`: inspect durable resources and their append-only instance history
 - add an `environment` setting (`labcoat.toml`, `LABCOAT_ENVIRONMENT`, global `--environment`) selecting the durable-state environment, defaulting to `default`
@@ -15,6 +16,13 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 - add `labcoat generate web`: deterministic TypeScript browser read artifacts (network manifest, typed ABI descriptors, and a dependency-free fetch client for indexed height, Alkanes balances, and ABI-typed simulate) derived from `labcoat.lock` and built ABIs with no network access; see docs/GENERATE-WEB.md
 - add `labcoat exchange-plan --request <file>`: build the plan from a version-1 exchange request file (canonical-decimal-string JSON) instead of positional flags
 - add `exchange.ts` to `labcoat generate web`: a browser-side exchange request builder that validates and serializes the request file and renders the `exchange-plan` → `wallet sign-psbt` → `exchange-settle` ceremony commands; no signing or transaction construction in the browser
+
+### Changed
+
+- `labcoat init` writes a `rust-toolchain.toml` pinning Rust 1.100.0 with the `wasm32-unknown-unknown` and `wasm32-wasip1` targets, so rustup installs the tested toolchain on the first build with no manual `rustup target add`; generated projects now require rustup
+- drop the Rust 1.86 compatibility pins (`time`, `serde_with`) from generated projects, removing their unused-dependency warnings
+- upgrade `labcoat-test` to wasmtime 51, resolving the wasmtime and WASI security advisories in the native contract test harness
+- build the CLI with Rust 1.100.0; the release workflow had still pinned 1.86.0
 
 ## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-31
 

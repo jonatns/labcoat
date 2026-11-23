@@ -4,6 +4,7 @@
 
 use isomer_core::{BinaryManager, IsomerConfig, ProcessManager, ServiceId};
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +59,70 @@ fn version_of(cmd: &str, arg: &str) -> Option<String> {
         })
 }
 
+/// The nearest ancestor of `cwd` that holds `labcoat.toml`.
+fn project_root(cwd: &Path) -> Option<PathBuf> {
+    cwd.ancestors()
+        .find(|dir| dir.join("labcoat.toml").is_file())
+        .map(Path::to_path_buf)
+}
+
+/// The `[toolchain] channel` of a `rust-toolchain.toml`, if the file exists
+/// and names one.
+fn toolchain_channel(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let value: toml::Value = toml::from_str(&text).ok()?;
+    value
+        .get("toolchain")?
+        .get("channel")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// Whether rustup already has `channel`; `None` when rustup cannot answer.
+/// Listing toolchains never installs one, unlike running cargo through a
+/// pinned project.
+fn rustup_toolchain_installed(channel: &str) -> Option<bool> {
+    let output = std::process::Command::new("rustup")
+        .args(["toolchain", "list"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let prefix = format!("{channel}-");
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .any(|name| name == channel || name.starts_with(&prefix)),
+    )
+}
+
+fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Option<bool>) -> Check {
+    const NAME: &str = "project toolchain";
+    match pinned {
+        None => warn(
+            NAME,
+            "no rust-toolchain.toml; contracts build with your default Rust toolchain",
+            format!(
+                "add rust-toolchain.toml with `[toolchain]` channel = \"{expected}\" and targets \
+                 wasm32-unknown-unknown and wasm32-wasip1 (labcoat init writes one)"
+            ),
+        ),
+        Some(channel) if channel != expected => warn(
+            NAME,
+            format!("project pins Rust {channel}; this Labcoat release is tested with {expected}"),
+            format!("set channel = \"{expected}\" in rust-toolchain.toml, then run `labcoat test`"),
+        ),
+        Some(channel) => ok(
+            NAME,
+            match installed {
+                Some(true) => format!("Rust {channel} (installed)"),
+                Some(false) => format!("Rust {channel} (rustup installs it on the first build)"),
+                None => format!("Rust {channel}"),
+            },
+        ),
+    }
+}
+
 pub async fn run() -> Vec<Check> {
     let mut checks = Vec::new();
 
@@ -70,20 +135,53 @@ pub async fn run() -> Vec<Check> {
             "install Rust via rustup (contract compilation needs cargo)",
         )),
     }
-    let wasm_target = std::process::Command::new("rustup")
-        .args(["target", "list", "--installed"])
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains("wasm32-unknown-unknown"))
-        .unwrap_or(false);
-    if wasm_target {
-        checks.push(ok("wasm32-unknown-unknown", "target installed"));
-    } else {
-        checks.push(warn(
-            "wasm32-unknown-unknown",
-            "target not reported by rustup",
-            "rustup target add wasm32-unknown-unknown",
+    let rustup = version_of("rustup", "--version");
+    match &rustup {
+        Some(v) => checks.push(ok("rustup", v.clone())),
+        None => checks.push(warn(
+            "rustup",
+            "not found on PATH",
+            "install rustup from https://rustup.rs; only rustup applies a project's rust-toolchain.toml",
+        )),
+    }
+    let project = project_root(&std::env::current_dir().unwrap_or_default());
+    let pinned = project
+        .as_deref()
+        .map(|root| toolchain_channel(&root.join("rust-toolchain.toml")));
+    let mut wasm_target_pending = false;
+    if let Some(pinned) = pinned {
+        let installed = match (&pinned, &rustup) {
+            (Some(channel), Some(_)) => rustup_toolchain_installed(channel),
+            _ => None,
+        };
+        wasm_target_pending = installed == Some(false);
+        checks.push(project_toolchain_check(
+            pinned.as_deref(),
+            labcoat_core::compile::PROJECT_RUST_TOOLCHAIN,
+            installed,
         ));
+    }
+    if wasm_target_pending {
+        checks.push(ok(
+            "wasm32-unknown-unknown",
+            "installed with the project toolchain on the first build",
+        ));
+    } else {
+        let wasm_target = std::process::Command::new("rustup")
+            .args(["target", "list", "--installed"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("wasm32-unknown-unknown"))
+            .unwrap_or(false);
+        if wasm_target {
+            checks.push(ok("wasm32-unknown-unknown", "target installed"));
+        } else {
+            checks.push(warn(
+                "wasm32-unknown-unknown",
+                "target not reported by rustup",
+                "rustup target add wasm32-unknown-unknown",
+            ));
+        }
     }
     match labcoat_core::compile::wasm_c_compiler() {
         Some(path) => checks.push(ok(
@@ -180,4 +278,41 @@ pub async fn run() -> Vec<Check> {
     }
 
     checks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_toolchain_check_reports_missing_matching_and_stale_pins() {
+        let missing = project_toolchain_check(None, "1.100.0", None);
+        assert_eq!(missing.status, "warn");
+        assert!(missing.hint.unwrap().contains("1.100.0"));
+
+        let stale = project_toolchain_check(Some("1.88.0"), "1.100.0", Some(true));
+        assert_eq!(stale.status, "warn");
+        assert!(stale.detail.contains("1.88.0"));
+        assert!(stale.hint.unwrap().contains("channel = \"1.100.0\""));
+
+        let pending = project_toolchain_check(Some("1.100.0"), "1.100.0", Some(false));
+        assert_eq!(pending.status, "ok");
+        assert!(pending.detail.contains("first build"));
+    }
+
+    #[test]
+    fn toolchain_channel_reads_the_pinned_channel() {
+        let dir = std::env::temp_dir().join(format!("labcoat-doctor-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("labcoat.toml"), "").unwrap();
+        let file = dir.join("rust-toolchain.toml");
+        std::fs::write(&file, "[toolchain]\nchannel = \"1.100.0\"\n").unwrap();
+        assert_eq!(toolchain_channel(&file).as_deref(), Some("1.100.0"));
+        assert_eq!(
+            project_root(&dir.join("nested")).as_deref(),
+            Some(dir.as_path())
+        );
+        assert_eq!(toolchain_channel(&dir.join("missing.toml")), None);
+        std::fs::remove_dir_all(dir).ok();
+    }
 }
