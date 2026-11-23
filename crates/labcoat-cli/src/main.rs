@@ -5,6 +5,7 @@
 //! simulate, trace, lock) on the pinned alkanes-rs main commit.
 
 mod contract;
+mod deploy_script;
 mod docs;
 mod doctor;
 mod mcp;
@@ -82,6 +83,10 @@ enum Commands {
     New {
         /// Contract package name in kebab-case
         name: String,
+        /// Vendor a standard upgradeable contract instead of a minimal one:
+        /// auth-token, upgradeable, upgradeable-beacon, or beacon-proxy
+        #[arg(long)]
+        template: Option<String>,
     },
     /// Align this project's alkanes-rs, labcoat-test, and Rust toolchain pins with the installed CLI
     Upgrade {
@@ -95,7 +100,7 @@ enum Commands {
         /// (with --e2e: a test-name filter instead)
         package: Option<String>,
         /// Run tests/e2e.rs against Labcoat Network: reset the chain, apply
-        /// alkanes.hcl, then execute the ignored e2e tests
+        /// deploy.rs, then execute the ignored e2e tests
         #[arg(long)]
         e2e: bool,
         /// With --e2e: keep the current chain state instead of resetting
@@ -213,6 +218,11 @@ enum Commands {
         args: Vec<String>,
         #[command(flatten)]
         tx: contract::TxFlags,
+        /// Resolve the method name against this contract's ABI instead
+        /// (labcoat.lock name or block:tx id) — for a call through a proxy,
+        /// name the implementation
+        #[arg(long, value_name = "CONTRACT")]
+        abi: Option<String>,
         /// Validate inputs and show what would happen without broadcasting
         #[arg(long)]
         dry_run: bool,
@@ -269,21 +279,30 @@ enum Commands {
         #[arg(long)]
         broadcast: bool,
     },
-    /// Reconcile the deployment manifest against the chain and show pending actions
+    /// Run deploy.rs and show which deployment steps are pending, complete, or in conflict
     Plan {
-        /// Manifest path (default alkanes.hcl)
-        #[arg(long)]
-        manifest: Option<String>,
+        /// Run a step that already ran again: a contract deploys a new
+        /// instance, a call executes again (repeatable)
+        #[arg(long, value_name = "STEP")]
+        replace: Vec<String>,
     },
-    /// Execute the deployment manifest's pending actions
+    /// Execute the pending deployment steps deploy.rs declares
     Apply {
-        /// Manifest path (default alkanes.hcl)
-        #[arg(long)]
-        manifest: Option<String>,
+        /// Run a step that already ran again: a contract deploys a new
+        /// instance, a call executes again (repeatable)
+        #[arg(long, value_name = "STEP")]
+        replace: Vec<String>,
         /// Broadcast the pending transactions (without this flag apply only
         /// shows the plan)
         #[arg(long)]
         broadcast: bool,
+    },
+    /// Record a contract that already exists on chain as a deployment step, without deploying
+    Import {
+        /// Contract step name from deploy.rs
+        name: String,
+        /// The deployed contract's block:tx id
+        id: String,
     },
     /// Simulate a deployed contract against live indexed chain state
     Simulate {
@@ -294,6 +313,11 @@ enum Commands {
         /// One typed value per ABI parameter, or raw cellpack args for numeric opcodes
         #[arg(num_args = 0..)]
         args: Vec<String>,
+        /// Resolve the method name against this contract's ABI instead
+        /// (labcoat.lock name or block:tx id) — for a read through a proxy,
+        /// name the implementation
+        #[arg(long, value_name = "CONTRACT")]
+        abi: Option<String>,
     },
     /// Alkanes token balances held by an address
     Balance {
@@ -392,8 +416,13 @@ async fn run(cli: Cli) -> i32 {
             Err(error) => output::finish_contract(json, "init", Err(error), output_options),
         };
     }
-    if let Commands::New { name } = &cli.command {
-        return output::finish_contract(json, "new", project::new_contract(name), output_options);
+    if let Commands::New { name, template } = &cli.command {
+        return output::finish_contract(
+            json,
+            "new",
+            project::new_contract(name, template.as_deref()),
+            output_options,
+        );
     }
     if let Commands::Upgrade { dry_run } = &cli.command {
         return output::finish_contract(json, "upgrade", upgrade::run(*dry_run), output_options);
@@ -461,7 +490,7 @@ async fn run(cli: Cli) -> i32 {
         } => {
             let progress = output::Progress::new(
                 if e2e {
-                    "Resetting the network, applying the manifest, and running e2e tests…"
+                    "Resetting the network, applying deploy.rs, and running e2e tests…"
                 } else {
                     "Building contracts and running tests…"
                 },
@@ -536,6 +565,7 @@ async fn run(cli: Cli) -> i32 {
             selector,
             args,
             tx,
+            abi,
             dry_run,
         } => {
             let progress = output::Progress::new(
@@ -547,9 +577,9 @@ async fn run(cli: Cli) -> i32 {
                 !json,
             );
             let (cmd_name, res) = if dry_run {
-                contract::call_dry_run(&ctx, &contract, &selector, &args, &tx).await
+                contract::call_dry_run(&ctx, &contract, &selector, &args, &tx, abi.as_deref()).await
             } else {
-                contract::call(&ctx, &contract, &selector, &args, &tx).await
+                contract::call(&ctx, &contract, &selector, &args, &tx, abi.as_deref()).await
             };
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
@@ -622,25 +652,28 @@ async fn run(cli: Cli) -> i32 {
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
-        Commands::Plan { manifest } => {
-            let progress = output::Progress::new("Planning against the manifest…", !json);
-            let (cmd_name, res) = contract::plan(&ctx, manifest.as_deref()).await;
+        Commands::Plan { replace } => {
+            let progress = output::Progress::new("Planning the deployment…", !json);
+            let (cmd_name, res) = contract::plan(&ctx, &replace).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
-        Commands::Apply {
-            manifest,
-            broadcast,
-        } => {
+        Commands::Apply { replace, broadcast } => {
             let progress = output::Progress::new(
                 if broadcast {
-                    "Applying the manifest…"
+                    "Applying the deployment…"
                 } else {
-                    "Planning against the manifest…"
+                    "Planning the deployment…"
                 },
                 !json,
             );
-            let (cmd_name, res) = contract::apply(&ctx, manifest.as_deref(), broadcast).await;
+            let (cmd_name, res) = contract::apply(&ctx, &replace, broadcast).await;
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Import { name, id } => {
+            let progress = output::Progress::new("Verifying the deployed contract…", !json);
+            let (cmd_name, res) = contract::import(&ctx, &name, &id).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
@@ -648,8 +681,10 @@ async fn run(cli: Cli) -> i32 {
             contract,
             selector,
             args,
+            abi,
         } => {
-            let (cmd_name, res) = contract::simulate(&ctx, &contract, &selector, &args).await;
+            let (cmd_name, res) =
+                contract::simulate(&ctx, &contract, &selector, &args, abi.as_deref()).await;
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Balance { address } => {
@@ -1045,6 +1080,79 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "simulate", "counter", "1"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "call", "token", "mint", "1000"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "call", "counter"]).is_err());
+    }
+
+    #[test]
+    fn deployment_commands_have_the_expected_shape() {
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "apply",
+            "--replace",
+            "token",
+            "--replace",
+            "market",
+            "--broadcast",
+        ])
+        .unwrap();
+        let Commands::Apply { replace, broadcast } = cli.command else {
+            panic!("expected apply");
+        };
+        assert_eq!(replace, ["token", "market"]);
+        assert!(broadcast);
+
+        let cli = Cli::try_parse_from(["labcoat", "plan", "--replace", "token"]).unwrap();
+        assert!(matches!(cli.command, Commands::Plan { replace } if replace == ["token"]));
+        // The script is always the project's deploy.rs.
+        assert!(Cli::try_parse_from(["labcoat", "plan", "--manifest", "x.hcl"]).is_err());
+
+        let cli = Cli::try_parse_from(["labcoat", "import", "market", "2:118"]).unwrap();
+        assert!(
+            matches!(cli.command, Commands::Import { name, id } if name == "market" && id == "2:118")
+        );
+        assert!(Cli::try_parse_from(["labcoat", "import", "market"]).is_err());
+
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "new",
+            "beacon",
+            "--template",
+            "upgradeable-beacon",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::New { template: Some(template), .. } if template == "upgradeable-beacon"
+        ));
+    }
+
+    #[test]
+    fn call_and_simulate_resolve_methods_through_a_named_abi() {
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "call",
+            "counter",
+            "add",
+            "41",
+            "--abi",
+            "counter_logic",
+        ])
+        .unwrap();
+        let Commands::Call { abi, args, .. } = cli.command else {
+            panic!("expected call");
+        };
+        assert_eq!(abi.as_deref(), Some("counter_logic"));
+        assert_eq!(args, ["41"]);
+
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "simulate",
+            "counter",
+            "get_count",
+            "--abi",
+            "2:5",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Commands::Simulate { abi: Some(abi), .. } if abi == "2:5"));
     }
 
     #[test]

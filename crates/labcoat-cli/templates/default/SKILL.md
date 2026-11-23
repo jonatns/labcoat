@@ -20,13 +20,17 @@ Named methods accept one shell argument per ABI parameter. Labcoat encodes
 `u128`, `String`, and `AlkaneId`; use a numeric opcode for raw cellpack args
 when a method uses an unsupported complex type. Simulation always targets the
 deployed contract and live indexed state; use `labcoat test <package>` for an
-undeployed local build. Declare multi-step deployments in `alkanes.hcl`
-(`contract` blocks deploy; `alkane` blocks name external ids, either one
-binding or a per-network map like `id = { regtest = [4, 65012] }`;
-reference them as `contract.<name>.id` / `alkane.<name>.id`; prefer
-constructor `args` named after ABI parameters over positional) and run
-`labcoat plan` / `labcoat apply --broadcast`. The manifest is deployment
-only — done when the topology is correct and inert; value-moving,
+undeployed local build. Declare multi-step deployments in `deploy.rs` with
+`labcoat_test::deploy` (`d.contract(name, package)` deploys once, with
+`.reserve(n)` and `.arg(name, value)` named after ABI parameters;
+`d.external(name).on(network, block, tx)` names an existing Alkane;
+reference another step with `step.id()`) and run `labcoat plan` /
+`labcoat apply --broadcast`. A step runs once per network: editing it
+afterwards is a conflict that apply refuses until you restore it or pass
+`--replace <name>`. For upgradeable contracts use `d.implementation`,
+`d.beacon`, `d.beacon_proxy`, and `labcoat new <name> --template`, and call
+through a proxy with `--abi <implementation>`. The script is deployment
+only — done when the contracts are deployed and inert; value-moving,
 actor-specific operations belong in `tests/e2e.rs` (`labcoat test --e2e`)
 or application flows.
 

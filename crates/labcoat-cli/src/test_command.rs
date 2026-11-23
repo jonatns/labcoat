@@ -2,8 +2,9 @@ use crate::contract::{CmdResult, Ctx, EnvelopeError};
 use std::path::{Path, PathBuf};
 
 /// `labcoat test --e2e [filter]` — reset the Labcoat Network (opt-out with
-/// `--no-reset`), apply the `alkanes.hcl` manifest when present, then run
-/// the project's ignored `tests/e2e.rs` tests with the context env set.
+/// `--no-reset`), apply the `deploy.rs` deployment script when present,
+/// then run the project's ignored `tests/e2e.rs` tests with the context
+/// env set.
 pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResult {
     if ctx.config.network != labcoat_core::NetworkTarget::Labcoat {
         return Err(EnvelopeError {
@@ -75,7 +76,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
     }
 
     // A reset leaves the project wallet empty; make sure it exists and
-    // holds mature regtest BTC before the manifest deploys anything.
+    // holds mature regtest BTC before the script deploys anything.
     {
         let passphrase = ctx.passphrase();
         let address = async {
@@ -111,13 +112,18 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
             })?;
     }
 
-    let manifest_path = project_root.join(labcoat_core::manifest::MANIFEST);
-    let applied = if manifest_path.is_file() {
+    let applied = if project_root
+        .join(labcoat_core::deployment::SCRIPT)
+        .is_file()
+    {
+        let graph = crate::deploy_script::load_graph(&project_root, ctx.config.network_id())
+            .map_err(core_error)?;
         let report = labcoat_core::apply::apply(
             &ctx.config,
             &ctx.signer_spec().map_err(core_error)?,
             &project_root,
-            &manifest_path,
+            &graph,
+            &labcoat_core::apply::Options::default(),
         )
         .await
         .map_err(core_error)?;
@@ -264,7 +270,7 @@ fn core_error(error: labcoat_core::LabcoatError) -> EnvelopeError {
 /// exists, so generated projects resolve the harness from their matching
 /// `cli-vX.Y.Z` Git tag. `LABCOAT_TEST_CRATE_PATH` remains available for CI and
 /// packagers.
-fn local_labcoat_test_path() -> Option<PathBuf> {
+pub(crate) fn local_labcoat_test_path() -> Option<PathBuf> {
     if std::env::var_os("LABCOAT_TEST_CRATE_PATH").is_some() {
         return None;
     }

@@ -39,8 +39,11 @@ test('brand, agent, release, and generated asset contracts are synchronized', as
   expect(await readRepo('apps/web/src/assets/labcoat-mark-light.svg')).not.toContain('currentColor');
 
   const topLevel = new Set(cliReference.result.commands.map((command: { name: string }) => command.name));
-  for (const fence of skill.matchAll(/```(?:bash|sh|shell)?\s*\n([\s\S]*?)```/g)) {
-    for (const match of fence[1].matchAll(/\blabcoat\s+([^\s\\]+)/g)) {
+  // Match every fenced block so one in another language cannot shift the
+  // pairing, then check only the shell ones.
+  for (const fence of skill.matchAll(/```([a-z]*)[^\n]*\n([\s\S]*?)```/g)) {
+    if (!['', 'bash', 'sh', 'shell'].includes(fence[1])) continue;
+    for (const match of fence[2].matchAll(/\blabcoat\s+([^\s\\]+)/g)) {
       const command = match[1].replace(/[;&|]+$/, '');
       if (!command.startsWith('-')) expect(topLevel.has(command), `skill command: ${command}`).toBeTruthy();
     }

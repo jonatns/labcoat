@@ -3,8 +3,8 @@
 //!
 //! Tests live in `tests/e2e.rs`, are marked `#[ignore]` (so plain
 //! `cargo test` skips them), and run via `labcoat test --e2e`, which
-//! resets the network, applies the `alkanes.hcl` manifest, and executes
-//! them with the environment this context reads:
+//! resets the network, applies the `deploy.rs` deployment script, and
+//! executes them with the environment this context reads:
 //!
 //! ```text
 //! LABCOAT_E2E_BIN   absolute path of the labcoat binary driving the run
@@ -50,6 +50,7 @@ pub struct Call {
     pointer: Option<String>,
     refund: Option<String>,
     edicts: Vec<String>,
+    abi: Option<String>,
     wallet: Option<Wallet>,
 }
 
@@ -97,12 +98,20 @@ impl Call {
             pointer: None,
             refund: None,
             edicts: Vec::new(),
+            abi: None,
             wallet: None,
         }
     }
 
     pub fn arg(mut self, value: impl ToString) -> Self {
         self.args.push(value.to_string());
+        self
+    }
+
+    /// Resolve the method name against another contract's ABI. A call
+    /// through a proxy needs this: name the implementation.
+    pub fn abi(mut self, contract: &str) -> Self {
+        self.abi = Some(contract.to_string());
         self
     }
 
@@ -236,8 +245,24 @@ impl E2e {
         Ok(envelope.get("result").cloned().unwrap_or(Value::Null))
     }
 
-    /// The `block:tx` id recorded for a contract name in labcoat.lock.
+    /// The step record `deploy.rs` left for `name` in the Labcoat Network
+    /// run file, when there is one.
+    fn step_record(&self, name: &str) -> Option<Value> {
+        let text = std::fs::read_to_string(self.root.join("deployments/labcoat.json")).ok()?;
+        let run: Value = serde_json::from_str(&text).ok()?;
+        run.get("steps")?.get(name).cloned()
+    }
+
+    /// The `block:tx` id of a contract or external Alkane by name: a
+    /// `deploy.rs` step, or a contract recorded in labcoat.lock by
+    /// `labcoat deploy` or [`E2e::deploy`].
     pub fn contract(&self, name: &str) -> Result<String> {
+        if let Some(id) = self
+            .step_record(name)
+            .and_then(|record| record.get("id").and_then(Value::as_str).map(String::from))
+        {
+            return Ok(id);
+        }
         let path = self.root.join("labcoat.lock");
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("cannot read {} — did apply run?", path.display()))?;
@@ -250,6 +275,23 @@ impl E2e {
             .and_then(Value::as_str)
             .map(String::from)
             .ok_or_else(|| anyhow!("no deployment of `{name}` on labcoat in labcoat.lock"))
+    }
+
+    /// The id of the `index`-th Alkane a `deploy.rs` contract step's
+    /// transaction created. Index 0 is the contract itself; index 1 is,
+    /// for a standard proxy or beacon, its auth token.
+    pub fn created(&self, name: &str, index: usize) -> Result<String> {
+        self.step_record(name)
+            .and_then(|record| {
+                record
+                    .get("created")?
+                    .get(index)?
+                    .as_str()
+                    .map(String::from)
+            })
+            .ok_or_else(|| {
+                anyhow!("deploy.rs step `{name}` recorded no created Alkane at index {index}")
+            })
     }
 
     /// Broadcast a state-changing call and wait for its trace.
@@ -270,6 +312,9 @@ impl E2e {
         }
         for edict in &call.edicts {
             args.extend(["--edict".into(), edict.clone()]);
+        }
+        if let Some(abi) = &call.abi {
+            args.extend(["--abi".into(), abi.clone()]);
         }
         let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
         let result = self.invoke(call.wallet.as_ref(), &borrowed)?;
@@ -330,9 +375,38 @@ impl E2e {
         self.invoke(None, &cli_args)
     }
 
+    /// Read-only simulation through a proxy: send the call to `contract`,
+    /// resolving `method` against the ABI of `abi` (the implementation).
+    pub fn simulate_via(
+        &self,
+        contract: &str,
+        abi: &str,
+        method: &str,
+        args: &[&str],
+    ) -> Result<Value> {
+        let mut cli_args = vec!["simulate", contract, method];
+        cli_args.extend_from_slice(args);
+        cli_args.extend_from_slice(&["--abi", abi]);
+        self.invoke(None, &cli_args)
+    }
+
+    /// [`E2e::simulate_via`] for a method that returns a uint.
+    pub fn simulate_uint_via(
+        &self,
+        contract: &str,
+        abi: &str,
+        method: &str,
+        args: &[&str],
+    ) -> Result<u128> {
+        Self::decode_uint(method, self.simulate_via(contract, abi, method, args)?)
+    }
+
     /// Simulate a method that returns a uint and decode it.
     pub fn simulate_uint(&self, contract: &str, method: &str, args: &[&str]) -> Result<u128> {
-        let result = self.simulate(contract, method, args)?;
+        Self::decode_uint(method, self.simulate(contract, method, args)?)
+    }
+
+    fn decode_uint(method: &str, result: Value) -> Result<u128> {
         if result.get("status").and_then(Value::as_str) != Some("success") {
             bail!("simulation of {method} failed: {result}");
         }
@@ -458,7 +532,7 @@ impl E2e {
         Ok(wallet)
     }
 
-    /// The project wallet's primary address (the manifest's signer).
+    /// The project wallet's primary address (the signer `deploy.rs` runs as).
     pub fn project_address(&self) -> Result<String> {
         let addresses = self.invoke(None, &["wallet", "addresses"])?;
         addresses
@@ -470,7 +544,7 @@ impl E2e {
             .ok_or_else(|| anyhow!("project wallet reported no addresses"))
     }
 
-    /// Broadcast a deploy outside the manifest (e.g. signed by a
+    /// Broadcast a deploy outside `deploy.rs` (e.g. signed by a
     /// disposable wallet) and record it in labcoat.lock.
     pub fn deploy(&self, deploy: Deploy) -> Result<Outcome> {
         let mut args: Vec<String> = vec!["deploy".into()];

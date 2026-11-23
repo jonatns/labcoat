@@ -30,7 +30,7 @@ sha2 = "0.10"
 alkanes-support.workspace = true
 alkanes-cli-common.workspace = true
 ordinals.workspace = true
-hcl-rs = "0.19.8"
 
 [dev-dependencies]
+labcoat-test = { path = "../labcoat-test" }
 wat = "1"

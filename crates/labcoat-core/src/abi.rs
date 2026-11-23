@@ -400,8 +400,52 @@ pub(crate) fn parse_raw_arg(value: &str) -> Result<u128> {
     crate::parse_arg(value)
 }
 
+/// An initializer or call resolved to its opcode and raw cellpack args.
+///
+/// `method` is a decimal opcode — its args are positional raw cellpack
+/// values — or an ABI method name, resolved against `abi` with one arg per
+/// ABI parameter (named or positional).
+pub fn encode_invocation(
+    abi: Option<&[u8]>,
+    method: &str,
+    args: &CallArgs,
+) -> Result<ResolvedMethod> {
+    if let Ok(opcode) = method.parse::<u128>() {
+        let CallArgs::Positional(values) = args else {
+            return Err(LabcoatError::new(
+                "CONFIG_INVALID",
+                format!(
+                    "named args require an ABI method name, but `{method}` is a numeric opcode"
+                ),
+                "use the ABI method name, or positional raw cellpack args",
+            ));
+        };
+        let cellpack_args = values
+            .iter()
+            .map(|value| parse_raw_arg(value))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok(ResolvedMethod {
+            name: method.to_string(),
+            opcode,
+            cellpack_args,
+        });
+    }
+    let abi = abi.ok_or_else(|| {
+        LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("method `{method}` cannot be resolved: the contract exposes no ABI metadata"),
+            "export __meta from the contract, or use a numeric opcode with raw cellpack args",
+        )
+    })?;
+    resolve_method(abi, method, args)
+}
+
 /// The artifact's ABI JSON: the sibling `.abi.json` if present, else
 /// extracted from the wasm's `__meta` export. None when neither works.
+pub fn artifact_abi(wasm_path: &Path) -> Option<Vec<u8>> {
+    artifact_abi_bytes(wasm_path)
+}
+
 fn artifact_abi_bytes(wasm_path: &Path) -> Option<Vec<u8>> {
     let abi_path = wasm_path.with_extension("abi.json");
     if let Ok(bytes) = std::fs::read(&abi_path) {

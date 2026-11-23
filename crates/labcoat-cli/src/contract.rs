@@ -369,6 +369,7 @@ async fn resolve_invocation(
     contract: &str,
     selector: &str,
     args: &[String],
+    abi_contract: Option<&str>,
     operation: &str,
 ) -> Result<(u128, u128, ResolvedInvocation), labcoat_core::LabcoatError> {
     let numeric = numeric_selector(selector)?;
@@ -377,7 +378,7 @@ async fn resolve_invocation(
     let deployment = named_deployment(&ctx.config, contract)?;
     let mut local_build_status = deployment
         .as_ref()
-        .map(|deployment| local_build_status(contract, deployment))
+        .map(|deployment| local_build_status(&ctx.config, contract, deployment))
         .unwrap_or(LocalBuildStatus::Unavailable);
     if local_build_status == LocalBuildStatus::Differs {
         if numeric.is_some() {
@@ -400,12 +401,22 @@ async fn resolve_invocation(
             local_build_status,
         }
     } else {
-        let local_abi = if local_build_status == LocalBuildStatus::Matches {
-            read_local_abi(contract)
+        let local_abi = if abi_contract.is_none() && local_build_status == LocalBuildStatus::Matches
+        {
+            read_local_abi(&ctx.config, contract)
         } else {
             None
         };
-        let (abi, abi_source) = if let Some(abi) = local_abi {
+        let (abi, abi_source) = if let Some(abi_contract) = abi_contract {
+            // A proxy's own ABI lists only proxy methods: resolve the
+            // method against the named implementation's deployed ABI, and
+            // still send the call to `contract`.
+            let (abi_block, abi_tx) = resolve(&ctx.config, abi_contract)?;
+            (
+                labcoat_core::abi::fetch_deployed(&ctx.config, abi_block, abi_tx).await?,
+                AbiSource::DeployedMeta,
+            )
+        } else if let Some(abi) = local_abi {
             (abi, AbiSource::LocalBuild)
         } else {
             if local_build_status == LocalBuildStatus::Matches {
@@ -444,7 +455,28 @@ fn named_deployment(
     labcoat_core::lockfile::get(&cwd, config.network_id(), contract)
 }
 
+/// The build artifact (file stem under `build/`) a lock name was deployed
+/// from. A `deploy.rs` step records it, because a step's name need not be
+/// its package's — a proxy step named `token` is not the `token` package.
+/// A step with no local artifact (a template clone) has none; any other
+/// name is assumed to be a package deployed under its own name.
+fn local_artifact_stem(
+    root: &std::path::Path,
+    config: &ToolkitConfig,
+    contract: &str,
+) -> Option<String> {
+    let record = labcoat_core::runfile::load(root, config.network_id())
+        .ok()
+        .and_then(|run| run.steps.get(contract).cloned())
+        .filter(|record| record.kind == "contract");
+    match record {
+        Some(record) => record.artifact,
+        None => Some(contract.to_string()),
+    }
+}
+
 fn local_build_status(
+    config: &ToolkitConfig,
     contract: &str,
     deployment: &labcoat_core::lockfile::Deployment,
 ) -> LocalBuildStatus {
@@ -452,7 +484,10 @@ fn local_build_status(
         return LocalBuildStatus::Unavailable;
     };
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    local_build_status_in(&cwd, contract, expected_hash)
+    match local_artifact_stem(&cwd, config, contract) {
+        Some(stem) => local_build_status_in(&cwd, &stem, expected_hash),
+        None => LocalBuildStatus::Unavailable,
+    }
 }
 
 fn local_build_status_in(
@@ -473,9 +508,9 @@ fn local_build_status_in(
     }
 }
 
-fn read_local_abi(contract: &str) -> Option<Vec<u8>> {
+fn read_local_abi(config: &ToolkitConfig, contract: &str) -> Option<Vec<u8>> {
     let cwd = std::env::current_dir().ok()?;
-    read_local_abi_in(&cwd, contract)
+    read_local_abi_in(&cwd, &local_artifact_stem(&cwd, config, contract)?)
 }
 
 fn read_local_abi_in(root: &std::path::Path, contract: &str) -> Option<Vec<u8>> {
@@ -801,6 +836,7 @@ pub async fn deploy(
             toolkit::DeployRequest {
                 wasm_path: &artifact.wasm_path,
                 contract_name: Some(artifact.contract_name),
+                initializer: None,
                 cellpack_args: &constructor.cellpack,
                 fee_rate: ctx.config.fee_rate,
                 target: deploy_target(reserve),
@@ -867,6 +903,9 @@ pub fn deploy_dry_run(
             "target": match target {
                 toolkit::DeployTarget::New => "1:0 (next free id)".to_string(),
                 toolkit::DeployTarget::Reserve(n) => format!("3:{n} (reserved)"),
+                clone @ toolkit::DeployTarget::Clone { .. } => {
+                    format!("{} (template clone)", clone.label())
+                }
             },
             "constructor": constructor.method,
             "argsEncoding": constructor.encoding,
@@ -980,10 +1019,11 @@ pub async fn call_dry_run(
     selector: &str,
     args: &[String],
     tx_flags: &TxFlags,
+    abi_contract: Option<&str>,
 ) -> (&'static str, CmdResult) {
     let res = async {
         let (block, tx, invocation) =
-            resolve_invocation(ctx, contract, selector, args, "call").await?;
+            resolve_invocation(ctx, contract, selector, args, abi_contract, "call").await?;
         let options = tx_flags.options();
         options.input_requirements()?;
         let spec = toolkit::call_spec(block, tx, invocation.opcode, &invocation.cellpack_args, &options);
@@ -1015,10 +1055,11 @@ pub async fn call(
     selector: &str,
     args: &[String],
     tx_flags: &TxFlags,
+    abi_contract: Option<&str>,
 ) -> (&'static str, CmdResult) {
     let res = async {
         let (block, tx, invocation) =
-            resolve_invocation(ctx, contract, selector, args, "call").await?;
+            resolve_invocation(ctx, contract, selector, args, abi_contract, "call").await?;
         let outcome = toolkit::call(
             &ctx.config,
             &ctx.signer_spec()?,
@@ -1277,11 +1318,12 @@ pub async fn simulate(
     contract: &str,
     selector: &str,
     args: &[String],
+    abi_contract: Option<&str>,
 ) -> (&'static str, CmdResult) {
     let res =
         async {
             let (block, tx, invocation) =
-                resolve_invocation(ctx, contract, selector, args, "simulate").await?;
+                resolve_invocation(ctx, contract, selector, args, abi_contract, "simulate").await?;
             let outcome = toolkit::simulate(
                 &ctx.config,
                 block,
@@ -1297,62 +1339,80 @@ pub async fn simulate(
     ("simulate", to_envelope(res))
 }
 
-fn manifest_root_and_path(
-    manifest: Option<&str>,
-) -> Result<(PathBuf, PathBuf), labcoat_core::LabcoatError> {
-    let root = std::env::current_dir().map_err(|e| {
+fn project_root() -> Result<PathBuf, labcoat_core::LabcoatError> {
+    std::env::current_dir().map_err(|e| {
         labcoat_core::LabcoatError::new(
             "CONFIG_INVALID",
             e.to_string(),
             "run Labcoat from a readable directory",
         )
-    })?;
-    let path = match manifest {
-        Some(path) => root.join(path),
-        None => root.join(labcoat_core::manifest::MANIFEST),
-    };
-    Ok((root, path))
+    })
 }
 
-/// `labcoat plan` — reconcile the manifest, never load a signer.
-pub async fn plan(ctx: &Ctx, manifest: Option<&str>) -> (&'static str, CmdResult) {
+fn apply_options(replace: &[String]) -> labcoat_core::apply::Options {
+    labcoat_core::apply::Options {
+        replace: replace.iter().cloned().collect(),
+    }
+}
+
+/// `labcoat plan` — run deploy.rs and reconcile its graph; never loads a
+/// signer.
+pub async fn plan(ctx: &Ctx, replace: &[String]) -> (&'static str, CmdResult) {
     let res = async {
-        let (root, path) = manifest_root_and_path(manifest)?;
-        let outcome = labcoat_core::apply::plan(&ctx.config, &root, &path).await?;
+        let root = project_root()?;
+        let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
+        let outcome =
+            labcoat_core::apply::plan(&ctx.config, &root, &graph, &apply_options(replace)).await?;
         Ok(serde_json::to_value(outcome.plan).expect("serializable plan"))
     }
     .await;
     ("plan", to_envelope(res))
 }
 
-/// `labcoat apply` — execute the plan's pending actions under --broadcast;
+/// `labcoat apply` — execute the plan's pending steps under --broadcast;
 /// without the flag it only shows the plan.
-pub async fn apply(
-    ctx: &Ctx,
-    manifest: Option<&str>,
-    broadcast: bool,
-) -> (&'static str, CmdResult) {
+pub async fn apply(ctx: &Ctx, replace: &[String], broadcast: bool) -> (&'static str, CmdResult) {
     let res = async {
-        let (root, path) = manifest_root_and_path(manifest)?;
+        let root = project_root()?;
+        let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
+        let options = apply_options(replace);
         if !broadcast {
-            let outcome = labcoat_core::apply::plan(&ctx.config, &root, &path).await?;
+            let outcome = labcoat_core::apply::plan(&ctx.config, &root, &graph, &options).await?;
             let mut value = serde_json::to_value(outcome.plan).expect("serializable plan");
             if let serde_json::Value::Object(object) = &mut value {
                 object.insert("dryRun".into(), serde_json::json!(true));
                 object.insert(
                     "wouldBroadcast".into(),
-                    serde_json::json!("re-run with --broadcast to execute the pending actions"),
+                    serde_json::json!("re-run with --broadcast to execute the pending steps"),
                 );
             }
             return Ok(value);
         }
-        let report =
-            labcoat_core::apply::apply(&ctx.mutating_config(), &ctx.signer_spec()?, &root, &path)
-                .await?;
+        let report = labcoat_core::apply::apply(
+            &ctx.mutating_config(),
+            &ctx.signer_spec()?,
+            &root,
+            &graph,
+            &options,
+        )
+        .await?;
         Ok(serde_json::to_value(report).expect("serializable apply report"))
     }
     .await;
     ("apply", to_envelope(res))
+}
+
+/// `labcoat import <name> <id>` — record an existing on-chain contract as
+/// a deployment step's instance. Broadcasts nothing.
+pub async fn import(ctx: &Ctx, name: &str, id: &str) -> (&'static str, CmdResult) {
+    let res = async {
+        let root = project_root()?;
+        let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
+        let report = labcoat_core::apply::import(&ctx.config, &root, &graph, name, id).await?;
+        Ok(serde_json::to_value(report).expect("serializable import report"))
+    }
+    .await;
+    ("import", to_envelope(res))
 }
 
 pub async fn trace(ctx: &Ctx, txid: &str, wait: bool) -> (&'static str, CmdResult) {

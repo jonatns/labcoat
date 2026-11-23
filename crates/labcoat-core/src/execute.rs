@@ -31,6 +31,9 @@ pub struct ExecuteOutcome {
     pub revert_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alkanes_id: Option<String>,
+    /// Every Alkane the transaction created, in trace order (deploys).
+    #[serde(skip)]
+    pub created: Vec<String>,
     pub traces: Option<Vec<serde_json::Value>>,
 }
 
@@ -239,7 +242,22 @@ pub async fn run(
             _ => None,
         })
         .collect();
-    let excluded_utxos = protected_outpoints(provider, mine_enabled, &required_alkanes).await?;
+    let (mut excluded_utxos, spendable) =
+        protected_outpoints(provider, mine_enabled, &required_alkanes).await?;
+    if request.envelope.is_some() {
+        let bitcoin_requirements: u64 = request
+            .input_requirements
+            .iter()
+            .filter_map(|requirement| match requirement {
+                InputRequirement::Bitcoin { amount } => Some(*amount),
+                _ => None,
+            })
+            .sum();
+        excluded_utxos.extend(envelope_funding_exclusions(
+            &spendable,
+            DUST + bitcoin_requirements + UPSTREAM_REVEAL_BUFFER + COMMIT_HEADROOM,
+        ));
+    }
 
     let params = EnhancedExecuteParams {
         fee_rate: request.fee_rate.or(config.fee_rate),
@@ -372,6 +390,48 @@ pub async fn run(
     Ok(result)
 }
 
+/// Mirrors the constant baked into upstream build_reveal_psbt
+/// (alkanes-cli-common alkanes/execute.rs, `total_bitcoin_needed`).
+const UPSTREAM_REVEAL_BUFFER: u64 = 50_000;
+const DUST: u64 = 546;
+/// Room for the commit transaction's own fee and change output on top of
+/// what the reveal needs.
+const COMMIT_HEADROOM: u64 = 20_000;
+
+/// Coin control for envelope (commit/reveal) transactions.
+///
+/// Upstream sizes the commit's funding for the commit alone, oldest UTXO
+/// first. In a wallet holding several small UTXOs — the change outputs a
+/// multi-step deployment leaves behind — that selection can cover the
+/// commit with almost no change, leaving [`prefund_reveal_from_commit_change`]
+/// nothing to pre-fund the reveal from; the reveal then re-selects from a
+/// stale view and is rejected as a conflicting replacement.
+///
+/// So choose the funding here instead: the largest plain UTXOs that
+/// together cover `needed`, and exclude every other one. Returns nothing
+/// to exclude when the wallet cannot cover `needed` at all, leaving the
+/// upstream insufficient-funds path to report it.
+fn envelope_funding_exclusions(spendable: &[(String, u64)], needed: u64) -> Vec<String> {
+    let mut by_size: Vec<&(String, u64)> = spendable.iter().collect();
+    by_size.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let mut total = 0_u64;
+    let mut keep = 0;
+    for (_, sats) in &by_size {
+        if total >= needed {
+            break;
+        }
+        total = total.saturating_add(*sats);
+        keep += 1;
+    }
+    if total < needed {
+        return Vec::new();
+    }
+    by_size[keep..]
+        .iter()
+        .map(|(outpoint, _)| outpoint.clone())
+        .collect()
+}
+
 /// Upstream's `build_reveal_psbt` funds the reveal with extra wallet UTXOs
 /// whenever the commit output holds less than `to·546 + bitcoin reqs +
 /// 50_000` sats — and on this stack that selection reads a stale confirmed
@@ -386,11 +446,6 @@ pub async fn run(
 fn prefund_reveal_from_commit_change(
     commit: &mut alkanes_cli_common::alkanes::types::ReadyToSignCommitTx,
 ) {
-    // Mirrors the constant baked into upstream build_reveal_psbt
-    // (alkanes-cli-common alkanes/execute.rs, `total_bitcoin_needed`).
-    const UPSTREAM_REVEAL_BUFFER: u64 = 50_000;
-    const DUST: u64 = 546;
-
     let bitcoin_requirements: u64 = commit
         .params
         .input_requirements
@@ -565,7 +620,7 @@ async fn protected_outpoints(
     provider: &ConcreteProvider,
     mine_enabled: bool,
     required_alkanes: &std::collections::BTreeSet<(u128, u128)>,
-) -> Result<Vec<String>> {
+) -> Result<(Vec<String>, Vec<(String, u64)>)> {
     use alkanes_cli_common::traits::AlkanesProvider;
 
     let utxos = WalletProvider::get_utxos(provider, true, None)
@@ -593,7 +648,7 @@ async fn protected_outpoints(
         }
     }
 
-    for (outpoint, info) in utxos {
+    for (outpoint, info) in &utxos {
         if !mine_enabled || info.confirmations >= 100 {
             continue;
         }
@@ -613,7 +668,13 @@ async fn protected_outpoints(
         }
     }
 
-    Ok(excluded)
+    // Plain bitcoin the selector may still fund with.
+    let spendable = utxos
+        .iter()
+        .map(|(outpoint, info)| (outpoint.to_string(), info.amount))
+        .filter(|(outpoint, _)| !excluded.contains(outpoint))
+        .collect();
+    Ok((excluded, spendable))
 }
 
 /// Mine confirmations away from the project wallet. The public key is the
@@ -639,6 +700,39 @@ pub fn find_created_alkane(traces: &Option<Vec<serde_json::Value>>) -> Option<St
         }
     }
     None
+}
+
+/// Every Alkane id created in the traces, in trace order without
+/// duplicates. A deploy's own contract comes first; contracts it creates
+/// while initializing (an auth token, for example) follow.
+pub fn find_created_alkanes(traces: &Option<Vec<serde_json::Value>>) -> Vec<String> {
+    fn scan(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                let is_create = map.get("event").and_then(|e| e.as_str()) == Some("create")
+                    || map.get("type").and_then(|t| t.as_str()) == Some("create_alkane");
+                if is_create {
+                    let id = ["data", "alkane_id", "new_alkane"]
+                        .iter()
+                        .find_map(|key| map.get(*key).and_then(extract_id));
+                    if let Some(id) = id {
+                        if !out.contains(&id) {
+                            out.push(id);
+                        }
+                        return;
+                    }
+                }
+                map.values().for_each(|inner| scan(inner, out));
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|inner| scan(inner, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(traces) = traces {
+        traces.iter().for_each(|trace| scan(trace, &mut out));
+    }
+    out
 }
 
 fn scan_for_create(value: &serde_json::Value) -> Option<String> {
@@ -855,6 +949,32 @@ mod tests {
         let spec = spec_with_options(2, 1, &[20], &options);
         let err = validate_spec(&spec).expect_err("x9 is not a vN/pN target");
         assert_eq!(err.code, "ENVELOPE_INVALID");
+    }
+
+    #[test]
+    fn envelope_funding_keeps_the_largest_utxos_and_excludes_the_rest() {
+        let spendable = vec![
+            ("small:0".to_string(), 546),
+            ("change:1".to_string(), 19_871),
+            ("big:1".to_string(), 499_838_860),
+            ("change:2".to_string(), 17_707),
+        ];
+        // One large UTXO covers the need: every small one is excluded.
+        assert_eq!(
+            envelope_funding_exclusions(&spendable, 70_546),
+            ["change:1", "change:2", "small:0"]
+        );
+        // The need spans several UTXOs, largest first.
+        let fragmented = vec![
+            ("a:0".to_string(), 40_000),
+            ("b:0".to_string(), 30_000),
+            ("c:0".to_string(), 20_000),
+            ("d:0".to_string(), 546),
+        ];
+        assert_eq!(envelope_funding_exclusions(&fragmented, 70_546), ["d:0"]);
+        // A wallet that cannot cover the need is left to the upstream
+        // insufficient-funds error.
+        assert!(envelope_funding_exclusions(&fragmented[2..], 70_546).is_empty());
     }
 
     #[test]

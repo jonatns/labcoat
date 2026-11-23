@@ -3,7 +3,8 @@
 
 use crate::error::{LabcoatError, Result};
 use crate::execute::{
-    find_created_alkane, find_return_status, spec_with_options, ExecuteOutcome, TxOptions,
+    find_created_alkane, find_created_alkanes, find_return_status, spec_with_options,
+    ExecuteOutcome, TxOptions,
 };
 use crate::signer::SignerSpec;
 use crate::system::ToolkitConfig;
@@ -21,6 +22,10 @@ pub enum DeployTarget {
     New,
     /// Reserved number `N` via the `[3,N]` target.
     Reserve(u128),
+    /// A new instance of an already-deployed template's code, via the
+    /// factory target `[factory_block, tx]`. Build with
+    /// [`DeployTarget::clone_of`].
+    Clone { factory_block: u128, tx: u128 },
 }
 
 impl DeployTarget {
@@ -28,7 +33,34 @@ impl DeployTarget {
         match self {
             DeployTarget::New => (1, 0),
             DeployTarget::Reserve(n) => (3, n),
+            DeployTarget::Clone { factory_block, tx } => (factory_block, tx),
         }
+    }
+
+    /// The factory target that clones the template at `block:tx`: `[5,tx]`
+    /// for a sequential `2:tx` template, `[6,tx]` for a reserved `4:tx`
+    /// one. No other block holds clonable code.
+    pub fn clone_of(block: u128, tx: u128) -> Result<Self> {
+        let factory_block = match block {
+            2 => 5,
+            4 => 6,
+            other => {
+                return Err(LabcoatError::new(
+                    "CONFIG_INVALID",
+                    format!(
+                    "cannot clone {other}:{tx} — only 2:n and 4:n Alkanes are clonable templates"
+                ),
+                    "clone a contract deployed with a sequential (2:n) or reserved (4:n) id",
+                ))
+            }
+        };
+        Ok(DeployTarget::Clone { factory_block, tx })
+    }
+
+    /// The cellpack target, for display: `1:0`, `3:N`, `5:N`, or `6:N`.
+    pub fn label(self) -> String {
+        let (block, tx) = self.block_tx();
+        format!("{block}:{tx}")
     }
 }
 
@@ -36,22 +68,40 @@ impl DeployTarget {
 /// historical bare form (matching the old encipher([1,0])); every other
 /// shape carries initializer opcode 0 followed by the constructor args.
 pub fn deploy_spec(target: DeployTarget, cellpack_args: &[u128], options: &TxOptions) -> String {
+    deploy_spec_with(target, None, cellpack_args, options)
+}
+
+/// The deploy cellpack spec with an explicit initializer opcode. `None`
+/// keeps [`deploy_spec`]'s behavior (opcode 0, or the bare `[1,0]` form);
+/// `Some(opcode)` always carries that opcode followed by the args, which is
+/// how standard proxies (`0x7fff`) and uninitialized templates deploy.
+pub fn deploy_spec_with(
+    target: DeployTarget,
+    initializer: Option<u128>,
+    cellpack_args: &[u128],
+    options: &TxOptions,
+) -> String {
     let (block, tx) = target.block_tx();
-    let inputs = if target == DeployTarget::New && cellpack_args.is_empty() {
-        Vec::new()
-    } else {
-        let mut inputs = vec![0_u128];
-        inputs.extend_from_slice(cellpack_args);
-        inputs
+    let inputs = match initializer {
+        None if target == DeployTarget::New && cellpack_args.is_empty() => Vec::new(),
+        opcode => {
+            let mut inputs = vec![opcode.unwrap_or(0)];
+            inputs.extend_from_slice(cellpack_args);
+            inputs
+        }
     };
     spec_with_options(block, tx, &inputs, options)
 }
 
 /// Everything one deploy needs beyond config, signer, and project root.
 pub struct DeployRequest<'a> {
+    /// The raw `.wasm` to deploy. Ignored for [`DeployTarget::Clone`],
+    /// which reuses the template's code and carries no envelope.
     pub wasm_path: &'a Path,
     /// Lockfile name to record the deployment under (None skips recording).
     pub contract_name: Option<String>,
+    /// Initializer opcode; `None` is the opcode-0 constructor.
+    pub initializer: Option<u128>,
     pub cellpack_args: &'a [u128],
     pub fee_rate: Option<f32>,
     pub target: DeployTarget,
@@ -79,12 +129,14 @@ pub async fn deploy_in(
     let DeployRequest {
         wasm_path,
         contract_name,
+        initializer,
         cellpack_args,
         fee_rate,
         target,
         options,
     } = request;
-    if wasm_path.extension().and_then(|e| e.to_str()) == Some("gz") {
+    let is_clone = matches!(target, DeployTarget::Clone { .. });
+    if !is_clone && wasm_path.extension().and_then(|e| e.to_str()) == Some("gz") {
         return Err(LabcoatError::new(
             "ENVELOPE_INVALID",
             format!(
@@ -94,15 +146,22 @@ pub async fn deploy_in(
             "pass the .wasm produced by `labcoat build`",
         ));
     }
-    let wasm = std::fs::read(wasm_path).map_err(|e| {
-        LabcoatError::new(
-            "CONFIG_INVALID",
-            format!("cannot read {}: {}", wasm_path.display(), e),
-            "run `labcoat build` first",
-        )
-    })?;
+    let wasm = if is_clone {
+        None
+    } else {
+        Some(std::fs::read(wasm_path).map_err(|e| {
+            LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("cannot read {}: {}", wasm_path.display(), e),
+                "run `labcoat build` first",
+            )
+        })?)
+    };
     // A gzip magic check catches renamed files too.
-    if wasm.starts_with(&[0x1f, 0x8b]) {
+    if wasm
+        .as_ref()
+        .is_some_and(|wasm| wasm.starts_with(&[0x1f, 0x8b]))
+    {
         return Err(LabcoatError::new(
             "ENVELOPE_INVALID",
             "wasm payload is gzip-compressed; deploy wants the raw .wasm".to_string(),
@@ -136,14 +195,14 @@ pub async fn deploy_in(
         &crate::state::observed_chain(config, chain_id.clone()),
     )?;
 
-    let spec = deploy_spec(target, cellpack_args, options);
+    let spec = deploy_spec_with(target, initializer, cellpack_args, options);
 
     let result = crate::execute::run(
         &mut provider,
         config,
         crate::execute::ExecuteRequest {
             spec: &spec,
-            envelope: Some(wasm.clone()),
+            envelope: wasm.clone(),
             to_address,
             fee_rate,
             max_indexed_height: indexed,
@@ -161,6 +220,7 @@ pub async fn deploy_in(
     };
 
     let alkanes_id = find_created_alkane(&traces);
+    let created = find_created_alkanes(&traces);
     let (status, revert_reason) = find_return_status(&traces);
 
     if let (Some(id), Some(name)) = (&alkanes_id, &contract_name) {
@@ -168,7 +228,9 @@ pub async fn deploy_in(
         let network = config.network_id();
         let deployment = lockfile::Deployment {
             alkanes_id: id.clone(),
-            wasm_sha256: Some(hex::encode(sha2::Sha256::digest(&wasm))),
+            wasm_sha256: wasm
+                .as_ref()
+                .map(|wasm| hex::encode(sha2::Sha256::digest(wasm))),
             txid: result.reveal_txid.clone(),
             block: None,
             status: status.clone(),
@@ -208,6 +270,7 @@ pub async fn deploy_in(
         status,
         revert_reason,
         alkanes_id,
+        created,
         traces,
     })
 }
@@ -290,6 +353,7 @@ pub async fn call(
         status,
         revert_reason,
         alkanes_id: None,
+        created: Vec::new(),
         traces,
     })
 }
@@ -410,6 +474,30 @@ mod tests {
         assert_eq!(
             deploy_spec(DeployTarget::Reserve(65_011), &[1, 100], &options),
             "[3,65011,0,1,100]:v0:v0"
+        );
+    }
+
+    #[test]
+    fn explicit_initializers_and_clones_shape_the_cellpack() {
+        let options = TxOptions::default();
+        assert_eq!(
+            deploy_spec_with(DeployTarget::New, Some(0x7fff), &[2, 5, 1], &options),
+            "[1,0,32767,2,5,1]:v0:v0"
+        );
+        assert_eq!(
+            deploy_spec_with(DeployTarget::Reserve(65_517), Some(100), &[], &options),
+            "[3,65517,100]:v0:v0"
+        );
+        let clone = DeployTarget::clone_of(4, 65_520).unwrap();
+        assert_eq!(clone.label(), "6:65520");
+        assert_eq!(
+            deploy_spec_with(clone, Some(0x7fff), &[2, 9], &options),
+            "[6,65520,32767,2,9]:v0:v0"
+        );
+        assert_eq!(DeployTarget::clone_of(2, 7).unwrap().label(), "5:7");
+        assert_eq!(
+            DeployTarget::clone_of(32, 0).unwrap_err().code,
+            "CONFIG_INVALID"
         );
     }
 

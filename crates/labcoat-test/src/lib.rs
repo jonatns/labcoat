@@ -3,6 +3,7 @@
 //! `labcoat test` compiles WASIp1 WebAssembly modules and points this harness
 //! at the resulting artifact directory through `LABCOAT_TEST_ARTIFACT_DIR`.
 
+pub mod deploy;
 pub mod e2e;
 
 use serde::Deserialize;

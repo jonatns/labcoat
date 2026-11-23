@@ -57,21 +57,23 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("deploy", "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
             json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone(), "reserve": {"type": "string", "description": "reserved number N for a [3,N] deploy target (default: next free id via [1,0])"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
-            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone(), "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &["contract", "opcode"]),
+            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone(), "abi": {"type": "string", "description": "resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id); for a proxy, name the implementation"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &["contract", "opcode"]),
         tool("exchange_plan", "Build an owner-partitioned atomic exchange plan and return its base64 PSBT.",
             json!({"offered": {"type": "string"}, "offeredAmount": {"type": "integer", "minimum": 1}, "payment": {"type": "string"}, "paymentAmount": {"type": "integer", "minimum": 1}, "sellerAddress": {"type": "string"}, "buyerAddress": {"type": "string"}}), &["offered", "offeredAmount", "payment", "paymentAmount", "sellerAddress", "buyerAddress"]),
         tool("exchange_settle", "Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact.",
             json!({"plan": {"type": "object"}, "psbt": {"type": "string", "description": "base64 or hex buyer-signed PSBT"}, "sellerWalletFile": {"type": "string"}, "broadcast": {"type": "boolean"}}), &["plan", "psbt", "sellerWalletFile", "broadcast"]),
         tool("simulate", "Simulate a deployed contract against live indexed chain state (no transaction).",
-            json!({"contract": {"type": "string"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array}), &["contract", "opcode"]),
+            json!({"contract": {"type": "string"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array, "abi": {"type": "string", "description": "resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id); for a proxy, name the implementation"}}), &["contract", "opcode"]),
         tool("trace", "Decoded protostone traces for a transaction.",
             json!({"txid": {"type": "string"}, "wait": {"type": "boolean"}}), &["txid"]),
         tool("balance", "Alkanes token balances held by an address.",
             json!({"address": {"type": "string"}}), &["address"]),
-        tool("plan", "Reconcile the alkanes.hcl deployment manifest against labcoat.lock and chain state; shows pending actions without loading a signer.",
-            json!({"manifest": {"type": "string", "description": "manifest path (default alkanes.hcl)"}}), &[]),
-        tool("apply", "Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan.",
-            json!({"manifest": {"type": "string", "description": "manifest path (default alkanes.hcl)"}, "broadcast": {"type": "boolean", "description": "actually broadcast transactions"}}), &[]),
+        tool("plan", "Run the project's deploy.rs deployment script and reconcile its steps against the network's run file and chain state; shows pending, complete, and conflicting steps without loading a signer.",
+            json!({"replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again"}}), &[]),
+        tool("apply", "Execute the pending deployment steps deploy.rs declares. Requires broadcast: true to transact; otherwise returns the plan. Refuses while any step is in conflict.",
+            json!({"replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again"}, "broadcast": {"type": "boolean", "description": "actually broadcast transactions"}}), &[]),
+        tool("import", "Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.",
+            json!({"name": {"type": "string", "description": "contract step name from deploy.rs"}, "id": {"type": "string", "description": "the deployed contract's block:tx id"}}), &["name", "id"]),
         tool("state_list", "List resources and active instances in this environment's durable deployment state.",
             json!({}), &[]),
         tool("state_show", "Show one resource's active instance from durable state; history: true includes every earlier instance.",
@@ -359,10 +361,19 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                 .unwrap_or_default();
             let selector = call_selector(args)?;
             let call_args = str_args(args.get("args"));
+            let abi = args.get("abi").and_then(|v| v.as_str());
             let (_, res) = if name == "call" {
-                contract::call(ctx, contract_ref, &selector, &call_args, &tx_flags(args)).await
+                contract::call(
+                    ctx,
+                    contract_ref,
+                    &selector,
+                    &call_args,
+                    &tx_flags(args),
+                    abi,
+                )
+                .await
             } else {
-                contract::simulate(ctx, contract_ref, &selector, &call_args).await
+                contract::simulate(ctx, contract_ref, &selector, &call_args, abi).await
             };
             res.map_err(fail)
         }
@@ -505,17 +516,20 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map_err(fail)
         }
         "plan" => {
-            let manifest = args.get("manifest").and_then(|v| v.as_str());
-            let (_, res) = contract::plan(ctx, manifest).await;
+            let (_, res) = contract::plan(ctx, &str_args(args.get("replace"))).await;
             res.map_err(fail)
         }
         "apply" => {
-            let manifest = args.get("manifest").and_then(|v| v.as_str());
             let broadcast = args
                 .get("broadcast")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let (_, res) = contract::apply(ctx, manifest, broadcast).await;
+            let (_, res) = contract::apply(ctx, &str_args(args.get("replace")), broadcast).await;
+            res.map_err(fail)
+        }
+        "import" => {
+            let text = |key: &str| args.get(key).and_then(|v| v.as_str()).unwrap_or_default();
+            let (_, res) = contract::import(ctx, text("name"), text("id")).await;
             res.map_err(fail)
         }
         "state_list" | "state_show" | "state_migrate" => {
