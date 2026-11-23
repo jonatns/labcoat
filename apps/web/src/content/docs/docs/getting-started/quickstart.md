@@ -72,3 +72,10 @@ Finish by stopping the shared Labcoat Network:
 ```bash
 labcoat down
 ```
+
+## Next steps
+
+- [Tokens and exchanges](/docs/tutorials/token-exchange/) builds on this
+  project: a fixed-supply token, two wallets, and an atomic swap.
+- [Declarative deployments](/docs/deployments/) replaces one-off deploys with a
+  manifest you can apply repeatably.

@@ -30,6 +30,7 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ### Fixed
 
+- stop `labcoat reset` from declaring its own `--yes`, which clashed with the global `--yes`: every `labcoat reset` invocation panicked in debug builds and the flag was ambiguous in release builds. `-y` and the global `--yes` both skip the prompt
 - index the first block mined after `labcoat down` and `labcoat up`: an upstream runtime defect made both indexers drop it, so funding right after a restart never reached the wallet. Resuming a chain now mines two empty warm-up blocks first; the release acceptance flow covers the restart
 - keep every atomic exchange output single-asset: surplus from partially spent inputs now returns to its owner in its own change output instead of joining the counterparty's delivery, so both wallets can use their exchange outputs in later exchanges
 - make `labcoat test --e2e` honor `LABCOAT_TEST_CRATE_PATH` like `labcoat test`, so CI and packagers can run e2e tests before the release tag exists

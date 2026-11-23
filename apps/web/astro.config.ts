@@ -17,7 +17,7 @@ export default defineConfig({
         light: './src/assets/labcoat-mark-light.svg',
         alt: '',
       },
-      customCss: ['./src/styles/global.css'],
+      customCss: ['./src/styles/global.css', './src/styles/docs.css'],
       components: {
         Banner: './src/components/DocsBanner.astro',
         Head: './src/components/DocsHead.astro',
@@ -44,6 +44,7 @@ export default defineConfig({
             { label: 'Overview', slug: 'docs' },
             { label: 'Installation', slug: 'docs/getting-started/installation' },
             { label: 'Quick start', slug: 'docs/getting-started/quickstart' },
+            { label: 'Tutorial: tokens & exchanges', slug: 'docs/tutorials/token-exchange' },
           ],
         },
         {

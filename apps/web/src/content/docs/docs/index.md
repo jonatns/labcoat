@@ -9,31 +9,111 @@ smart contracts on Labcoat Network, a managed local Bitcoin regtest. It
 connects project scaffolding, native tests, WebAssembly builds, wallets,
 deployment, calls, simulation, and decoded traces.
 
-Labcoat Network is Labcoat's local, private, resettable Alkanes network. It
-runs Bitcoin regtest under the hood. It is not Signet.
-
 > Early-stage software for local Alkanes development. Interfaces may change
 > before 1.0; mainnet deployment controls are not production-ready.
 
 ```bash
+curl -fsSL https://labcoat.sh/install | sh
 labcoat init hello-alkane
 cd hello-alkane
 labcoat test
-labcoat up
 ```
 
-## Pick your path
+## Choose a path
 
-- [Install Labcoat](/docs/getting-started/installation/) on macOS or Linux.
-- Follow the [quick start](/docs/getting-started/quickstart/) from an empty
-  directory to a deployed contract.
-- Deploy a multi-contract topology with [plan and apply](/docs/deployments/).
-- Swap assets between wallets with [atomic exchanges](/docs/exchanges/).
-- Read deployed contracts from a browser with a [generated web client](/docs/web-apps/).
-- Integrate an AI agent through [MCP or JSON envelopes](/docs/automation/).
-- Read the generated [CLI reference](/docs/reference/cli/).
-- Review [stability and releases](/docs/reference/stability/) before
-  pinning automation.
+<ul class="docs-paths not-content">
+  <li>
+    <a href="/docs/getting-started/quickstart/">
+      <span class="path-label">Start</span>
+      <strong>Quick start</strong>
+      Go from an empty directory to a deployed, traced contract.
+      <code>labcoat init</code>
+    </a>
+  </li>
+  <li>
+    <a href="/docs/contracts/">
+      <span class="path-label">Contracts</span>
+      <strong>Write and test contracts</strong>
+      Native Rust tests, Wasm builds, deploys, calls, and traces.
+      <code>labcoat test</code>
+    </a>
+  </li>
+  <li>
+    <a href="/docs/deployments/">
+      <span class="path-label">Deploy</span>
+      <strong>Declarative deployments</strong>
+      Describe several contracts in one manifest and apply it repeatably.
+      <code>labcoat apply --broadcast</code>
+    </a>
+  </li>
+  <li>
+    <a href="/docs/tutorials/token-exchange/">
+      <span class="path-label">Tutorial</span>
+      <strong>Tokens and exchanges</strong>
+      Build a token, deploy it from two wallets, and swap them atomically.
+      <code>labcoat exchange</code>
+    </a>
+  </li>
+  <li>
+    <a href="/docs/web-apps/">
+      <span class="path-label">Web</span>
+      <strong>Read from a browser</strong>
+      Generate a typed TypeScript client from your deployments.
+      <code>labcoat generate web</code>
+    </a>
+  </li>
+  <li>
+    <a href="/docs/automation/">
+      <span class="path-label">Agents</span>
+      <strong>Automate with JSON and MCP</strong>
+      Give scripts and coding agents the same typed operations.
+      <code>labcoat mcp serve</code>
+    </a>
+  </li>
+</ul>
+
+## Key concepts
+
+**Labcoat Network.** Labcoat's local, private, resettable Alkanes network. It
+runs Bitcoin regtest under the hood with the Alkanes and Esplora indexes built
+in, and it is not Signet. `labcoat up` starts it and `labcoat reset` wipes it.
+See [Labcoat Network and wallets](/docs/labcoat-network/).
+
+**A project.** `labcoat init` creates a Cargo workspace with a Counter
+contract, native tests, `labcoat.toml` for settings, and a `rust-toolchain.toml`
+that pins the Rust release Labcoat is tested with. See
+[Projects and configuration](/docs/projects-configuration/).
+
+**`labcoat.lock`.** The per-network record of what you deployed and where:
+each contract name maps to its `block:tx` ID, so later commands can use the
+name. Commit it when deployments are shared project state.
+
+**`alkanes.hcl`.** An optional manifest describing a whole deployment
+topology, which `labcoat plan` and `labcoat apply` reconcile against the chain.
+See [Declarative deployments](/docs/deployments/).
+
+**One release unit.** Each `cli-vX.Y.Z` release ships the CLI, its exact
+Labcoat Network runtime, and the matching `labcoat-test` harness together.
+After upgrading the CLI, run `labcoat upgrade` in each project. See
+[Stability and releases](/docs/reference/stability/).
+
+## New since 0.2.0
+
+These docs track the `main` branch, which adds:
+
+- [Declarative deployments](/docs/deployments/) with `alkanes.hcl`, `plan`,
+  `apply`, and network e2e tests through `labcoat test --e2e`.
+- [Atomic exchanges](/docs/exchanges/) between two wallets, locally or through
+  a seller-last PSBT ceremony, with single-asset outputs.
+- [Generated web clients](/docs/web-apps/) for reading contracts from a browser.
+- [Deployment state](/docs/deployment-state/) with an append-only history and
+  reset protection.
+- `labcoat upgrade`, which moves an existing project's pins to the installed CLI.
+- alkanes-rs `v3.0.0-rc.4`, with the post-audit rules and DIESEL v3 active from
+  block 0 on Labcoat Network.
+
+The [changelog](https://github.com/jonatns/labcoat/blob/main/CHANGELOG.md) has
+the full list, including fixes.
 
 ## The supported interface
 
@@ -42,4 +122,5 @@ but CLI commands, `labcoat/v1/*` JSON envelopes, and MCP tools are designed for
 automation.
 
 Every JSON error includes a stable code, a human-readable message, and a
-recovery hint naming the next useful command.
+recovery hint naming the next useful command. See
+[Errors and recovery](/docs/reference/errors/).
