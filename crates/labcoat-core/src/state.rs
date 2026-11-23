@@ -796,8 +796,10 @@ mod tests {
 
     #[test]
     fn migration_imports_only_the_selected_network() {
-        let mut lock = lockfile::Lockfile::default();
-        lock.version = 1;
+        let mut lock = lockfile::Lockfile {
+            version: 1,
+            ..Default::default()
+        };
         let mut labcoat = BTreeMap::new();
         labcoat.insert("counter".to_string(), deployment(Some("abc")));
         let mut reverted = deployment(Some("abc"));
@@ -827,8 +829,10 @@ mod tests {
     #[test]
     fn migrate_backs_up_round_trips_and_refuses_to_run_twice() {
         let root = temp_root("migrate");
-        let mut lock = lockfile::Lockfile::default();
-        lock.version = 1;
+        let mut lock = lockfile::Lockfile {
+            version: 1,
+            ..Default::default()
+        };
         let mut labcoat = BTreeMap::new();
         labcoat.insert("counter".to_string(), deployment(Some("abc")));
         lock.networks.insert("labcoat".to_string(), labcoat);
@@ -914,8 +918,10 @@ mod tests {
     #[test]
     fn record_instance_appends_history_and_moves_the_active_pointer() {
         let root = temp_root("record");
-        let mut lock = lockfile::Lockfile::default();
-        lock.version = 1;
+        let mut lock = lockfile::Lockfile {
+            version: 1,
+            ..Default::default()
+        };
         let mut labcoat = BTreeMap::new();
         labcoat.insert("counter".to_string(), deployment(Some("abc")));
         lock.networks.insert("labcoat".to_string(), labcoat);

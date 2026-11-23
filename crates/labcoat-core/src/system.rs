@@ -16,8 +16,9 @@ use std::sync::Arc;
 ///
 /// `Labcoat` is the managed local network identity. It deliberately maps to
 /// Bitcoin regtest only at protocol boundaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum NetworkTarget {
+    #[default]
     Labcoat,
     Regtest,
     Signet,
@@ -50,12 +51,6 @@ impl NetworkTarget {
 
     pub fn uses_regtest(self) -> bool {
         self.bitcoin_network_id() == "regtest"
-    }
-}
-
-impl Default for NetworkTarget {
-    fn default() -> Self {
-        Self::Labcoat
     }
 }
 

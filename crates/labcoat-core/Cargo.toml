@@ -12,7 +12,6 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
 wasmi.workspace = true
 hex = "0.4"

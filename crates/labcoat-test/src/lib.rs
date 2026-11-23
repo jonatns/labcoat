@@ -9,7 +9,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use wasmtime::{Caller, Engine, Extern, Linker, Module, Store};
-use wasmtime_wasi::preview1::{self, WasiP1Ctx};
+use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::WasiCtxBuilder;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,7 +137,7 @@ impl ContractHarness {
             return Err(HarnessError::ArtifactMissing(abi_path.to_path_buf()));
         }
         let engine = Engine::default();
-        let module = Module::from_file(&engine, wasm_path).map_err(HarnessError::Runtime)?;
+        let module = Module::from_file(&engine, wasm_path).map_err(runtime_error)?;
         let abi = serde_json::from_slice(&std::fs::read(abi_path)?)?;
         Ok(Self {
             engine,
@@ -203,8 +203,7 @@ impl ContractHarness {
     ) -> Result<CallResult, HarnessError> {
         let context = serialize_context(&self.context, opcode, args)?;
         let mut linker: Linker<HostState> = Linker::new(&self.engine);
-        preview1::add_to_linker_sync(&mut linker, |state| &mut state.wasi)
-            .map_err(HarnessError::Runtime)?;
+        p1::add_to_linker_sync(&mut linker, |state| &mut state.wasi).map_err(runtime_error)?;
         add_alkanes_imports(&mut linker)?;
 
         let state = HostState {
@@ -215,7 +214,7 @@ impl ContractHarness {
         let mut store = Store::new(&self.engine, state);
         let instance = linker
             .instantiate(&mut store, &self.module)
-            .map_err(HarnessError::Runtime)?;
+            .map_err(runtime_error)?;
         if let Ok(initialize) = instance.get_typed_func::<(), ()>(&mut store, "_initialize") {
             initialize
                 .call(&mut store, ())
@@ -223,7 +222,7 @@ impl ContractHarness {
         }
         let execute = instance
             .get_typed_func::<(), i32>(&mut store, "__execute")
-            .map_err(HarnessError::Runtime)?;
+            .map_err(runtime_error)?;
         let pointer = execute
             .call(&mut store, ())
             .map_err(|e| HarnessError::Revert(format!("{e:#}")))?;
@@ -236,6 +235,10 @@ impl ContractHarness {
     }
 }
 
+fn runtime_error(error: wasmtime::Error) -> HarnessError {
+    HarnessError::Runtime(error.into())
+}
+
 fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessError> {
     linker
         .func_wrap(
@@ -245,64 +248,64 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
                 let memory = caller
                     .get_export("memory")
                     .and_then(Extern::into_memory)
-                    .ok_or_else(|| anyhow::anyhow!("missing memory export"))?;
+                    .ok_or_else(|| wasmtime::format_err!("missing memory export"))?;
                 let data = memory
                     .data(&caller)
                     .get(pointer as usize..pointer as usize + length as usize)
-                    .ok_or_else(|| anyhow::anyhow!("println outside memory"))?;
+                    .ok_or_else(|| wasmtime::format_err!("println outside memory"))?;
                 eprintln!("{}", String::from_utf8_lossy(data));
                 Ok(())
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "abort",
-            |_message: i32, _file: i32, line: i32, column: i32| -> anyhow::Result<()> {
-                anyhow::bail!("WASM abort at {line}:{column}")
+            |_message: i32, _file: i32, line: i32, column: i32| -> wasmtime::Result<()> {
+                wasmtime::bail!("WASM abort at {line}:{column}")
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__request_context",
             |caller: Caller<'_, HostState>| caller.data().context.len() as i32,
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__load_context",
-            |mut caller: Caller<'_, HostState>, pointer: i32| -> anyhow::Result<i32> {
+            |mut caller: Caller<'_, HostState>, pointer: i32| -> wasmtime::Result<i32> {
                 let context = caller.data().context.clone();
                 let memory = caller
                     .get_export("memory")
                     .and_then(Extern::into_memory)
-                    .ok_or_else(|| anyhow::anyhow!("missing memory export"))?;
+                    .ok_or_else(|| wasmtime::format_err!("missing memory export"))?;
                 memory.write(&mut caller, pointer as usize, &context)?;
                 // The contract ABI declares an i32 result.
                 Ok(0)
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__log",
-            |mut caller: Caller<'_, HostState>, pointer: i32| -> anyhow::Result<()> {
+            |mut caller: Caller<'_, HostState>, pointer: i32| -> wasmtime::Result<()> {
                 let message = read_arraybuffer(&mut caller, pointer)?;
                 eprintln!("{}", String::from_utf8_lossy(&message));
                 Ok(())
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__request_storage",
-            |mut caller: Caller<'_, HostState>, pointer: i32| -> anyhow::Result<i32> {
+            |mut caller: Caller<'_, HostState>, pointer: i32| -> wasmtime::Result<i32> {
                 let key = read_arraybuffer(&mut caller, pointer)?;
                 Ok(caller
                     .data()
@@ -313,7 +316,7 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
                     .try_into()?)
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
@@ -321,13 +324,13 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
             |mut caller: Caller<'_, HostState>,
              key_pointer: i32,
              output: i32|
-             -> anyhow::Result<i32> {
+             -> wasmtime::Result<i32> {
                 let key = read_arraybuffer(&mut caller, key_pointer)?;
                 let value = caller.data().storage.get(&key).cloned().unwrap_or_default();
                 write_arraybuffer(&mut caller, output, &value)
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
@@ -336,64 +339,64 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
              _who: i32,
              _what: i32,
              output: i32|
-             -> anyhow::Result<()> {
+             -> wasmtime::Result<()> {
                 write_arraybuffer(&mut caller, output, &0u128.to_le_bytes())?;
                 Ok(())
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__sequence",
-            |mut caller: Caller<'_, HostState>, output: i32| -> anyhow::Result<()> {
+            |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
                 write_arraybuffer(&mut caller, output, &0u128.to_le_bytes())?;
                 Ok(())
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__fuel",
-            |mut caller: Caller<'_, HostState>, output: i32| -> anyhow::Result<()> {
+            |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
                 write_arraybuffer(&mut caller, output, &u64::MAX.to_le_bytes())?;
                 Ok(())
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__height",
-            |mut caller: Caller<'_, HostState>, output: i32| -> anyhow::Result<()> {
+            |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
                 write_arraybuffer(&mut caller, output, &0u64.to_le_bytes())?;
                 Ok(())
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap(
             "env",
             "__returndatacopy",
-            |mut caller: Caller<'_, HostState>, output: i32| -> anyhow::Result<()> {
+            |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
                 write_arraybuffer(&mut caller, output, &[])?;
                 Ok(())
             },
         )
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap("env", "__request_transaction", || -> i32 { 0 })
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap("env", "__load_transaction", |_output: i32| {})
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap("env", "__request_block", || -> i32 { 0 })
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     linker
         .func_wrap("env", "__load_block", |_output: i32| {})
-        .map_err(HarnessError::Runtime)?;
+        .map_err(runtime_error)?;
     for name in ["__call", "__staticcall", "__delegatecall"] {
         linker
             .func_wrap(
@@ -405,33 +408,33 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
                  _start_fuel: u64|
                  -> i32 { 0 },
             )
-            .map_err(HarnessError::Runtime)?;
+            .map_err(runtime_error)?;
     }
     Ok(())
 }
 
-fn memory(caller: &mut Caller<'_, HostState>) -> anyhow::Result<wasmtime::Memory> {
+fn memory(caller: &mut Caller<'_, HostState>) -> wasmtime::Result<wasmtime::Memory> {
     caller
         .get_export("memory")
         .and_then(Extern::into_memory)
-        .ok_or_else(|| anyhow::anyhow!("missing memory export"))
+        .ok_or_else(|| wasmtime::format_err!("missing memory export"))
 }
 
-fn read_arraybuffer(caller: &mut Caller<'_, HostState>, pointer: i32) -> anyhow::Result<Vec<u8>> {
+fn read_arraybuffer(caller: &mut Caller<'_, HostState>, pointer: i32) -> wasmtime::Result<Vec<u8>> {
     let pointer = usize::try_from(pointer)?;
     let length_offset = pointer
         .checked_sub(4)
-        .ok_or_else(|| anyhow::anyhow!("arraybuffer pointer is below 4"))?;
+        .ok_or_else(|| wasmtime::format_err!("arraybuffer pointer is below 4"))?;
     let memory = memory(caller)?;
     let bytes = memory.data(&*caller);
     let length: [u8; 4] = bytes
         .get(length_offset..pointer)
-        .ok_or_else(|| anyhow::anyhow!("arraybuffer length is outside memory"))?
+        .ok_or_else(|| wasmtime::format_err!("arraybuffer length is outside memory"))?
         .try_into()?;
     let length = u32::from_le_bytes(length) as usize;
     Ok(bytes
         .get(pointer..pointer + length)
-        .ok_or_else(|| anyhow::anyhow!("arraybuffer data is outside memory"))?
+        .ok_or_else(|| wasmtime::format_err!("arraybuffer data is outside memory"))?
         .to_vec())
 }
 
@@ -439,11 +442,11 @@ fn write_arraybuffer(
     caller: &mut Caller<'_, HostState>,
     pointer: i32,
     value: &[u8],
-) -> anyhow::Result<i32> {
+) -> wasmtime::Result<i32> {
     let pointer = usize::try_from(pointer)?;
     let length_offset = pointer
         .checked_sub(4)
-        .ok_or_else(|| anyhow::anyhow!("arraybuffer pointer is below 4"))?;
+        .ok_or_else(|| wasmtime::format_err!("arraybuffer pointer is below 4"))?;
     let length = u32::try_from(value.len())?.to_le_bytes();
     let memory = memory(caller)?;
     memory.write(&mut *caller, length_offset, &length)?;
@@ -599,8 +602,10 @@ mod tests {
         let encoded =
             serialize_context(&context, 9, &[Value::U128(10), Value::String("AB".into())]).unwrap();
         let words: Vec<u128> = encoded
-            .chunks_exact(16)
-            .map(|word| u128::from_le_bytes(word.try_into().unwrap()))
+            .as_chunks::<16>()
+            .0
+            .iter()
+            .map(|word| u128::from_le_bytes(*word))
             .collect();
         assert_eq!(words, vec![1, 2, 3, 4, 5, 1, 6, 7, 8, 9, 10, 0x4241]);
     }

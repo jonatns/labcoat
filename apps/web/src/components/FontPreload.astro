@@ -1,0 +1,9 @@
+---
+// Preload the body font so it is usually available before first paint.
+// With font-display: swap alone, a late IBM Plex Sans swap re-wraps the docs
+// heading and shifts the page (CLS ~0.25 under Lighthouse's mobile profile).
+// The ?url import resolves to the same hashed asset that fonts.css references.
+import plexSans from '@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2?url';
+---
+
+<link rel="preload" href={plexSans} as="font" type="font/woff2" crossorigin />

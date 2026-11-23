@@ -37,12 +37,16 @@ CLI binaries are available for macOS and Linux on arm64 and x86_64. The Labcoat
 Network runtime currently supports macOS arm64 and Linux x86_64. Windows is not
 supported.
 
-Contract compilation requires LLVM Clang with a WebAssembly backend:
+Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
+a WebAssembly backend:
 
 ```bash
 brew install llvm                    # macOS
 sudo apt install clang wasi-libc     # Debian/Ubuntu
 ```
+
+Generated projects pin their Rust toolchain and WebAssembly targets in
+`rust-toolchain.toml`, so rustup installs the right versions on first build.
 
 See the [installation guide](https://labcoat.sh/docs/getting-started/installation/)
 for verification, upgrades, rollback, supported platforms, and data locations.
@@ -89,7 +93,7 @@ newer runtime files. Upgrade the CLI to receive a newer runtime.
 
 ## Develop Labcoat
 
-The workspace is pinned to Rust 1.86.0.
+The workspace is pinned to Rust 1.100.0, the latest stable release (see `rust-toolchain.toml`).
 
 ```bash
 cargo fmt --all -- --check

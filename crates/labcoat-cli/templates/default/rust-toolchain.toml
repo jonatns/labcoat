@@ -1,0 +1,7 @@
+# The Rust toolchain this Labcoat release builds and tests contracts with.
+# rustup installs it, with both WebAssembly targets, on the first build.
+# `labcoat doctor` reports when it differs from the installed CLI's toolchain.
+[toolchain]
+channel = "{{RUST_TOOLCHAIN}}"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1"]

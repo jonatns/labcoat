@@ -35,6 +35,10 @@ const FILES: &[(&str, &str)] = &[
         "labcoat.toml",
         include_str!("../templates/default/labcoat.toml"),
     ),
+    (
+        "rust-toolchain.toml",
+        include_str!("../templates/default/rust-toolchain.toml"),
+    ),
     (".gitignore", include_str!("../templates/default/gitignore")),
     ("AGENTS.md", include_str!("../templates/default/AGENTS.md")),
     ("SKILL.md", include_str!("../templates/default/SKILL.md")),
@@ -72,7 +76,11 @@ fn init_in(parent: &Path, project_name: &str) -> CmdResult {
         }
         let rendered = contents
             .replace("{{LABCOAT_VERSION}}", env!("CARGO_PKG_VERSION"))
-            .replace("{{PROJECT_NAME}}", project_name);
+            .replace("{{PROJECT_NAME}}", project_name)
+            .replace(
+                "{{RUST_TOOLCHAIN}}",
+                labcoat_core::compile::PROJECT_RUST_TOOLCHAIN,
+            );
         std::fs::write(&destination, rendered).map_err(|e| io_error(&destination, e))?;
     }
 
@@ -362,12 +370,37 @@ mod tests {
             "metashrew-support = { git = \"https://github.com/kungfuflex/metashrew\", tag = \"v9.0.5-rc.8\" }"
         ));
         assert!(!manifest.contains("sandshrewmetaprotocols/metashrew"));
-        assert!(manifest.contains("serde_with = { version = \"=3.16.1\""));
-        assert!(manifest.contains("time = { version = \"=0.3.44\""));
-        let contract = include_str!("../templates/default/contracts/counter/Cargo.toml");
-        assert!(contract.contains("serde_with.workspace = true"));
-        assert!(contract.contains("time.workspace = true"));
         let workspace_manifest = include_str!("../../../Cargo.toml");
         assert!(workspace_manifest.contains("wasmi = \"=0.37.2\""));
+    }
+
+    #[test]
+    fn project_toolchain_matches_the_workspace_toolchain() {
+        let workspace_toolchain = include_str!("../../../rust-toolchain.toml");
+        let channel = format!(
+            "channel = \"{}\"",
+            labcoat_core::compile::PROJECT_RUST_TOOLCHAIN
+        );
+        assert!(workspace_toolchain.contains(&channel));
+        let template = include_str!("../templates/default/rust-toolchain.toml");
+        assert!(template.contains("channel = \"{{RUST_TOOLCHAIN}}\""));
+        assert!(template.contains("wasm32-unknown-unknown"));
+        assert!(template.contains("wasm32-wasip1"));
+    }
+
+    #[test]
+    fn init_writes_the_pinned_project_toolchain() {
+        let parent =
+            std::env::temp_dir().join(format!("labcoat-init-toolchain-{}", std::process::id()));
+        std::fs::create_dir_all(&parent).unwrap();
+        init_in(&parent, "toolchain-project").unwrap();
+        let written =
+            std::fs::read_to_string(parent.join("toolchain-project/rust-toolchain.toml")).unwrap();
+        assert!(written.contains(&format!(
+            "channel = \"{}\"",
+            labcoat_core::compile::PROJECT_RUST_TOOLCHAIN
+        )));
+        assert!(!written.contains("{{"));
+        std::fs::remove_dir_all(parent).ok();
     }
 }

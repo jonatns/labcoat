@@ -15,9 +15,5 @@ alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "714
 metashrew-support = { git = "https://github.com/kungfuflex/metashrew", tag = "v9.0.5-rc.8" }
 anyhow = "1.0"
 
-# Direct contract dependencies pin transitive releases to Rust 1.86-compatible versions.
-serde_with = { version = "=3.16.1", default-features = false }
-time = { version = "=0.3.44", default-features = false }
-
 [dev-dependencies]
 labcoat-test = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }

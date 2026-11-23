@@ -1,5 +1,5 @@
-# Matches the alkanes-rs main pin's toolchain (see TOOLCHAIN.md).
+# Latest stable Rust (Rust has no LTS channel); see TOOLCHAIN.md.
 [toolchain]
-channel = "1.88.0"
+channel = "1.100.0"
 components = ["rustfmt", "clippy", "rust-analyzer"]
 targets = ["wasm32-unknown-unknown", "wasm32-wasip1"]

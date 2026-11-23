@@ -1,6 +1,25 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+// Starlight's search button is named "Search" but also shows a "Ctrl K"
+// shortcut hint, which axe 4.14's label-content-name-mismatch rule reports.
+// The markup is Starlight's, not ours: skip only that rule on only that
+// button so every other check still runs against it.
+type AxeResults = Awaited<ReturnType<AxeBuilder['analyze']>>;
+
+const starlightSearchButton = 'button[data-open-modal=""]';
+
+function seriousViolations(results: AxeResults) {
+  return results.violations
+    .filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''))
+    .map((violation) =>
+      violation.id === 'label-content-name-mismatch'
+        ? { ...violation, nodes: violation.nodes.filter((node) => node.target.join(' ') !== starlightSearchButton) }
+        : violation,
+    )
+    .filter((violation) => violation.nodes.length > 0);
+}
+
 test('homepage navigation and interactive protocol runner are keyboard accessible', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'From Rust source to decoded trace.' })).toBeVisible();
@@ -32,7 +51,7 @@ test('homepage has no serious accessibility violations or horizontal overflow', 
     await page.addInitScript((value) => localStorage.setItem('labcoat-theme', value), theme);
     await page.goto('/');
     const results = await new AxeBuilder({ page }).analyze();
-    expect(results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? '')), theme).toEqual([]);
+    expect(seriousViolations(results), theme).toEqual([]);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `${theme} horizontal overflow`).toBeLessThanOrEqual(1);
   }
@@ -53,7 +72,7 @@ test('documentation and agent surfaces are published', async ({ page, request })
   await expect(docsLogos.nth(1)).toBeVisible();
 
   const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
+  expect(seriousViolations(results)).toEqual([]);
 
   for (const route of ['/llms.txt', '/llms-full.txt', '/docs/index.md.txt', '/docs/labcoat-network/', '/docs/reference/stability/', '/reference/cli.json', '/skill.md', '/install', '/og.svg', '/og.png']) {
     const response = await request.get(route);

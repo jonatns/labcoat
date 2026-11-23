@@ -8,3 +8,12 @@ updates:
       github-actions:
         patterns:
           - "*"
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      web-minor-and-patch:
+        update-types:
+          - minor
+          - patch
