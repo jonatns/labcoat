@@ -90,6 +90,19 @@ labcoat --help
 labcoat binaries
 ```
 
+Then bring each existing project in line with the new release:
+
+```bash
+labcoat upgrade --dry-run
+labcoat upgrade
+labcoat test
+```
+
+`labcoat upgrade` rewrites the project's alkanes-rs revisions, `labcoat-test`
+release tag, and `rust-toolchain.toml` to match the installed CLI, keeping
+everything else in `Cargo.toml` unchanged. Commit the result with the updated
+`Cargo.lock`. `labcoat doctor` lists any pin that still differs.
+
 ## Compilation prerequisites
 
 Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
@@ -109,7 +122,8 @@ Labcoat is tested with, and rustup installs that toolchain with the
 `wasm32-unknown-unknown` and `wasm32-wasip1` targets on the project's first
 build. Commit the file: it keeps every machine and CI run on the same
 compiler, which keeps contract bytecode reproducible. When you upgrade the
-CLI, `labcoat doctor` reports a project pin that no longer matches.
+CLI, run `labcoat upgrade` in each project to move its pins to the new
+release.
 
 Then run:
 

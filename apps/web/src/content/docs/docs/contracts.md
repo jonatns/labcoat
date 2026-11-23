@@ -69,6 +69,12 @@ against live indexed chain state. Use `labcoat test <package>` to execute an
 undeployed local build in the isolated host test runtime. Calls create a
 transaction and wait for indexing and decoded execution status.
 
+Token contracts should follow the Alkanes metadata convention: opcode `99`
+returns the name and `100` the symbol, both as UTF-8 text, or leave both
+unimplemented. Balance views ask every held token for these values, and a
+contract that answers with other bytes makes `labcoat balance`, exchanges, and
+`call --inputs` fail for every address holding it.
+
 Use ordinary shell scripts to compose multiple commands. Labcoat does not
 currently include a contract script runner.
 

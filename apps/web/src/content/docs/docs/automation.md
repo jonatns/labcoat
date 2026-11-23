@@ -38,8 +38,10 @@ the envelope rather than inferring application success from the process code.
 labcoat mcp serve
 ```
 
-The stdio MCP server exposes Labcoat Network, wallet, build, deployment, call,
-simulation, and trace tools using the same typed operations as the CLI.
+The stdio MCP server exposes Labcoat Network, wallet, build, test, deployment,
+manifest plan and apply, call, simulation, trace, balance, atomic exchange,
+durable state, and web generation tools, using the same typed operations as
+the CLI.
 
 Pin the Labcoat version used by an agent. The public website tracks current
 `main`; `labcoat docs --llm` is the installed-version authority.

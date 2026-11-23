@@ -12,6 +12,11 @@ offered amount and the seller receives exactly the payment amount. Assets are
 `labcoat.lock` names or `block:tx` ids. The buyer's wallet pays the network
 fee.
 
+Exchanges spend only outputs that hold a single asset, and every output they
+create also holds a single asset. When an input holds more than the quoted
+amount, the surplus returns to its owner in a separate change output, so both
+parties can use what they receive in their next exchange.
+
 ## Local exchanges
 
 On Labcoat Network and custom regtest, one command plans, signs with both

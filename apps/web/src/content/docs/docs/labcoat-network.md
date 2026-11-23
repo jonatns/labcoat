@@ -35,6 +35,11 @@ Only one Labcoat Network should run per machine. `status` reports its
 `labcoat` identity, underlying Bitcoin `regtest` mode, `qubitcoind`, chain
 height, mempool size, and overall readiness.
 
+`labcoat down` keeps the chain; the next `labcoat up` resumes it and mines two
+empty blocks before returning. They work around an upstream indexer defect
+that would otherwise drop the first block mined after a restart from the
+Alkanes and Esplora indexes. Use `labcoat reset` to start from a fresh chain.
+
 ## Wallet workflow
 
 ```bash

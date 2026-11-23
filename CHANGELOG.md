@@ -6,6 +6,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ### Added
 
+- add `labcoat upgrade [--dry-run]`: align an existing project's alkanes-rs revisions, `labcoat-test` release tag, and `rust-toolchain.toml` with the installed CLI, preserving the rest of `Cargo.toml`; `labcoat doctor` adds a project pins check that names every stale pin
+- add MCP tools `state_list`, `state_show`, `state_migrate`, and `generate_web`, matching their CLI commands
 - add `labcoat doctor` checks for rustup and for whether the project's pinned Rust toolchain is missing, installed, pending installation, or different from the installed CLI's
 - add `labcoat state migrate`: create version-2 per-environment durable state at `.labcoat/state/<environment>/state.json` from the v1 `labcoat.lock` ledger, with a timestamped backup, a compare-and-swap serial, an exclusive environment lease, and a byte-identical regenerated address book; see docs/STATE.md
 - add `labcoat state list` and `labcoat state show <resource> [--history]`: inspect durable resources and their append-only instance history
@@ -28,6 +30,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ### Fixed
 
+- index the first block mined after `labcoat down` and `labcoat up`: an upstream runtime defect made both indexers drop it, so funding right after a restart never reached the wallet. Resuming a chain now mines two empty warm-up blocks first; the release acceptance flow covers the restart
+- keep every atomic exchange output single-asset: surplus from partially spent inputs now returns to its owner in its own change output instead of joining the counterparty's delivery, so both wallets can use their exchange outputs in later exchanges
 - make `labcoat test --e2e` honor `LABCOAT_TEST_CRATE_PATH` like `labcoat test`, so CI and packagers can run e2e tests before the release tag exists
 
 ## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-31
