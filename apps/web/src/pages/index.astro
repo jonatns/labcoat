@@ -21,6 +21,26 @@ const softwareSchema = {
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   codeRepository: 'https://github.com/jonatns/labcoat',
 };
+
+// alkanes.hcl sample for the capabilities section, pre-highlighted.
+const manifestHtml = `<span class="k">alkane</span> <span class="s">"usd"</span> {
+  id = [<span class="n">4</span>, <span class="n">65012</span>]
+}
+
+<span class="k">contract</span> <span class="s">"token"</span> {
+  package = <span class="s">"my_token"</span>
+  reserve = <span class="n">65011</span>
+  args    = { supply = <span class="n">100</span> }
+}
+
+<span class="k">contract</span> <span class="s">"market"</span> {
+  package = <span class="s">"my_market"</span>
+  args = {
+    base   = <span class="r">contract.token.id</span>
+    quote  = <span class="r">alkane.usd.id</span>
+    expiry = <span class="r">height</span> + <span class="n">100</span>
+  }
+}`;
 ---
 
 <!doctype html>
@@ -58,6 +78,7 @@ const softwareSchema = {
         <Brand />
         <nav aria-label="Primary navigation">
           <a href="#workflow">Workflow</a>
+          <a href="#systems">Capabilities</a>
           <a href="#agents">Agents</a>
           <a href="/docs/">Docs</a>
           <a href="https://github.com/jonatns/labcoat">GitHub <Icon name="external" size={14} /></a>
@@ -132,9 +153,57 @@ const softwareSchema = {
           </div>
         </section>
 
+        <section class="section systems-section" id="systems" aria-labelledby="systems-title">
+          <div class="section-heading">
+            <p class="eyebrow"><span></span> 03 / BEYOND ONE CONTRACT</p>
+            <h2 id="systems-title">Deploy the system,<br />not just the contract.</h2>
+            <p>Describe a topology once, test it across wallets, swap assets atomically, and read it from a browser.</p>
+          </div>
+          <div class="systems-layout">
+            <figure class="manifest-window">
+              <figcaption><span>alkanes.hcl</span><code>labcoat plan</code></figcaption>
+              <pre aria-label="Example alkanes.hcl deployment manifest"><code set:html={manifestHtml} /></pre>
+              <p class="manifest-plan"><span class="ok">●</span> Plan for alkanes.hcl — 2 pending action(s) <i>token, then market</i></p>
+            </figure>
+            <ul class="capability-list">
+              <li>
+                <h3>Declarative deployments</h3>
+                <p>Plan and apply a whole topology. References order the deploys; re-applying an unchanged manifest is a no-op.</p>
+                <code>labcoat apply --broadcast</code>
+              </li>
+              <li>
+                <h3>Network e2e tests</h3>
+                <p>Reset the chain, apply the manifest, and drive multi-wallet flows from Rust.</p>
+                <code>labcoat test --e2e</code>
+              </li>
+              <li>
+                <h3>Atomic exchanges</h3>
+                <p>Swap two Alkane assets between wallets in one transaction, locally or through a seller-last PSBT ceremony.</p>
+                <code>labcoat exchange</code>
+              </li>
+              <li>
+                <h3>Web clients</h3>
+                <p>Generate a typed TypeScript client for balances and simulations from your deployments.</p>
+                <code>labcoat generate web</code>
+              </li>
+              <li>
+                <h3>Deployment history</h3>
+                <p>Keep every instance of every contract, and refuse to deploy onto a reset chain.</p>
+                <code>labcoat state show</code>
+              </li>
+              <li>
+                <h3>Project upgrades</h3>
+                <p>Move a project's alkanes-rs, test harness, and Rust pins to the installed release.</p>
+                <code>labcoat upgrade</code>
+              </li>
+            </ul>
+          </div>
+          <a class="text-link" href="/docs/tutorials/token-exchange/">Try the tokens and exchanges tutorial <span aria-hidden="true">→</span></a>
+        </section>
+
         <section class="section agents-section" id="agents" aria-labelledby="agents-title">
           <div class="section-heading centered">
-            <p class="eyebrow"><span></span> 03 / ONE COMMAND SYSTEM</p>
+            <p class="eyebrow"><span></span> 04 / ONE COMMAND SYSTEM</p>
             <h2 id="agents-title">One interface for<br /><em>developers and agents.</em></h2>
             <p>CLI, JSON, MCP, and versioned references expose the same installed capability set.</p>
           </div>
@@ -159,7 +228,7 @@ const softwareSchema = {
                 <strong>CLI CORE</strong><span>JSON</span><span>MCP</span><span>DOCS</span><span>AGENTS</span>
               </div>
               <h3>Structured tools, not shell guesses.</h3>
-              <p>Expose Labcoat Network, wallet, build, deploy, call, simulate, and trace operations over Model Context Protocol.</p>
+              <p>Expose Labcoat Network, wallets, builds, deploys, manifests, exchanges, state, and traces over Model Context Protocol.</p>
               <code class="card-command">labcoat mcp serve</code>
             </article>
             <article class="agent-card">

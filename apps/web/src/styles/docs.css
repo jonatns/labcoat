@@ -1,0 +1,293 @@
+/*
+ * Documentation theme. Loaded only by Starlight (astro.config customCss),
+ * after global.css, so it reuses the brand tokens without touching the
+ * landing page. Direction: the same instrument vocabulary as the homepage —
+ * mono labels, hairline rules, square frames — applied with less volume,
+ * because docs are read, not scanned.
+ */
+
+/* Starlight's own surface tokens, pinned to the brand ground in every theme
+ * (its light theme defines them on :root[data-theme='light']). */
+:root,
+:root[data-theme='light'],
+:root[data-theme='dark'] {
+  --sl-color-bg-nav: var(--void);
+  --sl-color-bg-sidebar: var(--void);
+  --sl-color-hairline: var(--line-soft);
+  --sl-color-hairline-shade: var(--line-soft);
+  --sl-color-hairline-light: var(--line-soft);
+}
+
+:root {
+  --sl-content-width: 46rem;
+  --sl-text-h1: clamp(2.4rem, 4.2vw, 3.6rem);
+  --sl-text-h2: 1.65rem;
+  --sl-text-h3: 1.2rem;
+  --docs-label-size: 0.66rem;
+}
+
+/* Chrome ----------------------------------------------------------------- */
+
+.header,
+.sidebar-pane,
+.right-sidebar-panel {
+  background-color: var(--void);
+}
+
+header.header {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.site-title {
+  gap: 0.7rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.site-title img {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+/* Sidebar: group labels read as instrument labels, the current page as a
+ * tinted row with a marker rather than a solid block. */
+.sidebar-content .group-label .large {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--docs-label-size);
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sidebar-content a {
+  border-radius: 0;
+  color: var(--ink-soft);
+}
+
+.sidebar-content a:hover {
+  color: var(--ink);
+}
+
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover {
+  background-color: var(--acid-dim);
+  box-shadow: inset 2px 0 0 var(--acid);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Right-hand table of contents. */
+.right-sidebar-panel h2 {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--docs-label-size);
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.right-sidebar-panel a[aria-current='true'] {
+  color: var(--acid);
+}
+
+/* Page title ------------------------------------------------------------- */
+
+.content-panel:first-of-type {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+h1#_top {
+  font-size: var(--sl-text-h1);
+  font-weight: 640;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  text-wrap: balance;
+}
+
+/* Body ------------------------------------------------------------------- */
+
+.sl-markdown-content {
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.sl-markdown-content :is(h2, h3, h4) {
+  color: var(--ink);
+  font-weight: 620;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+/* Each section opens on a full-width hairline, the same rule the homepage
+ * sections use. Starlight wraps headings for anchor links, so the rule goes
+ * on the wrapper (and on a bare h2 where a page has no wrapper). */
+.sl-markdown-content .sl-heading-wrapper.level-h2,
+.sl-markdown-content > h2 {
+  margin-top: 3.25rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.sl-markdown-content h3 {
+  margin-top: 2.25rem;
+}
+
+.sl-markdown-content strong {
+  color: var(--ink);
+  font-weight: 620;
+}
+
+.sl-markdown-content a:not(.sl-link-button, .not-content *) {
+  color: var(--ink);
+  text-decoration-color: color-mix(in oklch, var(--acid), transparent 35%);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+}
+
+.sl-markdown-content a:not(.sl-link-button, .not-content *):hover {
+  color: var(--acid);
+  text-decoration-color: currentColor;
+}
+
+.sl-markdown-content code:not(:where(.not-content *, pre *)) {
+  padding: 0.08em 0.32em;
+  border: 1px solid var(--line-soft);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 0.86em;
+}
+
+.sl-markdown-content blockquote {
+  border-inline-start: 2px solid var(--warning);
+  color: var(--ink-soft);
+  font-style: normal;
+}
+
+/* Tables: reference pages are mostly tables, so give them the readout
+ * treatment — mono column labels, quiet rules, scrolling when narrow. */
+.sl-markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.sl-markdown-content :is(th, td) {
+  padding: 0.65rem 0.9rem;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+
+.sl-markdown-content th {
+  border-bottom-color: var(--line);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--docs-label-size);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-align: start;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sl-markdown-content td:first-child code {
+  white-space: nowrap;
+}
+
+/* Code frames: square, hairline, Plex Mono — the homepage terminal. */
+.expressive-code {
+  --ec-brdCol: var(--line);
+  --ec-brdRad: 0;
+  --ec-frm-edBg: var(--surface);
+  --ec-frm-trmBg: var(--surface);
+  --ec-frm-trmTtbBg: var(--ground);
+  --ec-frm-edTabBarBg: var(--ground);
+  --ec-frm-edActTabBg: var(--surface);
+  --ec-frm-edActTabIndTopCol: var(--acid);
+  --ec-frm-frameBoxShdCssVal: none;
+  --ec-codeFontFml: var(--font-mono);
+  --ec-uiFontFml: var(--font-mono);
+}
+
+/* Pagination and footer meta. */
+.pagination-links a {
+  border-radius: 0;
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.pagination-links a:hover {
+  border-color: var(--acid);
+}
+
+/* Landing-page blocks used by the docs overview ---------------------------- */
+
+.docs-paths {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 1px;
+  margin-block: 2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--line);
+  list-style: none;
+}
+
+.docs-paths li {
+  margin: 0;
+}
+
+.docs-paths a {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.1rem 1.2rem 1.25rem;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.docs-paths a:hover,
+.docs-paths a:focus-visible {
+  background: var(--surface-2);
+}
+
+.docs-paths .path-label {
+  color: var(--acid);
+  font-family: var(--font-mono);
+  font-size: var(--docs-label-size);
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.docs-paths strong {
+  color: var(--ink);
+  font-size: 1.02rem;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+.docs-paths code {
+  margin-top: auto;
+  padding-top: 0.6rem;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-paths a {
+    transition: none;
+  }
+}

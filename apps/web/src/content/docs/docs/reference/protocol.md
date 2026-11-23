@@ -6,13 +6,17 @@ description: Cellpacks, commit/reveal deployments, protostone outputs, indexing,
 ## Cellpacks
 
 An Alkanes call is encoded as `[block, tx, opcode, ...args]`, where each value
-is a `u128`. Short string arguments are packed little-endian into one `u128`.
+is a `u128`. With a named ABI method, a `String` parameter is packed
+little-endian across as many `u128` cells as it needs. Raw numeric-opcode calls
+accept short strings of up to 16 bytes, packed into one cell.
 
 ## Deployment envelopes
 
-Deployment targets cellpack `[1, 0]`, meaning “create a new alkane.” The raw
-Wasm module is compressed and placed in a taproot witness envelope across a
-commit/reveal transaction pair.
+Deployment targets cellpack `[1, 0]`, meaning “create a new alkane at the next
+free ID,” or `[3, N]` with `--reserve N` (or `reserve = N` in `alkanes.hcl`),
+which creates it at the predictable ID `4:N`. The raw Wasm module is compressed
+and placed in a taproot witness envelope across a commit/reveal transaction
+pair.
 
 ## Contract IDs
 

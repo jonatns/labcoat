@@ -38,7 +38,8 @@ Labcoat is for local Alkanes development. It is not described as a general Bitco
 | installed-version reference | Output of `labcoat docs --llm`. | Assuming the website matches an installed release. |
 
 Capability statements must be classified as current-main, release-dependent,
-planned, or unsupported. Durable state and production mainnet controls are
+planned, or unsupported. Local durable deployment state is available;
+shared, remote, or mainnet-ready state and production mainnet controls are
 planned, not available. Windows is unsupported.
 
 ## Voice and tone

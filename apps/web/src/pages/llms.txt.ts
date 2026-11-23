@@ -16,6 +16,7 @@ Source: https://github.com/jonatns/labcoat
 - [Overview](https://labcoat.sh/docs/): Product model and supported interface
 - [Installation](https://labcoat.sh/docs/getting-started/installation/): Native macOS and Linux installation
 - [Quick start](https://labcoat.sh/docs/getting-started/quickstart/): Empty directory to decoded trace
+- [Tutorial: tokens and exchanges](https://labcoat.sh/docs/tutorials/token-exchange/): Write a token, deploy it from two wallets, and swap atomically
 - [Automation](https://labcoat.sh/docs/automation/): JSON envelopes and MCP
 
 ## Build with Labcoat

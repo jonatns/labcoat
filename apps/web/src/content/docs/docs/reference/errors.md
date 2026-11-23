@@ -5,25 +5,72 @@ description: Stable Labcoat error codes and the first recovery action to take.
 
 JSON errors use stable codes and always include a next-step hint.
 
+Do not parse the human message to branch automation. Branch on `error.code` and
+surface `error.hint` to the operator or agent.
+
+## General
+
+| Code | Meaning | First response |
+| --- | --- | --- |
+| `CONFIG_INVALID` | Project or environment configuration is invalid | Run `labcoat doctor` |
+| `TOOLKIT_ERROR` | A local operation failed, such as reading or writing a project file | Check permissions and disk space; the message names the path |
+| `RPC_UNREACHABLE` | The configured Qubitcoin endpoint cannot be reached | Run `labcoat status` |
+| `INDEXER_LAG` | Indexed height did not reach chain height | Inspect `labcoat logs --service qubitcoind` |
+
+## Labcoat Network and wallets
+
 | Code | Meaning | First response |
 | --- | --- | --- |
 | `LABCOAT_NETWORK_ERROR` | A Labcoat Network operation failed | Run `labcoat status` and inspect `labcoat logs` |
-| `CONFIG_INVALID` | Project or environment configuration is invalid | Run `labcoat doctor` |
+| `BINARY_CRASH` | A Labcoat Network process exited | Inspect service logs |
 | `WALLET_MISSING` | No project wallet exists | Run `labcoat wallet init` |
 | `WALLET_LOCKED` | Passphrase is missing or incorrect | Set `LABCOAT_WALLET_PASSPHRASE` |
-| `RPC_UNREACHABLE` | The configured Qubitcoin endpoint cannot be reached | Run `labcoat status` |
-| `INDEXER_LAG` | Indexed height did not reach chain height | Inspect `qubitcoind` logs |
-| `INSUFFICIENT_FUNDS` | Spendable BTC cannot cover the transaction | Fund and mine the wallet |
+| `INSUFFICIENT_FUNDS` | Spendable BTC or single-asset token outputs cannot cover the operation | Fund and mine the wallet |
+
+## Contracts and tests
+
+| Code | Meaning | First response |
+| --- | --- | --- |
+| `COMPILE_FAILED` | Rust or Wasm compilation failed | Read stderr and run `labcoat doctor` |
+| `TEST_FAILED` | Host or e2e tests failed | Fix the failing tests named in the output |
+| `CONTRACT_NOT_FOUND` | Name or ID could not be resolved | Run `labcoat lock show` |
+| `LOCKFILE_INVALID` | `labcoat.lock` cannot be read or parsed | Restore it from version control |
+| `ENVELOPE_INVALID` | The deploy payload is not a raw Wasm module | Pass the `.wasm` produced by `labcoat build` |
+| `ABI_MISMATCH` | The local build's ABI differs from the deployed contract | Build the deployed source revision |
 | `EXECUTION_REVERT` | The contract explicitly reverted | Inspect `revertReason` and trace |
 | `TRACE_TIMEOUT` | A decoded trace did not arrive in time | Retry `labcoat trace --wait` |
-| `COMPILE_FAILED` | Rust or Wasm compilation failed | Read stderr and run `labcoat doctor` |
-| `CONTRACT_NOT_FOUND` | Name or ID could not be resolved | Run `labcoat lock show` |
+
+## Declarative deployments
+
+| Code | Meaning | First response |
+| --- | --- | --- |
+| `MANIFEST_INVALID` | `alkanes.hcl` cannot be read or uses an unsupported construct | Fix the block named in the message |
+| `APPLY_BLOCKED` | An action cannot proceed, such as a reference with no resolved ID | Run `labcoat plan` and resolve the blocked action |
+
+## Atomic exchanges
+
+| Code | Meaning | First response |
+| --- | --- | --- |
+| `EXCHANGE_REQUEST_INVALID` | The exchange request file is malformed | Regenerate it with the application that produced it |
+| `EXCHANGE_PLAN_INVALID` | The request or plan breaks an exchange rule | Read the message; replan with valid assets and P2TR addresses |
+| `EXCHANGE_PLAN_MISMATCH` | The PSBT differs from the plan | Use the PSBT produced with that plan |
+| `EXCHANGE_ASSET_UNSAFE` | Asset routing would not deliver exactly the planned amounts | Replan; do not sign |
+| `EXCHANGE_INPUT_OWNERSHIP` | An input's owner differs from the plan | Replan from the participants' wallets |
+| `EXCHANGE_SELLER_DEBIT` | The seller would lose bitcoin | Replan; do not sign |
+| `EXCHANGE_SIGHASH_UNSUPPORTED` | A signature uses a sighash other than `SIGHASH_DEFAULT` | Re-sign with `labcoat wallet sign-psbt` |
+| `EXCHANGE_SIGNATURE_MISSING` | A required buyer signature is missing | Sign the buyer inputs, then settle |
+| `EXCHANGE_SIGNATURE_INVALID` | A signature failed verification | Re-sign the original PSBT |
+| `EXCHANGE_INPUT_SPENT` | A planned input has already been spent | Build a new plan |
+| `EXCHANGE_TIP_STALE` | The chain tip seen at planning is no longer active | Build a new plan |
+| `EXCHANGE_NETWORK_MISMATCH` | The live chain differs from the plan's chain | Plan and settle on the same network |
+
+## Durable state
+
+| Code | Meaning | First response |
+| --- | --- | --- |
 | `STATE_MISSING` | No durable state exists for this environment | Run `labcoat state migrate` |
+| `STATE_INVALID` | The state file is corrupt or unreadable; it is never treated as empty | Restore `backups/state.json.prev` |
 | `STATE_LOCKED` | Another labcoat process holds the environment lease | Wait; a crashed holder releases it automatically |
 | `STATE_CHAIN_MISMATCH` | Durable state belongs to a different chain instance | Archive `.labcoat/state/<environment>` or switch `--environment` |
 | `STATE_CONFLICT` | Durable state changed underneath the command, or already exists | Re-run against current state (`labcoat state list`) |
 | `STATE_UNSUPPORTED` | The durable state schema version is not supported | Upgrade labcoat or restore a backup |
-| `BINARY_CRASH` | A Labcoat Network process exited | Inspect service logs |
-
-Do not parse the human message to branch automation. Branch on `error.code` and
-surface `error.hint` to the operator or agent.

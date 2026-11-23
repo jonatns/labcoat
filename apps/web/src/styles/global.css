@@ -694,6 +694,7 @@ p {
 
 .workflow-section,
 .stack-section,
+.systems-section,
 .agents-section,
 .final-cta,
 .site-footer {
@@ -1051,51 +1052,116 @@ p {
 .site-footer nav { justify-content: flex-end; }
 .footer-meta { grid-column: 1 / -1; padding-top: 1.5rem; border-top: 1px solid var(--line-soft); text-align: right; }
 
-/* Starlight documentation theme */
-.header,
-.sidebar-pane,
-.right-sidebar-panel {
-  background-color: color-mix(in oklch, var(--void), transparent 4%);
+
+/* Beyond one contract: manifest window beside a capability list. */
+.systems-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  align-items: start;
+  margin-bottom: 3rem;
 }
 
-.site-title img {
-  width: 2rem;
-  height: 2rem;
+.manifest-window {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  background: var(--void);
+  box-shadow: var(--shadow);
 }
 
-.site-title {
-  font-weight: 850;
-  letter-spacing: 0.1em;
+.manifest-window figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 44px;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--ground);
+  color: var(--ink-muted);
+  font: 650 0.66rem/1 var(--font-mono);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-a[aria-current='page'] {
-  background-color: var(--acid) !important;
-  color: var(--void) !important;
+.manifest-window figcaption code {
+  color: var(--acid);
+  font: inherit;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
-.sl-markdown-content h1,
-.sl-markdown-content h2,
-.sl-markdown-content h3 {
-  letter-spacing: -0.025em;
+.manifest-window pre {
+  margin: 0;
+  padding: 1.5rem 1.4rem;
+  overflow-x: auto;
+  color: var(--ink-soft);
+  font: 0.78rem/1.75 var(--font-mono);
 }
 
-.sl-markdown-content h1 {
-  font-size: clamp(2.6rem, 5vw, 4.8rem);
+.manifest-window .k { color: var(--acid); font-weight: 600; }
+.manifest-window .s { color: var(--amber); }
+.manifest-window .n { color: var(--blue); }
+.manifest-window .r { color: var(--ink); text-decoration: underline dotted color-mix(in oklch, var(--acid), transparent 40%); text-underline-offset: 0.25em; }
+
+.manifest-plan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  padding: 0.85rem 1.4rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font: 0.72rem/1.4 var(--font-mono);
 }
 
-.sl-markdown-content a:not(.sl-link-button) {
-  text-decoration-color: color-mix(in oklch, var(--acid), transparent 45%);
-  text-underline-offset: 0.2em;
+.manifest-plan .ok { color: var(--acid); }
+.manifest-plan i { color: var(--ink-muted); font-style: normal; }
+
+.capability-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  list-style: none;
 }
 
-.sl-markdown-content code:not(:where(.not-content *)) {
-  border: 1px solid var(--line-soft);
-  background: var(--acid-dim);
+.capability-list li {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1.5rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(145deg, var(--surface), transparent);
 }
 
-.expressive-code {
-  --ec-brdCol: var(--line);
+.capability-list h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.02rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.capability-list p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.capability-list code {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line-soft);
+  color: var(--acid);
+  font: 0.72rem/1.3 var(--font-mono);
 }
 
 @media (max-width: 1120px) {
@@ -1106,6 +1172,7 @@ a[aria-current='page'] {
   .workflow-grid { grid-template-columns: 1fr 1fr; }
   .stack-section { grid-template-columns: 1fr; }
   .stack-copy { max-width: 760px; }
+  .systems-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -1138,6 +1205,8 @@ a[aria-current='page'] {
   .stack-command em { display: none; }
   .stack-copy ul { grid-template-columns: 1fr; }
   .agent-grid { grid-template-columns: 1fr; }
+  .capability-list { grid-template-columns: 1fr; }
+  .capability-list li { padding: 1.25rem; }
   .agent-card-large { grid-row: auto; min-height: 650px; }
   .json-window { margin-block: 3rem; padding: 1.25rem; overflow-x: auto; }
   .final-cta { min-height: 600px; }

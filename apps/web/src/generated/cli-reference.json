@@ -195,7 +195,7 @@
       {
         "arguments": [
           {
-            "description": "Skip the confirmation prompt",
+            "description": "Skip the confirmation prompt (the global --yes also skips it)",
             "id": "yes",
             "possibleValues": [
               "true",

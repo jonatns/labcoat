@@ -144,8 +144,8 @@ enum Commands {
     },
     /// Stop services and wipe all chain/index data
     Reset {
-        /// Skip the confirmation prompt
-        #[arg(short = 'y', long)]
+        /// Skip the confirmation prompt (the global --yes also skips it)
+        #[arg(short = 'y')]
         yes: bool,
     },
     /// Snapshot the Labcoat Network data directory (stops services first)
@@ -823,7 +823,7 @@ async fn run(cli: Cli) -> i32 {
             )
         }
         Commands::Reset { yes } => {
-            if !yes && !json {
+            if !(yes || cli.assume_yes) && !json {
                 eprint!("This wipes all Labcoat Network chain data. Continue? [y/N] ");
                 use std::io::BufRead;
                 let mut line = String::new();
@@ -931,6 +931,14 @@ fn progress_logger(enabled: bool) -> impl Fn(isomer_core::ServiceId, f32) + Send
 #[cfg(test)]
 mod envelope_tests {
     use super::*;
+
+    #[test]
+    fn command_tree_passes_clap_validation() {
+        // Catches conflicting flags (such as a subcommand reusing a global
+        // long name), which otherwise only fail at runtime in debug builds.
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
 
     #[test]
     fn contract_envelopes_preserve_schema_and_typed_errors() {

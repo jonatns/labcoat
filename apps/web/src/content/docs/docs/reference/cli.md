@@ -174,7 +174,7 @@ reset [OPTIONS]
 
 Arguments and options:
 
-- `yes` (optional): Skip the confirmation prompt Values: `true`, `false`.
+- `yes` (optional): Skip the confirmation prompt (the global --yes also skips it) Values: `true`, `false`.
 
 ### `labcoat snapshot`
 
