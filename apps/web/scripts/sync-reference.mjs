@@ -65,9 +65,13 @@ function validateSkillCommands(source) {
   }
 
   const invalid = [];
-  const fences = source.matchAll(/```(?:bash|sh|shell)?\s*\n([\s\S]*?)```/g);
+  // Match every fenced block so a block in another language (a Rust
+  // deployment script, for example) cannot shift the pairing, then check
+  // only the shell ones.
+  const fences = source.matchAll(/```([a-z]*)[^\n]*\n([\s\S]*?)```/g);
   for (const fence of fences) {
-    for (const line of fence[1].split('\n')) {
+    if (!['', 'bash', 'sh', 'shell'].includes(fence[1])) continue;
+    for (const line of fence[2].split('\n')) {
       for (const command of line.matchAll(/\blabcoat\s+([^\s\\]+)/g)) {
         const topCommand = command[1].replace(/[;&|]+$/, '');
         if (topCommand.startsWith('-')) continue;

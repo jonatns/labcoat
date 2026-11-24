@@ -23,25 +23,18 @@ const softwareSchema = {
   codeRepository: 'https://github.com/jonatns/labcoat',
 };
 
-// alkanes.hcl sample for the systems section, pre-highlighted.
-const manifestHtml = `<span class="k">alkane</span> <span class="s">"usd"</span> {
-  id = [<span class="n">4</span>, <span class="n">65012</span>]
-}
+// deploy.rs sample for the systems section, pre-highlighted.
+const manifestHtml = `<span class="k">let</span> usd = d.<span class="k">external</span>(<span class="s">"usd"</span>).id_everywhere(<span class="n">4</span>, <span class="n">65012</span>);
 
-<span class="k">contract</span> <span class="s">"token"</span> {
-  package = <span class="s">"my_token"</span>
-  reserve = <span class="n">65011</span>
-  args    = { supply = <span class="n">100</span> }
-}
+<span class="k">let</span> token = d
+    .<span class="k">contract</span>(<span class="s">"token"</span>, <span class="s">"my-token"</span>)
+    .reserve(<span class="n">65011</span>)
+    .arg(<span class="s">"supply"</span>, <span class="n">100</span>);
 
-<span class="k">contract</span> <span class="s">"market"</span> {
-  package = <span class="s">"my_market"</span>
-  args = {
-    base   = <span class="r">contract.token.id</span>
-    quote  = <span class="r">alkane.usd.id</span>
-    expiry = <span class="r">height</span> + <span class="n">100</span>
-  }
-}`;
+d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="s">"my-market"</span>)
+    .arg(<span class="s">"base"</span>, <span class="r">token.id()</span>)
+    .arg(<span class="s">"quote"</span>, <span class="r">usd.id()</span>)
+    .arg(<span class="s">"expiry"</span>, <span class="r">d.height()</span> + <span class="n">100</span>);`;
 ---
 
 <!doctype html>
@@ -128,17 +121,17 @@ const manifestHtml = `<span class="k">alkane</span> <span class="s">"usd"</span>
       <section class="section" id="systems" aria-labelledby="systems-title">
         <div class="section-intro">
           <h2 id="systems-title">Deploy the system, not just the contract.</h2>
-          <p>Describe several contracts and the references between them in <code>alkanes.hcl</code>. <code>labcoat plan</code> compares it with the chain, and <code>labcoat apply</code> deploys what is missing in dependency order; applying an unchanged manifest does nothing.</p>
+          <p>Declare several contracts and the references between them in <code>deploy.rs</code>. <code>labcoat plan</code> shows what has not run yet, and <code>labcoat apply</code> runs each step once; applying an unchanged script does nothing, and new code behind a proxy goes out as an upgrade.</p>
         </div>
         <div class="systems-layout">
           <figure class="code-window">
-            <figcaption>alkanes.hcl</figcaption>
-            <pre tabindex="0" aria-label="Example alkanes.hcl deployment manifest"><code set:html={manifestHtml} /></pre>
+            <figcaption>deploy.rs</figcaption>
+            <pre tabindex="0" aria-label="Example deploy.rs deployment script"><code set:html={manifestHtml} /></pre>
             <pre class="code-window-output" tabindex="0" aria-label="labcoat plan output"><code><span class="t-prompt" aria-hidden="true">$ </span>labcoat plan
-<span class="t-info">› Plan for alkanes.hcl — 2 pending action(s)</span></code></pre>
+<span class="t-info">› Plan for deploy.rs — 2 pending step(s)</span></code></pre>
           </figure>
           <dl class="feature-list">
-            <div><dt>Network e2e tests</dt><dd>Reset the chain, apply the manifest, and drive multi-wallet flows from Rust with <code>labcoat test --e2e</code>.</dd></div>
+            <div><dt>Network e2e tests</dt><dd>Reset the chain, apply the script, and drive multi-wallet flows from Rust with <code>labcoat test --e2e</code>.</dd></div>
             <div><dt>Atomic exchanges</dt><dd>Swap two Alkane assets between wallets in one transaction, locally or through a seller-last PSBT ceremony.</dd></div>
             <div><dt>Web clients</dt><dd>Generate a typed TypeScript client for balances and simulations with <code>labcoat generate web</code>.</dd></div>
             <div><dt>Deployment history</dt><dd>Keep every instance of every contract, and refuse to deploy onto a chain that was reset.</dd></div>
@@ -169,7 +162,7 @@ const manifestHtml = `<span class="k">alkane</span> <span class="s">"usd"</span>
           </figure>
           <div class="agents-copy">
             <h3>MCP server</h3>
-            <p><code>labcoat mcp serve</code> exposes Labcoat Network, wallets, builds, deploys, manifests, exchanges, state, and traces as typed tools over stdio.</p>
+            <p><code>labcoat mcp serve</code> exposes Labcoat Network, wallets, builds, deploys, deployment scripts, exchanges, state, and traces as typed tools over stdio.</p>
             <h3>Context for coding agents</h3>
             <p>These files are generated from the CLI on <code>main</code>. <code>labcoat docs --llm</code> prints the same reference for the version you have installed.</p>
             <ul class="link-list">

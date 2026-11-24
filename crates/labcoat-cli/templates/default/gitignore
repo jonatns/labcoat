@@ -1,4 +1,6 @@
 /build/
 /.labcoat/
 /labcoat.lock
+# Labcoat Network is disposable; commit the run files of shared networks.
+/deployments/labcoat.json
 /target/

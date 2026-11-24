@@ -1,9 +1,9 @@
 use crate::contract::{CmdResult, Ctx, EnvelopeError};
-use std::path::{Path, PathBuf};
 
 /// `labcoat test --e2e [filter]` — reset the Labcoat Network (opt-out with
-/// `--no-reset`), apply the `alkanes.hcl` manifest when present, then run
-/// the project's ignored `tests/e2e.rs` tests with the context env set.
+/// `--no-reset`), apply the `deploy.rs` deployment script when present,
+/// then run the project's ignored `tests/e2e.rs` tests with the context
+/// env set.
 pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResult {
     if ctx.config.network != labcoat_core::NetworkTarget::Labcoat {
         return Err(EnvelopeError {
@@ -75,7 +75,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
     }
 
     // A reset leaves the project wallet empty; make sure it exists and
-    // holds mature regtest BTC before the manifest deploys anything.
+    // holds mature regtest BTC before the script deploys anything.
     {
         let passphrase = ctx.passphrase();
         let address = async {
@@ -111,13 +111,18 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
             })?;
     }
 
-    let manifest_path = project_root.join(labcoat_core::manifest::MANIFEST);
-    let applied = if manifest_path.is_file() {
+    let applied = if project_root
+        .join(labcoat_core::deployment::SCRIPT)
+        .is_file()
+    {
+        let graph = crate::deploy_script::load_graph(&project_root, ctx.config.network_id())
+            .map_err(core_error)?;
         let report = labcoat_core::apply::apply(
             &ctx.config,
             &ctx.signer_spec().map_err(core_error)?,
             &project_root,
-            &manifest_path,
+            &graph,
+            &labcoat_core::apply::Options::default(),
         )
         .await
         .map_err(core_error)?;
@@ -135,15 +140,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
 
     let labcoat_bin = std::env::current_exe().map_err(io_error)?;
     let mut command = std::process::Command::new("cargo");
-    if let Some(path) = local_labcoat_test_path() {
-        let escaped = path
-            .to_string_lossy()
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"");
-        command.arg("--config").arg(format!(
-            "patch.'https://github.com/jonatns/labcoat'.labcoat-test.path=\"{escaped}\""
-        ));
-    }
+    labcoat_core::compile::patch_local_labcoat_crates(&mut command);
     command.args(["test", "--test", "e2e"]);
     command.args(["--", "--ignored"]);
     if let Some(filter) = filter {
@@ -202,15 +199,7 @@ pub fn run(package: Option<&str>) -> CmdResult {
     .map_err(core_error)?;
 
     let mut command = std::process::Command::new("cargo");
-    if let Some(path) = local_labcoat_test_path() {
-        let escaped = path
-            .to_string_lossy()
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"");
-        command.arg("--config").arg(format!(
-            "patch.'https://github.com/jonatns/labcoat'.labcoat-test.path=\"{escaped}\""
-        ));
-    }
+    labcoat_core::compile::patch_local_labcoat_crates(&mut command);
     command.arg("test");
     if let Some(package) = package {
         let target = labcoat_core::workspace::host_test_for_package(&workspace, package)
@@ -258,57 +247,10 @@ fn core_error(error: labcoat_core::LabcoatError) -> EnvelopeError {
     }
 }
 
-/// Resolve the unpublished test harness while developing Labcoat from source.
-///
-/// Release builds normally return `None` because their build checkout no longer
-/// exists, so generated projects resolve the harness from their matching
-/// `cli-vX.Y.Z` Git tag. `LABCOAT_TEST_CRATE_PATH` remains available for CI and
-/// packagers.
-fn local_labcoat_test_path() -> Option<PathBuf> {
-    if std::env::var_os("LABCOAT_TEST_CRATE_PATH").is_some() {
-        return None;
-    }
-
-    sibling_test_crate(Path::new(env!("CARGO_MANIFEST_DIR")))
-}
-
-fn sibling_test_crate(cli_manifest_dir: &Path) -> Option<PathBuf> {
-    let candidate = cli_manifest_dir.parent()?.join("labcoat-test");
-    candidate.join("Cargo.toml").is_file().then_some(candidate)
-}
-
 fn io_error(error: std::io::Error) -> EnvelopeError {
     EnvelopeError {
         code: "TOOLKIT_ERROR",
         message: error.to_string(),
         hint: "check project permissions and available disk space",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn discovers_sibling_test_crate_for_source_builds() {
-        let root = std::env::temp_dir().join(format!(
-            "labcoat-test-crate-discovery-{}",
-            std::process::id()
-        ));
-        let cli = root.join("labcoat-cli");
-        let harness = root.join("labcoat-test");
-        std::fs::remove_dir_all(&root).ok();
-        std::fs::create_dir_all(&cli).unwrap();
-        std::fs::create_dir_all(&harness).unwrap();
-
-        assert_eq!(sibling_test_crate(&cli), None);
-        std::fs::write(
-            harness.join("Cargo.toml"),
-            "[package]\nname='labcoat-test'\n",
-        )
-        .unwrap();
-        assert_eq!(sibling_test_crate(&cli), Some(harness));
-
-        std::fs::remove_dir_all(root).ok();
     }
 }

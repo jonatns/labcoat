@@ -12,9 +12,10 @@ contract later with `labcoat new token`.
 contracts/           Rust contract sources
 tests/               Native integration tests; tests/e2e.rs runs on Labcoat Network
 Cargo.toml           Host-side test project
-alkanes.hcl          Declarative deployment topology for plan and apply
+deploy.rs            Deployment script for plan and apply
+deployments/         Per-network run files, created on apply
 labcoat.toml         Public project configuration
-labcoat.lock         Per-network deployment ledger, created on deploy
+labcoat.lock         Per-network address book, created on deploy
 rust-toolchain.toml  Pinned Rust toolchain and WebAssembly targets
 AGENTS.md            Concise instructions for coding agents
 SKILL.md             Complete Labcoat agent workflow
@@ -22,9 +23,12 @@ SKILL.md             Complete Labcoat agent workflow
 
 Commit `rust-toolchain.toml` and the `Cargo.lock` created by the first build.
 The toolchain file pins the Rust release Labcoat is tested with, and rustup
-installs it on first use. See [Declarative deployments](/docs/deployments/)
-for `alkanes.hcl` and [Deployment state](/docs/deployment-state/) for
-durable deployment history.
+installs it on first use. See [Deployment scripts](/docs/deployments/) for
+`deploy.rs` and the run files, and [Deployment state](/docs/deployment-state/)
+for durable deployment history.
+
+`deploy.rs` is registered in the root `Cargo.toml` as the `deploy` example
+target, which is how `labcoat plan` and `labcoat apply` run it.
 
 ## Settings precedence
 
@@ -58,6 +62,14 @@ Never put a mnemonic or passphrase in `labcoat.toml` or on the command line.
 IDs, and deployment status. Commit it when deployments are part of shared
 project state. After `labcoat reset -y`, redeploy contracts because the local
 chain no longer contains those IDs.
+
+## Run files
+
+`deployments/<network>.json` records every `deploy.rs` step that ran on a
+network, which is what makes each step run once. Commit the run files of
+shared networks. A new project's `.gitignore` excludes
+`deployments/labcoat.json`, because `labcoat reset` starts a chain where
+nothing has run. See [the run file](/docs/deployments/#the-run-file).
 
 ### Pre-1.0 network rename
 

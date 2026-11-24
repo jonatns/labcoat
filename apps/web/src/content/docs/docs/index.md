@@ -41,8 +41,8 @@ labcoat test
   <li>
     <a href="/docs/deployments/">
       <span class="path-label">Deploy</span>
-      <strong>Declarative deployments</strong>
-      Describe several contracts in one manifest and apply it repeatably.
+      <strong>Deployment scripts</strong>
+      Declare several contracts and their upgrades in one script; each step runs once.
       <code>labcoat apply --broadcast</code>
     </a>
   </li>
@@ -88,9 +88,10 @@ that pins the Rust release Labcoat is tested with. See
 each contract name maps to its `block:tx` ID, so later commands can use the
 name. Commit it when deployments are shared project state.
 
-**`alkanes.hcl`.** An optional manifest describing a whole deployment
-topology, which `labcoat plan` and `labcoat apply` reconcile against the chain.
-See [Declarative deployments](/docs/deployments/).
+**`deploy.rs`.** A deployment script declaring every contract, reference,
+and upgrade in a deployment, which `labcoat plan` reviews and `labcoat apply`
+runs once per network.
+See [Deployment scripts](/docs/deployments/).
 
 **One release unit.** Each `cli-vX.Y.Z` release ships the CLI, its exact
 Labcoat Network runtime, and the matching `labcoat-test` harness together.
@@ -101,8 +102,10 @@ After upgrading the CLI, run `labcoat upgrade` in each project. See
 
 These docs track the `main` branch, which adds:
 
-- [Declarative deployments](/docs/deployments/) with `alkanes.hcl`, `plan`,
-  `apply`, and network e2e tests through `labcoat test --e2e`.
+- [Deployment scripts](/docs/deployments/) with `deploy.rs`, `plan`, `apply`,
+  and `import`, upgradeable proxies and beacons, and network e2e tests through
+  `labcoat test --e2e`. The [upgradeable contract tutorial](/docs/tutorials/upgradeable-contract/)
+  walks through a full deploy and upgrade.
 - [Atomic exchanges](/docs/exchanges/) between two wallets, locally or through
   a seller-last PSBT ceremony, with single-asset outputs.
 - [Generated web clients](/docs/web-apps/) for reading contracts from a browser.

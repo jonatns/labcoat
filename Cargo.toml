@@ -5,6 +5,7 @@ members = [
     "crates/labcoat-core",
     "crates/labcoat-cli",
     "crates/labcoat-test",
+    "crates/labcoat-deploy",
 ]
 
 [workspace.package]

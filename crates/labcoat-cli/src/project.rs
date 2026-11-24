@@ -27,10 +27,7 @@ const FILES: &[(&str, &str)] = &[
         "tests/e2e.rs",
         include_str!("../templates/default/tests/e2e.rs"),
     ),
-    (
-        "alkanes.hcl",
-        include_str!("../templates/default/alkanes.hcl"),
-    ),
+    ("deploy.rs", include_str!("../templates/default/deploy.rs")),
     (
         "labcoat.toml",
         include_str!("../templates/default/labcoat.toml"),
@@ -130,19 +127,97 @@ pub fn prompt_project_name(
     }
 }
 
-pub fn new_contract(name: &str) -> CmdResult {
+/// Standard upgradeable contracts `labcoat new --template` can vendor into
+/// a project: (template name, source, what it is).
+pub(crate) const STANDARD_TEMPLATES: &[(&str, &str, &str)] = &[
+    (
+        "auth-token",
+        include_str!("../templates/std/auth-token.rs"),
+        "the auth token every standard proxy and beacon clones from 4:65517",
+    ),
+    (
+        "upgradeable",
+        include_str!("../templates/std/upgradeable.rs"),
+        "a proxy that delegates to one replaceable implementation",
+    ),
+    (
+        "upgradeable-beacon",
+        include_str!("../templates/std/upgradeable-beacon.rs"),
+        "a beacon holding the implementation its proxies follow",
+    ),
+    (
+        "beacon-proxy",
+        include_str!("../templates/std/beacon-proxy.rs"),
+        "a proxy that follows a beacon",
+    ),
+];
+
+pub fn new_contract(name: &str, template: Option<&str>) -> CmdResult {
     let cwd = std::env::current_dir().map_err(|e| io_error(Path::new("."), e))?;
-    new_contract_from(&cwd, name)
+    new_contract_from(&cwd, name, template)
 }
 
-fn new_contract_from(start: &Path, name: &str) -> CmdResult {
+fn new_contract_from(start: &Path, name: &str, template: Option<&str>) -> CmdResult {
     let root = find_project_root(start).ok_or_else(|| EnvelopeError {
         code: "CONFIG_INVALID",
         message: format!("{} is not inside a Labcoat project", start.display()),
         hint: "run `labcoat init` to create a project, then retry from inside it",
     })?;
-    let files = scaffold_contract(&root, name)?;
-    Ok(serde_json::json!({ "contract": name, "files": files }))
+    let Some(template) = template else {
+        let files = scaffold_contract(&root, name)?;
+        return Ok(serde_json::json!({ "contract": name, "files": files }));
+    };
+    let Some((_, source, _)) = STANDARD_TEMPLATES
+        .iter()
+        .find(|(known, _, _)| *known == template)
+    else {
+        return Err(EnvelopeError {
+            code: "CONFIG_INVALID",
+            message: format!(
+                "unknown template `{template}` — available: {}",
+                STANDARD_TEMPLATES
+                    .iter()
+                    .map(|(known, _, _)| *known)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            hint: "omit --template for a minimal contract, or pass one of the standard templates",
+        });
+    };
+    let files = scaffold_standard_contract(&root, name, source)?;
+    Ok(serde_json::json!({ "contract": name, "template": template, "files": files }))
+}
+
+/// Vendor a standard contract: a package manifest and the source, with no
+/// host test — these contracts are exercised on-chain through `deploy.rs`.
+fn scaffold_standard_contract(
+    root: &Path,
+    name: &str,
+    source: &str,
+) -> Result<Vec<String>, EnvelopeError> {
+    validate_contract_name(name)?;
+    let paths = [
+        format!("contracts/{name}/Cargo.toml"),
+        format!("contracts/{name}/src/lib.rs"),
+    ];
+    for path in &paths {
+        if root.join(path).exists() {
+            return Err(EnvelopeError {
+                code: "CONFIG_INVALID",
+                message: format!("refusing to overwrite {}", root.join(path).display()),
+                hint: "choose another contract name or remove the existing files",
+            });
+        }
+    }
+    let manifest = CONTRACT_MANIFEST.replace("{{CONTRACT_NAME}}", name);
+    for (path, contents) in paths.iter().zip([manifest.as_str(), source]) {
+        let destination = root.join(path);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+        }
+        std::fs::write(&destination, contents).map_err(|e| io_error(&destination, e))?;
+    }
+    Ok(paths.into_iter().collect())
 }
 
 pub(crate) fn find_project_root(start: &Path) -> Option<PathBuf> {
@@ -309,7 +384,7 @@ mod tests {
         std::fs::create_dir_all(&parent).unwrap();
         init_in(&parent, "manifest-project").unwrap();
         let root = parent.join("manifest-project");
-        new_contract_from(&root, "token").unwrap();
+        new_contract_from(&root, "token", None).unwrap();
         for manifest in [
             "Cargo.toml",
             "contracts/counter/Cargo.toml",
@@ -380,21 +455,91 @@ mod tests {
         init_in(&parent, "project").unwrap();
         let root = parent.join("project");
         let nested = root.join("contracts/counter/src");
-        let result = new_contract_from(&nested, "name-registry").unwrap();
+        let result = new_contract_from(&nested, "name-registry", None).unwrap();
         let files = result["files"].as_array().unwrap();
         assert_eq!(files.len(), 3);
         assert!(root.join("contracts/counter/Cargo.toml").exists());
         assert!(root.join("contracts/name-registry/Cargo.toml").exists());
-        assert!(new_contract_from(&nested, "name-registry").is_err());
+        assert!(new_contract_from(&nested, "name-registry", None).is_err());
 
         std::fs::write(root.join("tests/collision.rs"), "existing").unwrap();
-        assert!(new_contract_from(&nested, "collision").is_err());
+        assert!(new_contract_from(&nested, "collision", None).is_err());
         assert!(!root.join("contracts/collision").exists());
         assert_eq!(
             std::fs::read_to_string(root.join("tests/collision.rs")).unwrap(),
             "existing"
         );
-        assert!(new_contract_from(&nested, "Bad_Name").is_err());
+        assert!(new_contract_from(&nested, "Bad_Name", None).is_err());
+        std::fs::remove_dir_all(parent).ok();
+    }
+
+    #[test]
+    fn scaffolds_a_deployment_script_cargo_can_run() {
+        let parent = test_parent("init-deploy");
+        std::fs::remove_dir_all(&parent).ok();
+        std::fs::create_dir_all(&parent).unwrap();
+        init_in(&parent, "project").unwrap();
+        let root = parent.join("project");
+        let script = std::fs::read_to_string(root.join("deploy.rs")).unwrap();
+        assert!(script.contains("d.contract(\"counter\", \"counter\")"));
+        // The script is the `deploy` example target `labcoat plan` runs.
+        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("[[example]]\nname = \"deploy\"\npath = \"deploy.rs\""));
+        // Labcoat Network's run file is disposable; shared networks' are not.
+        let ignore = std::fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(ignore.contains("/deployments/labcoat.json"));
+        assert!(!ignore.lines().any(|line| line == "/deployments/"));
+        std::fs::remove_dir_all(parent).ok();
+    }
+
+    #[test]
+    fn vendors_standard_contracts_without_a_host_test() {
+        let parent = test_parent("contract-template");
+        std::fs::remove_dir_all(&parent).ok();
+        std::fs::create_dir_all(&parent).unwrap();
+        init_in(&parent, "project").unwrap();
+        let root = parent.join("project");
+
+        for (template, _, _) in STANDARD_TEMPLATES {
+            let name = format!("my-{template}");
+            let result = new_contract_from(&root, &name, Some(template)).unwrap();
+            assert_eq!(result["template"], *template);
+            assert_eq!(result["files"].as_array().unwrap().len(), 2);
+            let manifest =
+                std::fs::read_to_string(root.join(format!("contracts/{name}/Cargo.toml"))).unwrap();
+            assert!(manifest.contains(&format!("name = \"{name}\"")));
+            let source =
+                std::fs::read_to_string(root.join(format!("contracts/{name}/src/lib.rs"))).unwrap();
+            assert!(source.contains("declare_alkane!"));
+            assert!(
+                !source.contains("{{"),
+                "standard sources take no placeholders"
+            );
+            assert!(!root.join(format!("tests/{name}.rs")).exists());
+        }
+
+        // The opcodes the deployment helpers rely on.
+        let beacon = STANDARD_TEMPLATES
+            .iter()
+            .find(|(name, _, _)| *name == "upgradeable-beacon")
+            .unwrap()
+            .1;
+        for opcode in [
+            "#[opcode(0x7fff)]",
+            "#[opcode(0x7ffd)]",
+            "#[opcode(0x7ffe)]",
+        ] {
+            assert!(beacon.contains(opcode));
+        }
+
+        let error = new_contract_from(&root, "nope", Some("bogus")).unwrap_err();
+        assert_eq!(error.code, "CONFIG_INVALID");
+        assert!(error
+            .message
+            .contains("auth-token, upgradeable, upgradeable-beacon, beacon-proxy"));
+        assert!(!root.join("contracts/nope").exists());
+        // An existing package is never overwritten.
+        assert!(new_contract_from(&root, "my-auth-token", Some("auth-token")).is_err());
         std::fs::remove_dir_all(parent).ok();
     }
 
@@ -404,7 +549,7 @@ mod tests {
             std::env::temp_dir().join(format!("labcoat-not-a-project-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         std::fs::create_dir_all(&root).unwrap();
-        let error = new_contract_from(&root, "example").unwrap_err();
+        let error = new_contract_from(&root, "example", None).unwrap_err();
         assert_eq!(error.code, "CONFIG_INVALID");
         assert!(error.hint.contains("labcoat init"));
         std::fs::remove_dir_all(root).ok();

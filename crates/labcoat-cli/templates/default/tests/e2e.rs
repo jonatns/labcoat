@@ -1,4 +1,4 @@
-//! End-to-end tests against the contracts `labcoat apply` deployed on
+//! End-to-end tests against the contracts `deploy.rs` deployed on
 //! Labcoat Network. Run with `labcoat test --e2e` — plain `cargo test`
 //! skips these because they are `#[ignore]`d.
 
@@ -10,7 +10,7 @@ fn counter_increments_across_wallets() {
     let e2e = E2e::from_env().unwrap();
     let counter = e2e.contract("counter").unwrap();
 
-    // The manifest deploys an inert counter; usage starts here.
+    // deploy.rs deploys an inert counter; usage starts here.
     assert_eq!(e2e.simulate_uint(&counter, "get_count", &[]).unwrap(), 0);
 
     // The project wallet increments once.

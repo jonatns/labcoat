@@ -913,12 +913,24 @@ fn state_migrate_document(value: &Value) -> Document {
 fn plan_document(value: &Value) -> Document {
     let mut document = Document::default();
     let pending = value.get("pending").and_then(Value::as_u64).unwrap_or(0);
+    let conflicts = value.get("conflicts").and_then(Value::as_u64).unwrap_or(0);
     document.headline(
-        Tone::Info,
-        format!(
-            "Plan for {} — {pending} pending action(s)",
-            string_at(value, "manifest")
-        ),
+        if conflicts > 0 {
+            Tone::Warning
+        } else {
+            Tone::Info
+        },
+        if conflicts > 0 {
+            format!(
+                "Plan for {} — {pending} pending, {conflicts} in conflict",
+                string_at(value, "script")
+            )
+        } else {
+            format!(
+                "Plan for {} — {pending} pending step(s)",
+                string_at(value, "script")
+            )
+        },
     );
     document.fields(fields(
         value,
@@ -929,24 +941,55 @@ fn plan_document(value: &Value) -> Document {
         ],
     ));
     let mut rows = Vec::new();
+    let mut arguments = Vec::new();
+    let mut details = Vec::new();
     for action in value
         .get("actions")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
     {
+        let status = string_at(action, "status");
+        let change = action
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("none");
+        let args = action
+            .get("args")
+            .and_then(Value::as_array)
+            .map(|args| {
+                args.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        // Arguments matter for what is about to run or needs a decision;
+        // a completed step's are in the run file.
+        if status != "complete" && !args.is_empty() {
+            arguments.push(vec![string_at(action, "name"), args]);
+        }
         rows.push(vec![
             string_at(action, "kind"),
             string_at(action, "name"),
-            string_at(action, "status"),
+            if status == "pending" && change != "none" {
+                format!("{status} ({change})")
+            } else {
+                status
+            },
             action
                 .get("id")
                 .or_else(|| action.get("target"))
                 .and_then(Value::as_str)
                 .unwrap_or("-")
                 .to_string(),
-            string_at(action, "detail"),
         ]);
+        if let Some(detail) = action.get("detail").and_then(Value::as_str) {
+            details.push((
+                action.get("status").and_then(Value::as_str) == Some("conflict"),
+                format!("{}: {detail}", string_at(action, "name")),
+            ));
+        }
     }
     if !rows.is_empty() {
         document.blocks.push(Block::Table(
@@ -955,25 +998,54 @@ fn plan_document(value: &Value) -> Document {
                 "Name".into(),
                 "Status".into(),
                 "Id/Target".into(),
-                "Detail".into(),
             ],
             rows,
         ));
     }
+    if !arguments.is_empty() {
+        document.blocks.push(Block::Table(
+            vec!["Step".into(), "Arguments".into()],
+            arguments,
+        ));
+    }
+    for (conflict, detail) in details {
+        document.note(if conflict { Tone::Warning } else { Tone::Info }, detail);
+    }
     let stale = value
-        .get("staleCallRecords")
+        .get("staleRecords")
         .and_then(Value::as_u64)
         .unwrap_or(0);
     if stale > 0 {
         document.note(
             Tone::Warning,
-            format!("{stale} call record(s) from a previous chain instance were ignored."),
+            format!("{stale} record(s) from a previous chain instance were ignored."),
         );
     }
-    if value.get("dryRun").and_then(Value::as_bool) == Some(true) && pending > 0 {
+    let undeclared: Vec<&str> = value
+        .get("undeclared")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    if !undeclared.is_empty() {
         document.note(
             Tone::Info,
-            "Re-run with --broadcast to execute the pending actions.",
+            format!(
+                "Recorded but no longer declared in deploy.rs: {}.",
+                undeclared.join(", ")
+            ),
+        );
+    }
+    if conflicts > 0 {
+        document.note(
+            Tone::Warning,
+            "Apply refuses while a step is in conflict: restore the step, or name it in --replace.",
+        );
+    } else if value.get("dryRun").and_then(Value::as_bool) == Some(true) && pending > 0 {
+        document.note(
+            Tone::Info,
+            "Re-run with --broadcast to execute the pending steps.",
         );
     }
     document
@@ -997,21 +1069,34 @@ fn apply_document(value: &Value) -> Document {
         .count();
     document.headline(
         Tone::Success,
-        format!("Applied {applied} of {} action(s)", actions.len()),
+        format!("Applied {applied} of {} step(s)", actions.len()),
     );
     document.fields(fields(
         value,
         &[("Network", "network"), ("Chain", "chainId")],
     ));
     let mut rows = Vec::new();
+    let mut transactions = Vec::new();
     for action in &actions {
         rows.push(vec![
             string_at(action, "kind"),
             string_at(action, "name"),
             string_at(action, "outcome"),
-            string_at(action, "id"),
-            string_at(action, "txid"),
+            action
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("-")
+                .to_string(),
+            action
+                .get("detail")
+                .and_then(Value::as_str)
+                .filter(|detail| detail.chars().count() <= 24)
+                .unwrap_or_default()
+                .to_string(),
         ]);
+        if let Some(txid) = action.get("txid").and_then(Value::as_str) {
+            transactions.push(vec![string_at(action, "name"), txid.to_string()]);
+        }
     }
     if !rows.is_empty() {
         document.blocks.push(Block::Table(
@@ -1020,9 +1105,17 @@ fn apply_document(value: &Value) -> Document {
                 "Name".into(),
                 "Outcome".into(),
                 "Id".into(),
-                "Transaction".into(),
+                "Change".into(),
             ],
             rows,
+        ));
+    }
+    // Transaction ids are 64 characters: a table of their own keeps the
+    // summary above readable at any width.
+    if !transactions.is_empty() {
+        document.blocks.push(Block::Table(
+            vec!["Step".into(), "Transaction".into()],
+            transactions,
         ));
     }
     document
@@ -1458,6 +1551,67 @@ fn indent(value: &str, depth: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plan_renders_steps_arguments_and_conflicts_within_the_width() {
+        let value = serde_json::json!({
+            "script": "deploy.rs",
+            "network": "labcoat",
+            "height": 108,
+            "pending": 2,
+            "conflicts": 1,
+            "staleRecords": 0,
+            "undeclared": ["old_market"],
+            "actions": [
+                {"kind": "external", "name": "usd", "status": "complete", "action": "none", "id": "4:65012"},
+                {"kind": "contract", "name": "counter_logic", "status": "pending", "action": "replace", "target": "1:0",
+                 "detail": "the code changed — deploys a new instance and keeps 2:1 in the record's history"},
+                {"kind": "contract", "name": "counter_beacon", "status": "conflict", "action": "none", "id": "2:2",
+                 "args": ["implementation=2:1", "auth_token_units=2"],
+                 "detail": "its definition changed since it ran — restore it, or pass `--replace counter_beacon` to deploy a new instance"},
+                {"kind": "setting", "name": "counter_beacon_implementation", "status": "pending", "action": "update", "id": "2:2",
+                 "args": ["<counter_logic.id>"], "detail": "2:1 → <counter_logic.id>"},
+                {"kind": "contract", "name": "counter", "status": "complete", "action": "none", "id": "2:4",
+                 "args": ["beacon=2:2"]},
+            ],
+        });
+        let output = render_plain("plan", &value, false, 100);
+        assert!(output.contains("Plan for deploy.rs — 2 pending, 1 in conflict"));
+        // The step table stays a table at the default width.
+        assert!(output.contains("Kind      Name"));
+        assert!(output.contains("counter_logic                  pending (replace)  1:0"));
+        assert!(output.contains("counter_beacon                 conflict           2:2"));
+        // Arguments are listed for steps that will run or need a decision…
+        assert!(output.contains("implementation=2:1, auth_token_units=2"));
+        // …and not for completed ones.
+        assert!(!output.contains("beacon=2:2"));
+        assert!(output.contains("counter_beacon_implementation: 2:1 → <counter_logic.id>"));
+        assert!(output.contains("Recorded but no longer declared in deploy.rs: old_market."));
+        assert!(output.contains("Apply refuses while a step is in conflict"));
+    }
+
+    #[test]
+    fn apply_report_lists_transactions_separately() {
+        let txid = "73c7d9682d8c881353979b78d60f14f2f18b26221c90bf5f9f7acf35a2ed0b97";
+        let value = serde_json::json!({
+            "network": "labcoat",
+            "actions": [
+                {"kind": "contract", "name": "auth_token", "outcome": "skipped-complete", "id": "4:65517"},
+                {"kind": "contract", "name": "counter_logic", "outcome": "applied", "id": "2:5", "txid": txid,
+                 "detail": "the code changed — deploys a new instance and keeps 2:1 in the record's history"},
+                {"kind": "setting", "name": "counter_beacon_implementation", "outcome": "applied", "id": "2:2",
+                 "txid": txid, "detail": "2:1 → 2:5"},
+            ],
+        });
+        let output = render_plain("apply", &value, false, 100);
+        assert!(output.contains("Applied 2 of 3 step(s)"));
+        assert!(
+            output.contains("counter_beacon_implementation  applied           2:2      2:1 → 2:5")
+        );
+        assert!(output.contains(&format!("counter_logic                  {txid}")));
+        // A long explanation never widens the summary table.
+        assert!(!output.contains("the code changed"));
+    }
 
     #[test]
     fn stderr_ansi_follows_the_color_flag_and_terminal_detection() {

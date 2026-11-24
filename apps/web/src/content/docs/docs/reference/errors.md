@@ -40,12 +40,15 @@ surface `error.hint` to the operator or agent.
 | `EXECUTION_REVERT` | The contract explicitly reverted | Inspect `revertReason` and trace |
 | `TRACE_TIMEOUT` | A decoded trace did not arrive in time | Retry `labcoat trace --wait` |
 
-## Declarative deployments
+## Deployment scripts
 
 | Code | Meaning | First response |
 | --- | --- | --- |
-| `MANIFEST_INVALID` | `alkanes.hcl` cannot be read or uses an unsupported construct | Fix the block named in the message |
-| `APPLY_BLOCKED` | An action cannot proceed, such as a reference with no resolved ID | Run `labcoat plan` and resolve the blocked action |
+| `DEPLOY_SCRIPT_INVALID` | `deploy.rs` is missing, failed to build or run, or declared an invalid step | Read the message; `cargo run --example deploy` reproduces a build failure |
+| `DEPLOYMENT_CONFLICT` | A step that already ran no longer matches `deploy.rs`, or references a contract that was replaced | Restore the step, or name it in `labcoat apply --replace <name>` |
+| `APPLY_BLOCKED` | A step cannot proceed: an interrupted broadcast, an occupied reserve, or an unreadable setting | Run `labcoat plan` and resolve the step's detail |
+| `DEPLOYMENT_LOCKED` | Another apply or import is updating the project's deployments | Retry after the other command finishes |
+| `RUN_FILE_INVALID` | `deployments/<network>.json` cannot be read, parsed, or written | Restore it from version control |
 
 ## Atomic exchanges
 

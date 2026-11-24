@@ -31,6 +31,9 @@ pub struct ExecuteOutcome {
     pub revert_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alkanes_id: Option<String>,
+    /// Every Alkane the transaction created, in trace order (deploys).
+    #[serde(skip)]
+    pub created: Vec<String>,
     pub traces: Option<Vec<serde_json::Value>>,
 }
 
@@ -199,6 +202,13 @@ pub struct ExecuteRequest<'a> {
     pub input_requirements: Vec<InputRequirement>,
 }
 
+pub(crate) enum Broadcast<'a> {
+    Commit(&'a str),
+    Execute(&'a str),
+}
+
+pub(crate) type BroadcastObserver<'a> = dyn FnMut(Broadcast<'_>) -> Result<()> + 'a;
+
 /// Run the executor with a cellpack spec, optional envelope (deploy), and
 /// standard labcoat behavior: trace, auto-mine on regtest, UTXOs filtered to
 /// the indexer height.
@@ -212,6 +222,15 @@ pub async fn run(
     provider: &mut ConcreteProvider,
     config: &ToolkitConfig,
     request: ExecuteRequest<'_>,
+) -> Result<EnhancedExecuteResult> {
+    run_with_broadcast(provider, config, request, None).await
+}
+
+pub(crate) async fn run_with_broadcast(
+    provider: &mut ConcreteProvider,
+    config: &ToolkitConfig,
+    request: ExecuteRequest<'_>,
+    mut observe: Option<&mut BroadcastObserver<'_>>,
 ) -> Result<EnhancedExecuteResult> {
     let protostones = alkanes_cli_common::alkanes::parsing::parse_protostones(request.spec)
         .map_err(|e| {
@@ -239,7 +258,22 @@ pub async fn run(
             _ => None,
         })
         .collect();
-    let excluded_utxos = protected_outpoints(provider, mine_enabled, &required_alkanes).await?;
+    let (mut excluded_utxos, spendable) =
+        protected_outpoints(provider, mine_enabled, &required_alkanes).await?;
+    if request.envelope.is_some() {
+        let bitcoin_requirements: u64 = request
+            .input_requirements
+            .iter()
+            .filter_map(|requirement| match requirement {
+                InputRequirement::Bitcoin { amount } => Some(*amount),
+                _ => None,
+            })
+            .sum();
+        excluded_utxos.extend(envelope_funding_exclusions(
+            &spendable,
+            DUST + bitcoin_requirements + UPSTREAM_REVEAL_BUFFER + COMMIT_HEADROOM,
+        ));
+    }
 
     let params = EnhancedExecuteParams {
         fee_rate: request.fee_rate.or(config.fee_rate),
@@ -293,10 +327,15 @@ pub async fn run(
                     &wallet_fingerprint,
                     &preview("transaction", &tx.psbt, tx.fee, config, &wallet_fingerprint),
                 )?;
-                executor
-                    .resume_execution(tx, &params)
-                    .await
-                    .map_err(|e| LabcoatError::classify(e.into()))?
+                match observe.as_deref_mut() {
+                    Some(observe) => {
+                        broadcast_signed(provider, tx.psbt, tx.fee, None, observe).await?
+                    }
+                    None => executor
+                        .resume_execution(tx, &params)
+                        .await
+                        .map_err(|e| LabcoatError::classify(e.into()))?,
+                }
             }
             ExecutionState::ReadyToSignCommit(mut commit) => {
                 prefund_reveal_from_commit_change(&mut commit);
@@ -311,65 +350,231 @@ pub async fn run(
                         &wallet_fingerprint,
                     ),
                 )?;
+                // The native commit signer adds only witnesses for these
+                // input types, so its funding txid is known before submission.
+                if let Some(observe) = observe.as_deref_mut() {
+                    let txid = commit_txid(&commit.psbt)?;
+                    observe(Broadcast::Commit(&txid))?;
+                }
                 let next = executor
                     .resume_commit_execution(commit)
                     .await
                     .map_err(|e| LabcoatError::classify(e.into()))?;
-                let reveal = match next {
-                    ExecutionState::ReadyToSignReveal(reveal) => reveal,
-                    other => {
-                        return Err(LabcoatError::new(
-                            "TOOLKIT_ERROR",
-                            format!("unexpected state after commit broadcast: {other:?}"),
-                            "report this as a Labcoat bug",
-                        ));
-                    }
+                let ExecutionState::ReadyToSignReveal(reveal) = next else {
+                    return Err(LabcoatError::new(
+                        "TOOLKIT_ERROR",
+                        format!("unexpected state after commit broadcast: {next:?}"),
+                        "report this as a Labcoat bug",
+                    ));
                 };
-                // The commit is on the network from here on — persist the
-                // reveal state first so a crash or a declined approval can
-                // be recovered without abandoning the commit output.
+                // Keep the prepared reveal until broadcast. A separate apply
+                // can approve and send it if the previous one stopped here.
                 let pending = persist_pending_reveal(config, &reveal);
-                approve_transaction(
-                    config,
-                    &wallet_fingerprint,
-                    &preview(
-                        &format!("reveal (commit {})", reveal.commit_txid),
-                        &reveal.psbt,
-                        reveal.fee,
-                        config,
-                        &wallet_fingerprint,
-                    ),
-                )?;
-                let result = executor
-                    .resume_reveal_execution(reveal)
-                    .await
-                    .map_err(|e| LabcoatError::classify(e.into()))?;
+                approve_reveal(config, &wallet_fingerprint, &reveal)?;
+                let result = match observe {
+                    Some(observe) => {
+                        broadcast_signed(
+                            provider,
+                            reveal.psbt,
+                            reveal.fee,
+                            Some((reveal.commit_txid, reveal.commit_fee)),
+                            observe,
+                        )
+                        .await?
+                    }
+                    None => executor
+                        .resume_reveal_execution(reveal)
+                        .await
+                        .map_err(|e| LabcoatError::classify(e.into()))?,
+                };
                 if let Some(pending) = pending {
                     std::fs::remove_file(pending).ok();
                 }
                 result
             }
-            ExecutionState::ReadyToSignReveal(reveal) => {
-                // execute() never starts here, but resuming a persisted
-                // reveal will once `labcoat resume` lands.
-                let result = executor
-                    .resume_reveal_execution(reveal)
-                    .await
-                    .map_err(|e| LabcoatError::classify(e.into()))?;
-                result
-            }
+            ExecutionState::ReadyToSignReveal(_) => unreachable!("execute builds the commit first"),
         }
     };
 
-    if mine_enabled {
+    confirm_regtest(provider, config).await?;
+
+    Ok(result)
+}
+
+fn commit_txid(psbt: &bitcoin::psbt::Psbt) -> Result<String> {
+    let stable = psbt.inputs.iter().all(|input| {
+        input
+            .witness_utxo
+            .as_ref()
+            .is_some_and(|utxo| utxo.script_pubkey.is_p2tr() || utxo.script_pubkey.is_p2wpkh())
+    });
+    if !stable {
+        return Err(LabcoatError::new(
+            "SIGNER_UNSUPPORTED",
+            "cannot journal a commit with inputs whose signatures change its transaction id",
+            "fund the project wallet with native SegWit inputs",
+        ));
+    }
+    Ok(psbt.unsigned_tx.compute_txid().to_string())
+}
+
+/// Record the signed ID before submitting. Unlike an RPC response this
+/// survives a lost connection after the node accepted the transaction.
+async fn broadcast_signed(
+    provider: &mut ConcreteProvider,
+    psbt: bitcoin::psbt::Psbt,
+    fee: u64,
+    commit: Option<(String, u64)>,
+    observe: &mut BroadcastObserver<'_>,
+) -> Result<EnhancedExecuteResult> {
+    let signed = provider
+        .sign_psbt(&psbt)
+        .await
+        .map_err(|error| LabcoatError::classify(error.into()))?;
+    let mut tx = signed
+        .clone()
+        .extract_tx()
+        .map_err(|error| LabcoatError::classify(error.into()))?;
+    for (input, psbt_input) in tx.input.iter_mut().zip(signed.inputs) {
+        // Upstream keystore taproot key-path signatures are not finalized
+        // into a PSBT witness; extract_tx already handles finalized inputs.
+        if let Some(signature) = &psbt_input.tap_key_sig {
+            input.witness = bitcoin::Witness::p2tr_key_spend(signature);
+        }
+    }
+    let txid = tx.compute_txid().to_string();
+    let tx_hex = bitcoin::consensus::encode::serialize_hex(&tx);
+    observe(Broadcast::Execute(&txid))?;
+    let received = provider
+        .broadcast_transaction(tx_hex.clone())
+        .await
+        .map_err(|error| LabcoatError::classify(error.into()))?;
+    if received != txid {
+        return Err(LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!("node returned transaction id {received} for {txid}"),
+            "check the RPC endpoint and trace the recorded transaction id",
+        ));
+    }
+    let (commit_txid, commit_fee) = commit.unzip();
+    Ok(EnhancedExecuteResult {
+        commit_txid,
+        commit_fee,
+        reveal_txid: txid,
+        reveal_fee: fee,
+        inputs_used: tx
+            .input
+            .iter()
+            .map(|input| input.previous_output.to_string())
+            .collect(),
+        outputs_created: tx
+            .output
+            .iter()
+            .map(|output| output.script_pubkey.to_string())
+            .collect(),
+        traces: None,
+        split_txid: None,
+        split_fee: None,
+        wrap_txid: None,
+        wrap_fee: None,
+        reveal_tx_hex: Some(tx_hex),
+    })
+}
+
+async fn confirm_regtest(provider: &ConcreteProvider, config: &ToolkitConfig) -> Result<()> {
+    if config.network.uses_regtest() {
         provider
             .generate_to_address(1, &regtest_mining_address())
             .await
-            .map_err(|e| LabcoatError::classify(e.into()))?;
+            .map_err(|error| LabcoatError::classify(error.into()))?;
         crate::sync::wait_for_indexer(provider, POST_BROADCAST_SYNC_TIMEOUT).await?;
     }
+    Ok(())
+}
 
+fn approve_reveal(
+    config: &ToolkitConfig,
+    wallet_fingerprint: &Option<String>,
+    reveal: &ReadyToSignRevealTx,
+) -> Result<()> {
+    approve_transaction(
+        config,
+        wallet_fingerprint,
+        &preview(
+            &format!("reveal (commit {})", reveal.commit_txid),
+            &reveal.psbt,
+            reveal.fee,
+            config,
+            wallet_fingerprint,
+        ),
+    )
+}
+
+pub(crate) async fn resume_reveal(
+    provider: &mut ConcreteProvider,
+    config: &ToolkitConfig,
+    reveal: ReadyToSignRevealTx,
+    observe: &mut BroadcastObserver<'_>,
+) -> Result<EnhancedExecuteResult> {
+    let fingerprint = provider
+        .get_keystore()
+        .ok()
+        .map(|keystore| keystore.master_fingerprint.clone());
+    approve_reveal(config, &fingerprint, &reveal)?;
+    let path = pending_reveal_path(config, &reveal.commit_txid);
+    let result = broadcast_signed(
+        provider,
+        reveal.psbt,
+        reveal.fee,
+        Some((reveal.commit_txid, reveal.commit_fee)),
+        observe,
+    )
+    .await?;
+    std::fs::remove_file(path).ok();
+    confirm_regtest(provider, config).await?;
     Ok(result)
+}
+
+/// Mirrors the constant baked into upstream build_reveal_psbt
+/// (alkanes-cli-common alkanes/execute.rs, `total_bitcoin_needed`).
+const UPSTREAM_REVEAL_BUFFER: u64 = 50_000;
+const DUST: u64 = 546;
+/// Room for the commit transaction's own fee and change output on top of
+/// what the reveal needs.
+const COMMIT_HEADROOM: u64 = 20_000;
+
+/// Coin control for envelope (commit/reveal) transactions.
+///
+/// Upstream sizes the commit's funding for the commit alone, oldest UTXO
+/// first. In a wallet holding several small UTXOs — the change outputs a
+/// multi-step deployment leaves behind — that selection can cover the
+/// commit with almost no change, leaving [`prefund_reveal_from_commit_change`]
+/// nothing to pre-fund the reveal from; the reveal then re-selects from a
+/// stale view and is rejected as a conflicting replacement.
+///
+/// So choose the funding here instead: the largest plain UTXOs that
+/// together cover `needed`, and exclude every other one. Returns nothing
+/// to exclude when the wallet cannot cover `needed` at all, leaving the
+/// upstream insufficient-funds path to report it.
+fn envelope_funding_exclusions(spendable: &[(String, u64)], needed: u64) -> Vec<String> {
+    let mut by_size: Vec<&(String, u64)> = spendable.iter().collect();
+    by_size.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let mut total = 0_u64;
+    let mut keep = 0;
+    for (_, sats) in &by_size {
+        if total >= needed {
+            break;
+        }
+        total = total.saturating_add(*sats);
+        keep += 1;
+    }
+    if total < needed {
+        return Vec::new();
+    }
+    by_size[keep..]
+        .iter()
+        .map(|(outpoint, _)| outpoint.clone())
+        .collect()
 }
 
 /// Upstream's `build_reveal_psbt` funds the reveal with extra wallet UTXOs
@@ -386,11 +591,6 @@ pub async fn run(
 fn prefund_reveal_from_commit_change(
     commit: &mut alkanes_cli_common::alkanes::types::ReadyToSignCommitTx,
 ) {
-    // Mirrors the constant baked into upstream build_reveal_psbt
-    // (alkanes-cli-common alkanes/execute.rs, `total_bitcoin_needed`).
-    const UPSTREAM_REVEAL_BUFFER: u64 = 50_000;
-    const DUST: u64 = 546;
-
     let bitcoin_requirements: u64 = commit
         .params
         .input_requirements
@@ -516,25 +716,40 @@ fn approve_transaction(
     }
 }
 
-/// Best-effort persistence of a ready-to-sign reveal so an interrupted
-/// deploy can be recovered; the commit is already broadcast when this runs,
-/// so failing the whole flow over a persistence error would only make
-/// recovery harder.
-fn persist_pending_reveal(
-    config: &ToolkitConfig,
-    reveal: &ReadyToSignRevealTx,
-) -> Option<std::path::PathBuf> {
+fn pending_reveal_path(config: &ToolkitConfig, commit_txid: &str) -> std::path::PathBuf {
     let dir = config
         .wallet_file
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .map(|parent| parent.join("pending"))
         .unwrap_or_else(|| std::path::PathBuf::from(".labcoat/pending"));
-    if let Err(error) = std::fs::create_dir_all(&dir) {
+    dir.join(format!("reveal-{commit_txid}.json"))
+}
+
+pub(crate) fn load_pending_reveal(
+    config: &ToolkitConfig,
+    commit_txid: &str,
+) -> Option<ReadyToSignRevealTx> {
+    let txid = bitcoin::Txid::from_str(commit_txid).ok()?;
+    let bytes = std::fs::read(pending_reveal_path(config, &txid.to_string())).ok()?;
+    let reveal: ReadyToSignRevealTx = serde_json::from_slice(&bytes).ok()?;
+    let input = reveal.psbt.unsigned_tx.input.first()?;
+    (reveal.commit_txid == commit_txid && input.previous_output == bitcoin::OutPoint::new(txid, 0))
+        .then_some(reveal)
+}
+
+/// Best-effort persistence of a ready-to-sign reveal: the commit is already
+/// on chain or in the mempool, so a local write failure cannot roll it back.
+fn persist_pending_reveal(
+    config: &ToolkitConfig,
+    reveal: &ReadyToSignRevealTx,
+) -> Option<std::path::PathBuf> {
+    let path = pending_reveal_path(config, &reveal.commit_txid);
+    let dir = path.parent().expect("pending reveal directory");
+    if let Err(error) = std::fs::create_dir_all(dir) {
         tracing::warn!("cannot create {}: {error}", dir.display());
         return None;
     }
-    let path = dir.join(format!("reveal-{}.json", reveal.commit_txid));
     match serde_json::to_vec_pretty(reveal) {
         Ok(bytes) => {
             if let Err(error) = std::fs::write(&path, bytes) {
@@ -565,7 +780,7 @@ async fn protected_outpoints(
     provider: &ConcreteProvider,
     mine_enabled: bool,
     required_alkanes: &std::collections::BTreeSet<(u128, u128)>,
-) -> Result<Vec<String>> {
+) -> Result<(Vec<String>, Vec<(String, u64)>)> {
     use alkanes_cli_common::traits::AlkanesProvider;
 
     let utxos = WalletProvider::get_utxos(provider, true, None)
@@ -593,7 +808,7 @@ async fn protected_outpoints(
         }
     }
 
-    for (outpoint, info) in utxos {
+    for (outpoint, info) in &utxos {
         if !mine_enabled || info.confirmations >= 100 {
             continue;
         }
@@ -613,7 +828,13 @@ async fn protected_outpoints(
         }
     }
 
-    Ok(excluded)
+    // Plain bitcoin the selector may still fund with.
+    let spendable = utxos
+        .iter()
+        .map(|(outpoint, info)| (outpoint.to_string(), info.amount))
+        .filter(|(outpoint, _)| !excluded.contains(outpoint))
+        .collect();
+    Ok((excluded, spendable))
 }
 
 /// Mine confirmations away from the project wallet. The public key is the
@@ -639,6 +860,39 @@ pub fn find_created_alkane(traces: &Option<Vec<serde_json::Value>>) -> Option<St
         }
     }
     None
+}
+
+/// Every Alkane id created in the traces, in trace order without
+/// duplicates. A deploy's own contract comes first; contracts it creates
+/// while initializing (an auth token, for example) follow.
+pub fn find_created_alkanes(traces: &Option<Vec<serde_json::Value>>) -> Vec<String> {
+    fn scan(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                let is_create = map.get("event").and_then(|e| e.as_str()) == Some("create")
+                    || map.get("type").and_then(|t| t.as_str()) == Some("create_alkane");
+                if is_create {
+                    let id = ["data", "alkane_id", "new_alkane"]
+                        .iter()
+                        .find_map(|key| map.get(*key).and_then(extract_id));
+                    if let Some(id) = id {
+                        if !out.contains(&id) {
+                            out.push(id);
+                        }
+                        return;
+                    }
+                }
+                map.values().for_each(|inner| scan(inner, out));
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|inner| scan(inner, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(traces) = traces {
+        traces.iter().for_each(|trace| scan(trace, &mut out));
+    }
+    out
 }
 
 fn scan_for_create(value: &serde_json::Value) -> Option<String> {
@@ -711,16 +965,25 @@ pub fn find_return_status(traces: &Option<Vec<serde_json::Value>>) -> (String, O
 fn scan_for_return(value: &serde_json::Value) -> Option<(String, Option<String>)> {
     match value {
         serde_json::Value::Object(map) => {
+            if let Some(events) = map
+                .get("trace")
+                .or_else(|| map.get("events"))
+                .and_then(|events| events.as_array())
+            {
+                return scan_execution_events(events);
+            }
             let event = map.get("event").and_then(|e| e.as_str());
             let typ = map.get("type").and_then(|t| t.as_str());
-            if event == Some("return") || typ == Some("return") || typ == Some("revert") {
+            if matches!(event, Some("return" | "revert"))
+                || matches!(typ, Some("return" | "revert"))
+            {
                 let data = map.get("data");
                 let status = data
                     .and_then(|d| d.get("status"))
                     .and_then(|s| s.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| {
-                        if typ == Some("revert") {
+                        if typ == Some("revert") || event == Some("revert") {
                             "revert".to_string()
                         } else {
                             "success".to_string()
@@ -741,9 +1004,36 @@ fn scan_for_return(value: &serde_json::Value) -> Option<(String, Option<String>)
             }
             map.values().find_map(scan_for_return)
         }
-        serde_json::Value::Array(items) => items.iter().find_map(scan_for_return),
+        serde_json::Value::Array(items) => scan_execution_events(items),
         _ => None,
     }
+}
+
+fn scan_execution_events(events: &[serde_json::Value]) -> Option<(String, Option<String>)> {
+    let mut depth = 0usize;
+    let mut status = None;
+    for event in events {
+        let kind = event
+            .get("type")
+            .or_else(|| event.get("event"))
+            .and_then(|kind| kind.as_str());
+        match kind {
+            Some("call" | "delegatecall" | "staticcall") => depth += 1,
+            Some("return" | "revert") => {
+                if depth <= 1 {
+                    status = scan_for_return(event);
+                }
+                depth = depth.saturating_sub(1);
+            }
+            _ if depth == 0 => {
+                if let Some(result) = scan_for_return(event) {
+                    status = Some(result);
+                }
+            }
+            _ => {}
+        }
+    }
+    status
 }
 
 /// Skip the "0x" prefix and 4-byte selector, then interpret the rest as
@@ -763,6 +1053,20 @@ pub fn decode_revert_reason(hex_str: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_nested_return_does_not_hide_a_root_revert() {
+        let traces = Some(vec![serde_json::json!({"trace": [
+            {"type": "call"},
+            {"type": "delegatecall"},
+            {"type": "return"},
+            {"type": "revert", "error_message": "outer call failed"}
+        ]})]);
+        assert_eq!(
+            find_return_status(&traces),
+            ("revert".into(), Some("outer call failed".into()))
+        );
+    }
 
     #[test]
     fn serde_json_preserves_full_u128_cellpack_values() {
@@ -855,6 +1159,32 @@ mod tests {
         let spec = spec_with_options(2, 1, &[20], &options);
         let err = validate_spec(&spec).expect_err("x9 is not a vN/pN target");
         assert_eq!(err.code, "ENVELOPE_INVALID");
+    }
+
+    #[test]
+    fn envelope_funding_keeps_the_largest_utxos_and_excludes_the_rest() {
+        let spendable = vec![
+            ("small:0".to_string(), 546),
+            ("change:1".to_string(), 19_871),
+            ("big:1".to_string(), 499_838_860),
+            ("change:2".to_string(), 17_707),
+        ];
+        // One large UTXO covers the need: every small one is excluded.
+        assert_eq!(
+            envelope_funding_exclusions(&spendable, 70_546),
+            ["change:1", "change:2", "small:0"]
+        );
+        // The need spans several UTXOs, largest first.
+        let fragmented = vec![
+            ("a:0".to_string(), 40_000),
+            ("b:0".to_string(), 30_000),
+            ("c:0".to_string(), 20_000),
+            ("d:0".to_string(), 546),
+        ];
+        assert_eq!(envelope_funding_exclusions(&fragmented, 70_546), ["d:0"]);
+        // A wallet that cannot cover the need is left to the upstream
+        // insufficient-funds error.
+        assert!(envelope_funding_exclusions(&fragmented[2..], 70_546).is_empty());
     }
 
     #[test]

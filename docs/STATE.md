@@ -5,14 +5,16 @@ is implemented for local development — version-2 per-environment state, a
 locked/atomic/fail-closed backend, explicit v1 migration, the `labcoat
 state` commands, deploy-time history recording, and reset detection. It is
 a local regtest development foundation, **not** team-, remote-, or
-mainnet-ready durable state; the planner, apply engine, and every later
-milestone remain proposed.
+mainnet-ready durable state; every later milestone of that plan remains
+proposed. Multi-step deployments are a separate, shipped mechanism:
+`deploy.rs` and its per-network run file, described in the public
+[deployment scripts](../apps/web/src/content/docs/docs/deployments.md) guide.
 
-## The three files
+## The files
 
 ```text
 labcoat.lock                              v1 per-network active-address book
-.labcoat/state/<network>.json             apply call journal (unchanged)
+deployments/<network>.json                deploy.rs run file (one record per step)
 .labcoat/state/<environment>/state.json   version-2 durable state
 .labcoat/state/<environment>/state.lock   the environment lease
 .labcoat/state/<environment>/backups/     state.json.prev + migrate backups
@@ -25,8 +27,8 @@ cannot hold: a lineage UUID, a monotonic serial, explicit chain identity,
 and an append-only instance history per resource — a redeploy appends
 `instance-2` and moves the active pointer instead of erasing `instance-1`.
 (The design doc's flat `.labcoat/state/<environment>.json` location became
-a per-environment directory because the flat namespace already belongs to
-the apply call journal.)
+a per-environment directory. The apply call journal that once occupied the
+flat namespace is gone: `deploy.rs` steps are recorded in the run file.)
 
 ## Environments
 

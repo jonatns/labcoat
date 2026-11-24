@@ -25,13 +25,19 @@
             "id": "name",
             "possibleValues": [],
             "required": true
+          },
+          {
+            "description": "Vendor a standard upgradeable contract instead of a minimal one: auth-token, upgradeable, upgradeable-beacon, or beacon-proxy",
+            "id": "template",
+            "possibleValues": [],
+            "required": false
           }
         ],
         "description": "Add a minimal contract package and host integration test to this project",
         "name": "new",
         "path": "labcoat new",
         "subcommands": [],
-        "usage": "new <NAME>"
+        "usage": "new [OPTIONS] <NAME>"
       },
       {
         "arguments": [
@@ -60,7 +66,7 @@
             "required": false
           },
           {
-            "description": "Run tests/e2e.rs against Labcoat Network: reset the chain, apply alkanes.hcl, then execute the ignored e2e tests",
+            "description": "Run tests/e2e.rs against Labcoat Network: reset the chain, apply deploy.rs, then execute the ignored e2e tests",
             "id": "e2e",
             "possibleValues": [
               "true",
@@ -569,6 +575,12 @@
             "required": false
           },
           {
+            "description": "Resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id) — for a call through a proxy, name the implementation",
+            "id": "abi",
+            "possibleValues": [],
+            "required": false
+          },
+          {
             "description": "Validate inputs and show what would happen without broadcasting",
             "id": "dry_run",
             "possibleValues": [
@@ -725,13 +737,13 @@
       {
         "arguments": [
           {
-            "description": "Manifest path (default alkanes.hcl)",
-            "id": "manifest",
+            "description": "Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)",
+            "id": "replace",
             "possibleValues": [],
             "required": false
           }
         ],
-        "description": "Reconcile the deployment manifest against the chain and show pending actions",
+        "description": "Run deploy.rs and show which deployment steps are pending, complete, or in conflict",
         "name": "plan",
         "path": "labcoat plan",
         "subcommands": [],
@@ -740,8 +752,8 @@
       {
         "arguments": [
           {
-            "description": "Manifest path (default alkanes.hcl)",
-            "id": "manifest",
+            "description": "Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)",
+            "id": "replace",
             "possibleValues": [],
             "required": false
           },
@@ -755,11 +767,38 @@
             "required": false
           }
         ],
-        "description": "Execute the deployment manifest's pending actions",
+        "description": "Execute the pending deployment steps deploy.rs declares",
         "name": "apply",
         "path": "labcoat apply",
         "subcommands": [],
         "usage": "apply [OPTIONS]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Contract step name from deploy.rs",
+            "id": "name",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "The deployed contract's block:tx id",
+            "id": "id",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Deployment or reveal transaction ID, used to recover auth tokens and other created IDs",
+            "id": "txid",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Record a contract that already exists on chain as a deployment step, without deploying",
+        "name": "import",
+        "path": "labcoat import",
+        "subcommands": [],
+        "usage": "import [OPTIONS] <NAME> <ID>"
       },
       {
         "arguments": [
@@ -780,13 +819,19 @@
             "id": "args",
             "possibleValues": [],
             "required": false
+          },
+          {
+            "description": "Resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id) — for a read through a proxy, name the implementation",
+            "id": "abi",
+            "possibleValues": [],
+            "required": false
           }
         ],
         "description": "Simulate a deployed contract against live indexed chain state",
         "name": "simulate",
         "path": "labcoat simulate",
         "subcommands": [],
-        "usage": "simulate <CONTRACT> <SELECTOR> [ARGS]..."
+        "usage": "simulate [OPTIONS] <CONTRACT> <SELECTOR> [ARGS]..."
       },
       {
         "arguments": [
@@ -1140,14 +1185,29 @@
         "recovery": "repair the JSON, or delete labcoat.lock to start a fresh ledger"
       },
       {
-        "code": "MANIFEST_INVALID",
-        "meaning": "the alkanes.hcl deployment manifest failed to parse or validate",
-        "recovery": "fix the reported block; references are `alkane.<name>.<field>` / `contract.<name>.<field>`, and conditionals, loops, and functions are not supported"
+        "code": "DEPLOY_SCRIPT_INVALID",
+        "meaning": "the deploy.rs deployment script is missing, failed to build or run, or declared an invalid graph",
+        "recovery": "fix deploy.rs; `cargo run --example deploy` reproduces a build or runtime failure outside labcoat"
+      },
+      {
+        "code": "DEPLOYMENT_CONFLICT",
+        "meaning": "a deployment step that already ran no longer matches deploy.rs, or references an instance that was replaced",
+        "recovery": "restore the step, or name it in `labcoat apply --replace <name>` to deploy a new instance (or run a call again)"
+      },
+      {
+        "code": "DEPLOYMENT_LOCKED",
+        "meaning": "another process is updating the project's deployments",
+        "recovery": "retry after the other apply or import finishes"
+      },
+      {
+        "code": "RUN_FILE_INVALID",
+        "meaning": "deployments/<network>.json, the record of the steps that ran, cannot be read, parsed, or written",
+        "recovery": "restore the file from version control or repair the JSON; deleting it makes every step run again"
       },
       {
         "code": "STATE_INVALID",
-        "meaning": "a .labcoat/state file (the apply call journal or durable environment state) cannot be read or parsed",
-        "recovery": "for the journal: repair or delete the file (calls may re-execute); for durable state: restore backups/state.json.prev"
+        "meaning": "the durable environment state under .labcoat/state cannot be read or parsed",
+        "recovery": "restore backups/state.json.prev"
       },
       {
         "code": "STATE_MISSING",
@@ -1176,8 +1236,8 @@
       },
       {
         "code": "APPLY_BLOCKED",
-        "meaning": "an action cannot proceed without manual intervention",
-        "recovery": "read the action's detail in `labcoat plan`"
+        "meaning": "a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting)",
+        "recovery": "read the step's detail in `labcoat plan`"
       },
       {
         "code": "TOOLKIT_ERROR",
@@ -1456,6 +1516,10 @@
         "description": "Execute a state-changing contract call and wait for its trace.",
         "inputSchema": {
           "properties": {
+            "abi": {
+              "description": "resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id); for a proxy, name the implementation",
+              "type": "string"
+            },
             "args": {
               "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)",
               "items": {
@@ -1572,6 +1636,10 @@
         "description": "Simulate a deployed contract against live indexed chain state (no transaction).",
         "inputSchema": {
           "properties": {
+            "abi": {
+              "description": "resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id); for a proxy, name the implementation",
+              "type": "string"
+            },
             "args": {
               "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)",
               "items": {
@@ -1629,12 +1697,15 @@
         "name": "balance"
       },
       {
-        "description": "Reconcile the alkanes.hcl deployment manifest against labcoat.lock and chain state; shows pending actions without loading a signer.",
+        "description": "Run the project's deploy.rs deployment script and reconcile its steps against the network's run file and chain state; shows pending, complete, and conflicting steps without loading a signer.",
         "inputSchema": {
           "properties": {
-            "manifest": {
-              "description": "manifest path (default alkanes.hcl)",
-              "type": "string"
+            "replace": {
+              "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           "required": [],
@@ -1643,22 +1714,50 @@
         "name": "plan"
       },
       {
-        "description": "Execute the deployment manifest's pending actions. Requires broadcast: true to transact; otherwise returns the plan.",
+        "description": "Execute the pending deployment steps deploy.rs declares. Requires broadcast: true to transact; otherwise returns the plan. Refuses while any step is in conflict.",
         "inputSchema": {
           "properties": {
             "broadcast": {
               "description": "actually broadcast transactions",
               "type": "boolean"
             },
-            "manifest": {
-              "description": "manifest path (default alkanes.hcl)",
-              "type": "string"
+            "replace": {
+              "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           "required": [],
           "type": "object"
         },
         "name": "apply"
+      },
+      {
+        "description": "Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.",
+        "inputSchema": {
+          "properties": {
+            "id": {
+              "description": "the deployed contract's block:tx id",
+              "type": "string"
+            },
+            "name": {
+              "description": "contract step name from deploy.rs",
+              "type": "string"
+            },
+            "txid": {
+              "description": "deployment or reveal transaction id for recovering other created IDs, including auth tokens",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "id"
+          ],
+          "type": "object"
+        },
+        "name": "import"
       },
       {
         "description": "List resources and active instances in this environment's durable deployment state.",
@@ -1722,8 +1821,24 @@
         "name": "Cellpack"
       },
       {
-        "detail": "Targets [1, 0]; raw Wasm is compressed inside a taproot commit/reveal envelope.",
+        "detail": "Targets [1, 0] for the next free id 2:n, or [3, N] for the reserved id 4:N; raw Wasm is compressed inside a taproot commit/reveal envelope. A template clone targets [5, n] (a 2:n template) or [6, n] (a 4:n template) and carries no envelope.",
         "name": "Deploy"
+      },
+      {
+        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
+        "name": "Deployment script"
+      },
+      {
+        "detail": "Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that apply refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: apply reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.",
+        "name": "Step lifecycles"
+      },
+      {
+        "detail": "deployments/<network>.json records every step that ran: its definition hash, Alkane id, every Alkane its transaction created, the ids it referenced, the arguments as executed, the transaction id, and earlier instances. It is what makes a step run once; commit it for shared networks. The Labcoat Network file is disposable: `labcoat reset` starts a new chain, and records from an earlier chain instance are ignored.",
+        "name": "Run file"
+      },
+      {
+        "detail": "`labcoat new <name> --template auth-token|upgradeable|upgradeable-beacon|beacon-proxy` vendors the alkanes-rs standard contracts into the project. A proxy or beacon initializes with opcode 0x7fff, which clones the auth token template at 4:65517 and sends one unit to the deployer; upgrading (0x7ffe) spends that token as an input and returns it. A beacon answers 0x7ffd with its current implementation. A fresh chain has no auth token template: deploy the auth-token package at reserve 65517 with `.init(100)` first.",
+        "name": "Standard upgradeable contracts"
       },
       {
         "detail": "Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.",
@@ -1738,7 +1853,7 @@
         "name": "labcoat.lock"
       },
       {
-        "detail": ".labcoat/state/<environment>/state.json is the version-2 per-environment operational state (lineage, serial, chain identity, append-only instance history), created by `labcoat state migrate` and guarded by an OS lease (state.lock). Deploys append instances when it exists and refuse a reset or foreign chain before broadcasting. The flat .labcoat/state/<network>.json apply call journal is separate.",
+        "detail": ".labcoat/state/<environment>/state.json is the version-2 per-environment operational state (lineage, serial, chain identity, append-only instance history), created by `labcoat state migrate` and guarded by an OS lease (state.lock). Deploys append instances when it exists and refuse a reset or foreign chain before broadcasting. The deployment run file (deployments/<network>.json) is separate.",
         "name": "Durable state"
       },
       {

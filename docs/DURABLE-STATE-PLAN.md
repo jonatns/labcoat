@@ -5,6 +5,33 @@ implemented for local development — see `docs/STATE.md` for what shipped
 and the deviations noted inline below. Every later milestone remains
 proposed and is not part of the supported product.
 
+> **Superseded in part.** Multi-step deployment shipped on a different
+> model than the one proposed here, and where the two disagree the shipped
+> one is authoritative:
+>
+> - Desired configuration is a Rust deployment script (`deploy.rs`, built on
+>   `labcoat`), not `[resources.*]` tables in `labcoat.toml`.
+> - Immutable work — contracts, template clones, and calls — is **pinned**:
+>   it runs once per network and is compared with its record. An edited step
+>   is a `conflict` that apply refuses; a new instance is an explicit
+>   `--replace`, never an automatic `replace` action. Only an
+>   `implementation` behind an upgradeable pointer redeploys on a code
+>   change, and only a `setting` (a proxy or beacon pointer, or another
+>   mutable value with a read and a write) converges.
+> - Each network's record is `deployments/<network>.json`, the run file,
+>   committed for shared networks. It replaces the apply call journal.
+> - Initializer opcodes, reserved and cloned targets, the standard proxy,
+>   beacon, and beacon-proxy contracts, auth-token handling, and import of
+>   existing contracts are implemented by that model (Milestone 2 and parts
+>   of Milestones 3 and 6 below).
+>
+> The sections on the resource model, desired configuration, typed
+> dependency edges, plan actions, and resource drivers describe the earlier
+> proposal and are kept for their analysis of the Alkanes deployment
+> lifecycles. The mainnet safety model, signing, receipts, and recovery
+> sections remain open work. See the public deployment scripts guide for
+> current behavior.
+
 ## Summary
 
 Build an Alkanes-native reconciliation engine in Labcoat. The engine compares
@@ -126,9 +153,7 @@ desired configuration <-> prior operational state <-> observed chain state
 
 - Store canonical local state at `.labcoat/state/<environment>/state.json`
   (as shipped in Milestone 1: a per-environment directory that also holds
-  the `state.lock` lease and `backups/`; the flat
-  `.labcoat/state/<network>.json` namespace already belongs to the apply
-  call journal and stays untouched).
+  the `state.lock` lease and `backups/`).
 - Add an `environment` setting, defaulting to `default`, independently of
   `network`. For example, `dev` and `staging` can both use regtest or signet
   without sharing state.

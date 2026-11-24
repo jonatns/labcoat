@@ -8,9 +8,11 @@ deployment, calls, simulation, tracing, and Labcoat Network.
   to the root workspace `members` when creating it
 - Native integration tests: `tests/*.rs` using `labcoat-test`
 - Add contract packages with `labcoat new <name>`
+- Deployment script: `deploy.rs` using `labcoat-deploy`, run by `labcoat plan` and `labcoat apply`
 - Public configuration: `labcoat.toml`
 - Secrets: `LABCOAT_WALLET_PASSPHRASE` and `LABCOAT_MNEMONIC` only
-- Deployment ledger: `labcoat.lock`
+- Address book: `labcoat.lock`; per-network deployment records:
+  `deployments/<network>.json`
 
 Commit the `Cargo.lock` created by the first build. `rust-toolchain.toml` pins
 the Rust toolchain and WebAssembly targets this Labcoat release is tested with;

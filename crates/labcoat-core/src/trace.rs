@@ -34,11 +34,19 @@ pub async fn wait_for_trace(
     loop {
         match trace(provider, txid).await {
             Ok(Some(traces)) if !traces.is_empty() => {
-                // An empty trace body means the indexer hasn't executed the
-                // protostone yet; require at least one non-empty entry.
-                let has_events = traces
-                    .iter()
-                    .any(|t| t.as_array().map(|a| !a.is_empty()).unwrap_or(true) && !t.is_null());
+                let has_events = traces.iter().any(|trace| {
+                    let events = trace
+                        .get("trace")
+                        .or_else(|| trace.get("events"))
+                        .unwrap_or(trace);
+                    match events {
+                        serde_json::Value::Array(events) => !events.is_empty(),
+                        serde_json::Value::Object(event) => {
+                            event.contains_key("type") || event.contains_key("event")
+                        }
+                        _ => false,
+                    }
+                });
                 if has_events {
                     return Ok(traces);
                 }

@@ -29,7 +29,7 @@ function workspaceVersion() {
 
 function validateCargo() {
   const version = workspaceVersion();
-  for (const name of ['labcoat-cli', 'labcoat-core', 'labcoat-test', 'isomer-core']) {
+  for (const name of ['labcoat-cli', 'labcoat-core', 'labcoat-deploy', 'labcoat-test', 'isomer-core']) {
     const pkg = cargoPackage(`crates/${name}/Cargo.toml`);
     if (!/^version\.workspace\s*=\s*true$/m.test(pkg)) {
       fail(`${name} must inherit the workspace version`);
@@ -40,8 +40,10 @@ function validateCargo() {
   }
 
   const template = read('crates/labcoat-cli/templates/default/Cargo.toml.tmpl');
-  if (!template.includes('labcoat-test = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }')) {
-    fail('project template must pin labcoat-test to the matching Labcoat release tag');
+  for (const name of ['labcoat-deploy', 'labcoat-test']) {
+    if (!template.includes(`${name} = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }`)) {
+      fail(`project template must pin ${name} to the matching Labcoat release tag`);
+    }
   }
   if (!template.includes('metashrew-support = { git = "https://github.com/kungfuflex/metashrew", tag = "v9.0.5-rc.8" }')) {
     fail('project template must use the same metashrew source as alkanes-rs');

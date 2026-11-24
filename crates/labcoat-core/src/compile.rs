@@ -97,15 +97,7 @@ pub fn compile_packages(
     command
         .args(["build", "--release", "--target", target])
         .current_dir(&workspace.root);
-    if let Some(path) = local_labcoat_test_path() {
-        let escaped = path
-            .to_string_lossy()
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"");
-        command.arg("--config").arg(format!(
-            "patch.'https://github.com/jonatns/labcoat'.labcoat-test.path=\"{escaped}\""
-        ));
-    }
+    patch_local_labcoat_crates(&mut command);
     for package in &packages {
         command.arg("-p").arg(&package.name);
     }
@@ -210,20 +202,28 @@ pub fn compile_packages(
     Ok(outcomes)
 }
 
-/// Resolve the unpublished test harness while developing Labcoat from source.
-fn local_labcoat_test_path() -> Option<PathBuf> {
+/// Use sibling workspace crates for Cargo commands when Labcoat runs from source.
+pub fn patch_local_labcoat_crates(command: &mut std::process::Command) {
     if std::env::var_os("LABCOAT_TEST_CRATE_PATH").is_some() {
-        return None;
+        return;
     }
-    let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()?
-        .join("labcoat-test");
-    candidate.join("Cargo.toml").is_file().then_some(candidate)
+    let Some(crates) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() else {
+        return;
+    };
+    for name in ["labcoat-test", "labcoat-deploy"] {
+        let path = crates.join(name);
+        if path.join("Cargo.toml").is_file() {
+            let path =
+                serde_json::to_string(path.to_string_lossy().as_ref()).expect("serializable path");
+            command.arg("--config").arg(format!(
+                "patch.'https://github.com/jonatns/labcoat'.{name}.path={path}"
+            ));
+        }
+    }
 }
 
-/// Temporarily replace the release-tagged test harness with an explicit local
-/// path. This is used by CI before the release tag exists. The project manifest
-/// and lockfile are restored when the guard is dropped.
+/// Use local Labcoat crates in CI before the release tag exists. Restore the
+/// project manifest and lockfile when the guard is dropped.
 pub fn explicit_local_labcoat_test_override(
     workspace_root: &Path,
 ) -> Result<Option<LocalLabcoatTestOverride>> {
@@ -259,22 +259,28 @@ impl LocalLabcoatTestOverride {
                 "repair the project Cargo.toml",
             )
         })?;
-        let escaped = harness_path
-            .to_string_lossy()
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"");
+        let deploy_path = harness_path.with_file_name("labcoat-deploy");
         let mut replaced = false;
         let rendered = source
             .lines()
             .map(|line| {
-                if line.trim_start().starts_with("labcoat-test = {")
-                    && line.contains("git = \"https://github.com/jonatns/labcoat\"")
-                {
-                    replaced = true;
-                    format!("labcoat-test = {{ path = \"{escaped}\" }}")
-                } else {
-                    line.to_owned()
+                if !line.contains("git = \"https://github.com/jonatns/labcoat\"") {
+                    return line.to_owned();
                 }
+                let trimmed = line.trim_start();
+                let (name, path) = if trimmed.starts_with("labcoat-test = {") {
+                    ("labcoat-test", harness_path)
+                } else if trimmed.starts_with("labcoat-deploy = {")
+                    && deploy_path.join("Cargo.toml").is_file()
+                {
+                    ("labcoat-deploy", deploy_path.as_path())
+                } else {
+                    return line.to_owned();
+                };
+                replaced = true;
+                let path = serde_json::to_string(path.to_string_lossy().as_ref())
+                    .expect("serializable path");
+                format!("{name} = {{ path = {path} }}")
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -405,6 +411,39 @@ mod tests {
         assert_eq!(wasi_include_in(&root), Some(include));
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn explicit_override_uses_the_sibling_deployment_crate() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-deploy-override-{}", std::process::id()));
+        let project = root.join("project");
+        let crates = root.join("crates");
+        let harness = crates.join("labcoat-test");
+        let deployment = crates.join("labcoat-deploy");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&harness).unwrap();
+        std::fs::create_dir_all(&deployment).unwrap();
+        std::fs::write(
+            deployment.join("Cargo.toml"),
+            "[package]\nname = 'labcoat-deploy'\n",
+        )
+        .unwrap();
+        let manifest = project.join("Cargo.toml");
+        let original = r#"[dev-dependencies]
+labcoat-test = { git = "https://github.com/jonatns/labcoat", tag = "cli-v9.9.9" }
+labcoat-deploy = { git = "https://github.com/jonatns/labcoat", tag = "cli-v9.9.9" }
+"#;
+        std::fs::write(&manifest, original).unwrap();
+        let guard = LocalLabcoatTestOverride::apply(&project, &harness)
+            .unwrap()
+            .unwrap();
+        let patched = std::fs::read_to_string(&manifest).unwrap();
+        assert!(patched.contains("labcoat-test = { path = "));
+        assert!(patched.contains("labcoat-deploy = { path = "));
+        drop(guard);
+        assert_eq!(std::fs::read_to_string(manifest).unwrap(), original);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

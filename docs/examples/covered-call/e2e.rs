@@ -1,10 +1,10 @@
 //! Two-wallet covered-call e2e test — the Rust replacement for the Bash
-//! `covered-call.sh` flow. The deployment topology lives in `alkanes.hcl`;
-//! every value-moving step — the writer funding the series, the two-party
-//! buyer flow — is protocol usage and is driven here.
+//! `covered-call.sh` flow. The deployment lives in `deploy.rs`; every
+//! value-moving step — the writer funding the series, the two-party buyer
+//! flow — is protocol usage and is driven here.
 //!
 //! Run with `labcoat test --e2e`. Copy into `tests/e2e.rs` of the Strata
-//! project alongside the sibling `alkanes.hcl`.
+//! project, with the sibling `deploy.rs` at the project root.
 
 use labcoat_test::e2e::{Call, Deploy, E2e};
 
@@ -15,7 +15,7 @@ const STRIKE_TOTAL: u128 = 7_500; // 75 tUSD × 100 contracts
 fn covered_call_exercise_and_redeem() {
     let e2e = E2e::from_env().unwrap();
 
-    // Manifest-applied topology (writer = project wallet).
+    // Contracts deploy.rs applied (writer = project wallet).
     let fire = e2e.contract("fire").unwrap();
     let writer_claims = e2e.contract("writer_claims").unwrap();
     let series = e2e.contract("series").unwrap();
