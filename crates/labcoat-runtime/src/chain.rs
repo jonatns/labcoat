@@ -4,9 +4,10 @@
 //! a coinbase transaction that commits to its height, a correct merkle root
 //! and witness commitment, and a header that satisfies regtest proof of work.
 //!
-//! What it does not do yet: transactions passed to [`Chain::mine`] are
-//! included as given. There is no UTXO set, no script or signature
-//! validation, no fee accounting, and no mempool.
+//! The chain only builds and stores blocks. Transactions are validated before
+//! they reach it, by [`crate::validate`] against the [`crate::ledger`].
+
+use std::collections::HashMap;
 
 use bitcoin::absolute::LockTime;
 use bitcoin::block::{Header, Version};
@@ -23,13 +24,12 @@ use bitcoin::{
 /// Regtest halves the block subsidy every 150 blocks.
 const HALVING_INTERVAL: u32 = 150;
 const INITIAL_SUBSIDY: Amount = Amount::from_sat(50 * 100_000_000);
-/// Seconds between the timestamps of consecutive blocks.
-const BLOCK_INTERVAL: u32 = 600;
 
 /// The blocks of one simulated regtest chain.
 #[derive(Clone)]
 pub struct Chain {
     blocks: Vec<Block>,
+    heights: HashMap<BlockHash, u32>,
 }
 
 impl Default for Chain {
@@ -41,9 +41,16 @@ impl Default for Chain {
 impl Chain {
     /// A chain holding only the regtest genesis block.
     pub fn regtest() -> Self {
+        let genesis = genesis_block(Network::Regtest);
         Self {
-            blocks: vec![genesis_block(Network::Regtest)],
+            heights: HashMap::from([(genesis.block_hash(), 0)]),
+            blocks: vec![genesis],
         }
+    }
+
+    /// The height of the block with this hash.
+    pub fn height_of(&self, hash: &BlockHash) -> Option<u32> {
+        self.heights.get(hash).copied()
     }
 
     /// The height of the newest block. The genesis block is height 0.
@@ -74,13 +81,21 @@ impl Chain {
     }
 
     /// Mine a block on the tip holding `transactions` in the order given,
-    /// paying the block subsidy to `reward`. Returns the new height.
-    pub fn mine(&mut self, transactions: Vec<Transaction>, reward: ScriptBuf) -> u32 {
+    /// paying the block subsidy and `fees` to `reward`. The block's time is
+    /// `time`, or one second after its parent if that is later, so block
+    /// times always increase. Returns the new height.
+    pub fn mine(
+        &mut self,
+        transactions: Vec<Transaction>,
+        reward: ScriptBuf,
+        fees: Amount,
+        time: u32,
+    ) -> u32 {
         let height = self.height() + 1;
         let previous = self.tip().header;
 
         let mut txdata = Vec::with_capacity(transactions.len() + 1);
-        txdata.push(coinbase(height, reward));
+        txdata.push(coinbase(height, reward, subsidy(height) + fees));
         txdata.extend(transactions);
 
         let mut block = Block {
@@ -88,7 +103,7 @@ impl Chain {
                 version: Version::from_consensus(0x2000_0000),
                 prev_blockhash: previous.block_hash(),
                 merkle_root: TxMerkleNode::all_zeros(),
-                time: previous.time + BLOCK_INTERVAL,
+                time: time.max(previous.time + 1),
                 bits: previous.bits,
                 nonce: 0,
             },
@@ -100,13 +115,35 @@ impl Chain {
             .expect("a block with a coinbase has a merkle root");
         solve(&mut block.header);
 
+        self.heights.insert(block.block_hash(), height);
         self.blocks.push(block);
         height
     }
 
+    /// Append a block saved earlier. It must build on the tip.
+    pub fn push(&mut self, block: Block) -> Result<u32, ChainError> {
+        let tip = self.tip().block_hash();
+        if block.header.prev_blockhash != tip {
+            return Err(ChainError::NotOnTip {
+                height: self.height() + 1,
+            });
+        }
+        self.heights.insert(block.block_hash(), self.height() + 1);
+        self.blocks.push(block);
+        Ok(self.height())
+    }
+
+    /// Every block, genesis first.
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+
     /// Drop every block above `height`. The genesis block always stays.
     pub fn truncate(&mut self, height: u32) {
-        self.blocks.truncate(height as usize + 1);
+        let keep = (height as usize + 1).min(self.blocks.len());
+        for block in self.blocks.drain(keep..) {
+            self.heights.remove(&block.block_hash());
+        }
     }
 }
 
@@ -120,7 +157,13 @@ pub fn subsidy(height: u32) -> Amount {
     }
 }
 
-fn coinbase(height: u32, reward: ScriptBuf) -> Transaction {
+#[derive(Debug, thiserror::Error)]
+pub enum ChainError {
+    #[error("the saved block at height {height} does not build on the block before it")]
+    NotOnTip { height: u32 },
+}
+
+fn coinbase(height: u32, reward: ScriptBuf, value: Amount) -> Transaction {
     // BIP 34: the coinbase input script starts with the block height, encoded
     // as Bitcoin Core encodes it. A second push keeps the script above the
     // two-byte minimum at low heights.
@@ -140,7 +183,7 @@ fn coinbase(height: u32, reward: ScriptBuf) -> Transaction {
             witness: Witness::from_slice(&[[0u8; 32]]),
         }],
         output: vec![TxOut {
-            value: subsidy(height),
+            value,
             script_pubkey: reward,
         }],
     }
@@ -210,9 +253,9 @@ mod tests {
     #[test]
     fn mines_blocks_that_pass_block_checks() {
         let mut chain = Chain::regtest();
-        let first = chain.mine(Vec::new(), reward());
+        let first = chain.mine(Vec::new(), reward(), Amount::ZERO, 0);
         let coinbase = chain.block(first).unwrap().txdata[0].clone();
-        let second = chain.mine(vec![spend(&coinbase)], reward());
+        let second = chain.mine(vec![spend(&coinbase)], reward(), Amount::from_sat(500), 0);
 
         assert_eq!((first, second), (1, 2));
         for height in 1..=2 {
@@ -226,13 +269,45 @@ mod tests {
             assert!(block.txdata[0].is_coinbase());
         }
         assert_eq!(chain.block(2).unwrap().txdata.len(), 2);
+        // The coinbase collects the subsidy and the fees.
+        assert_eq!(
+            chain.block(2).unwrap().txdata[0].output[0].value,
+            subsidy(2) + Amount::from_sat(500)
+        );
+    }
+
+    #[test]
+    fn block_times_follow_the_clock_and_always_increase() {
+        let mut chain = Chain::regtest();
+        let genesis = chain.tip().header.time;
+        chain.mine(Vec::new(), reward(), Amount::ZERO, genesis + 1_000);
+        chain.mine(Vec::new(), reward(), Amount::ZERO, genesis);
+        assert_eq!(chain.block(1).unwrap().header.time, genesis + 1_000);
+        assert_eq!(chain.block(2).unwrap().header.time, genesis + 1_001);
+    }
+
+    #[test]
+    fn reloads_saved_blocks_in_order() {
+        let mut original = Chain::regtest();
+        original.mine(Vec::new(), reward(), Amount::ZERO, 0);
+        original.mine(Vec::new(), reward(), Amount::ZERO, 0);
+
+        let mut reloaded = Chain::regtest();
+        let second = original.block(2).unwrap().clone();
+        assert!(matches!(
+            reloaded.push(second.clone()),
+            Err(ChainError::NotOnTip { height: 1 })
+        ));
+        reloaded.push(original.block(1).unwrap().clone()).unwrap();
+        assert_eq!(reloaded.push(second).unwrap(), 2);
+        assert_eq!(reloaded.block_hash(2), original.block_hash(2));
     }
 
     #[test]
     fn commits_to_the_height_as_bitcoin_core_does() {
         let mut chain = Chain::regtest();
         for _ in 0..17 {
-            chain.mine(Vec::new(), reward());
+            chain.mine(Vec::new(), reward(), Amount::ZERO, 0);
         }
 
         // Heights 1 to 16 are the single opcodes OP_1 to OP_16.
@@ -251,7 +326,7 @@ mod tests {
     #[test]
     fn serializes_blocks_for_the_indexer() {
         let mut chain = Chain::regtest();
-        chain.mine(Vec::new(), reward());
+        chain.mine(Vec::new(), reward(), Amount::ZERO, 0);
 
         let bytes = chain.block_bytes(1).unwrap();
         let decoded: Block = deserialize(&bytes).unwrap();
@@ -264,8 +339,8 @@ mod tests {
         let mut one = Chain::regtest();
         let mut two = Chain::regtest();
         for _ in 0..3 {
-            one.mine(Vec::new(), reward());
-            two.mine(Vec::new(), reward());
+            one.mine(Vec::new(), reward(), Amount::ZERO, 0);
+            two.mine(Vec::new(), reward(), Amount::ZERO, 0);
         }
         assert_eq!(one.block_hash(3), two.block_hash(3));
     }
@@ -273,11 +348,14 @@ mod tests {
     #[test]
     fn truncates_but_keeps_genesis() {
         let mut chain = Chain::regtest();
-        chain.mine(Vec::new(), reward());
-        chain.mine(Vec::new(), reward());
+        chain.mine(Vec::new(), reward(), Amount::ZERO, 0);
+        chain.mine(Vec::new(), reward(), Amount::ZERO, 0);
 
+        let dropped = chain.block_hash(2).unwrap();
         chain.truncate(1);
         assert_eq!(chain.height(), 1);
+        assert_eq!(chain.height_of(&dropped), None);
+        assert_eq!(chain.height_of(&chain.block_hash(1).unwrap()), Some(1));
         chain.truncate(0);
         chain.truncate(0);
         assert_eq!(chain.height(), 0);

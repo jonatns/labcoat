@@ -2726,6 +2726,7 @@ dependencies = [
  "indicatif",
  "isomer-core",
  "labcoat-core",
+ "labcoat-runtime",
  "rpassword",
  "serde",
  "serde_json",
@@ -2776,6 +2777,7 @@ name = "labcoat-runtime"
 version = "0.3.0"
 dependencies = [
  "bitcoin 0.32.101",
+ "serde_json",
  "thiserror 2.0.17",
  "tracing",
  "wasmtime",

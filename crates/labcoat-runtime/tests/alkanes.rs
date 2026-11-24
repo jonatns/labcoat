@@ -20,14 +20,15 @@ const MODULE_PATH: &str = "LABCOAT_RUNTIME_ALKANES_WASM";
 fn runtime() -> Runtime {
     let path = std::env::var(MODULE_PATH)
         .unwrap_or_else(|_| panic!("set {MODULE_PATH} to the path of alkanes.wasm"));
-    Runtime::regtest(IndexerModule::from_file(path).unwrap()).unwrap()
+    let mut runtime = Runtime::regtest(IndexerModule::from_file(path).unwrap()).unwrap();
+    // A fixed clock, so two runtimes mine identical blocks.
+    runtime.set_clock(|| 0);
+    runtime
 }
 
 fn mine(runtime: &mut Runtime) -> u32 {
     // OP_TRUE: these blocks carry no Alkanes activity.
-    runtime
-        .mine(Vec::new(), ScriptBuf::from_bytes(vec![0x51]))
-        .unwrap()
+    runtime.mine(ScriptBuf::from_bytes(vec![0x51])).unwrap()
 }
 
 /// A protobuf request holding one `AlkaneId { block, tx: 0 }`, the shape of
