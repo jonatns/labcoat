@@ -84,18 +84,16 @@ impl Snapshots {
         id
     }
 
-    /// Remove the snapshot `id` and every later one, returning `id`'s.
-    fn take_from(&mut self, id: u64) -> Option<Snapshot> {
+    /// Where snapshot `id` is in the list, and a copy of it.
+    fn find(&self, id: u64) -> Option<(usize, Snapshot)> {
         let position = self.live.iter().position(|(known, _)| *known == id)?;
-        self.live
-            .drain(position..)
-            .next()
-            .map(|(_, snapshot)| snapshot)
+        Some((position, self.live[position].1.clone()))
     }
 
-    /// Put back a snapshot whose revert failed.
-    fn restore(&mut self, id: u64, snapshot: Snapshot) {
-        self.live.push((id, snapshot));
+    /// Drop the snapshot at `position` and every later one: a revert to it
+    /// succeeded.
+    fn consume_from(&mut self, position: usize) {
+        self.live.truncate(position);
     }
 }
 
@@ -443,14 +441,13 @@ impl Node {
                 let mut snapshots = self.snapshots.lock().unwrap_or_else(|p| p.into_inner());
                 // Like evm_revert: reverting consumes this snapshot and every
                 // later one. An unknown or consumed id reverts nothing.
-                let Some(snapshot) = snapshots.take_from(id) else {
+                let Some((position, snapshot)) = snapshots.find(id) else {
                     return Ok(false.into());
                 };
-                if let Err(error) = self.write().revert(snapshot.clone()) {
-                    // A revert that failed changed nothing; keep the snapshot.
-                    snapshots.restore(id, snapshot);
-                    return Err(error.into());
-                }
+                // A revert that fails changes nothing, so the snapshots are
+                // consumed only once it has succeeded.
+                self.write().revert(snapshot)?;
+                snapshots.consume_from(position);
                 Ok(true.into())
             }
             // Who is serving: Labcoat checks this before trusting a node

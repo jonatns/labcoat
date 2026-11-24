@@ -570,6 +570,35 @@ mod rpc {
     }
 
     #[test]
+    fn a_failed_revert_keeps_every_snapshot() {
+        let path = temporary("rpc-unreverted");
+        let node = Node::new(Runtime::open(module(RECORDER), &path).unwrap());
+        let first = call(&node, "labcoat_snapshot", json!([]));
+        call(&node, "generatetoaddress", json!([1, address()]));
+        let second = call(&node, "labcoat_snapshot", json!([]));
+        call(&node, "generatetoaddress", json!([1, address()]));
+
+        node.write()
+            .log
+            .as_mut()
+            .unwrap()
+            .fail_writes_for_test(true);
+        assert_eq!(error(&node, "labcoat_revert", json!([first])).0, -1);
+        assert_eq!(call(&node, "getblockcount", json!([])), json!(2));
+
+        // Both snapshots are still there, the newer one included.
+        node.write()
+            .log
+            .as_mut()
+            .unwrap()
+            .fail_writes_for_test(false);
+        assert_eq!(call(&node, "labcoat_revert", json!([second])), json!(true));
+        assert_eq!(call(&node, "getblockcount", json!([])), json!(1));
+        assert_eq!(call(&node, "labcoat_revert", json!([first])), json!(true));
+        assert_eq!(call(&node, "getblockcount", json!([])), json!(0));
+    }
+
+    #[test]
     fn snapshots_and_reverts() {
         let node = Node::new(runtime());
         let id = call(&node, "labcoat_snapshot", json!([]));
