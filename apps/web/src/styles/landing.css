@@ -234,7 +234,7 @@
 }
 
 .start-tabs button:focus-visible,
-.agent-prompt-text:focus-visible {
+.agent-prompt-details summary:focus-visible {
   outline: 2px solid var(--acid);
   outline-offset: -2px;
 }
@@ -250,6 +250,41 @@
   width: min(100%, 34rem);
   border: 1px solid var(--line);
   background: var(--surface);
+}
+
+.agent-prompt-details summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  color: var(--ink-soft);
+  font: 0.78rem var(--font-mono);
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-prompt-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-prompt-details summary::before {
+  content: '+';
+  width: 0.7rem;
+  color: var(--acid);
+  font-weight: 700;
+}
+
+.agent-prompt-details[open] summary::before {
+  content: '−';
+}
+
+.agent-prompt-details summary:hover {
+  color: var(--ink);
+}
+
+.agent-prompt-details[open] summary {
+  border-bottom: 1px solid var(--line-soft);
 }
 
 /* Plain English, so body type and normal wrapping: no shell prompt, no

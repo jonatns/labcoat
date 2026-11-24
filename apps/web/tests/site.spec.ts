@@ -39,6 +39,15 @@ test('homepage leads with the agent prompt, keeps the manual path, and has a key
   await expect(hero.getByRole('link', { name: /What your agent checks/ })).toHaveAttribute('href', '/docs/getting-started/agent-onboarding/');
   // Plain English, not a shell command.
   await expect(hero.locator('.agent-prompt .prompt')).toHaveCount(0);
+  // The button is the action; the text is folded away until asked for.
+  const promptText = hero.locator('.agent-prompt-text');
+  await expect(promptText).toBeHidden();
+  await hero.getByText('Read the prompt').focus();
+  await page.keyboard.press('Enter');
+  await expect(promptText).toBeVisible();
+  await expect(promptText).toContainText('I authorize the official user-local installer');
+  await page.keyboard.press('Enter');
+  await expect(promptText).toBeHidden();
 
   await start.getByRole('tab', { name: 'Agent' }).focus();
   await page.keyboard.press('ArrowRight');
@@ -121,6 +130,8 @@ test('the agent prompt is selected in full when the clipboard is unavailable', a
   const button = page.locator('.hero .agent-prompt button');
   await button.click();
   await expect(button).toContainText('Selected');
+  // Selecting needs the text on screen, so the prompt unfolds.
+  await expect(page.locator('.hero .agent-prompt-text')).toBeVisible();
   await expect(page.getByRole('status')).toContainText('The text is selected');
   const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '');
   expect(normalize(selected)).toBe(normalize(agentPrompt));
@@ -129,7 +140,9 @@ test('the agent prompt is selected in full when the clipboard is unavailable', a
 test('the agent prompt wraps inside its card at every width', async ({ page }) => {
   await page.goto('/');
   for (const region of ['.hero', '.closing']) {
+    await page.locator(`${region} .agent-prompt-details summary`).click();
     const text = page.locator(`${region} .agent-prompt-text`);
+    await expect(text).toBeVisible();
     const overflow = await text.evaluate((element) => element.scrollWidth - element.clientWidth);
     expect(overflow, region).toBeLessThanOrEqual(1);
     const card = await page.locator(`${region} .agent-prompt`).boundingBox();

@@ -243,6 +243,8 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
             const target = button.dataset.copyTarget
               ? document.getElementById(button.dataset.copyTarget)
               : button.parentElement?.querySelector('code');
+            // The prompt is folded away until asked for: open it first.
+            target?.closest('details')?.setAttribute('open', '');
             if (target) window.getSelection()?.selectAllChildren(target);
             say('Selected', 'The clipboard is unavailable. The text is selected; copy it with your keyboard.');
           }

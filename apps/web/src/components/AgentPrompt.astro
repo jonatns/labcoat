@@ -11,8 +11,6 @@ const { id } = Astro.props;
 ---
 
 <div class="agent-prompt">
-  <!-- The action comes first: the prompt is long, and the button must not
-       sit below the fold. -->
   <div class="agent-prompt-bar">
     <p>Paste this into Claude Code, Codex, or another coding agent with terminal access.</p>
     <button type="button" class="button button-primary" data-copy={agentPrompt} data-copy-target={id} data-copy-idle="Copy agent prompt">
@@ -20,7 +18,13 @@ const { id } = Astro.props;
       <span data-copy-label>Copy agent prompt</span>
     </button>
   </div>
-  <div class="agent-prompt-text" id={id} tabindex="0" role="group" aria-label="Agent prompt">
-    {agentPromptParagraphs.map((paragraph) => <p>{paragraph}</p>)}
-  </div>
+  <!-- Closed by default: the button is the action. The text stays one click
+       away because it authorizes an installer, and people should be able to
+       read what they are about to paste. -->
+  <details class="agent-prompt-details">
+    <summary>Read the prompt</summary>
+    <div class="agent-prompt-text" id={id}>
+      {agentPromptParagraphs.map((paragraph) => <p>{paragraph}</p>)}
+    </div>
+  </details>
 </div>
