@@ -46,6 +46,7 @@ export default defineConfig({
           label: 'Start here',
           items: [
             { label: 'Overview', slug: 'docs' },
+            { label: 'Start with an agent', slug: 'docs/getting-started/agent-onboarding' },
             { label: 'Installation', slug: 'docs/getting-started/installation' },
             { label: 'Quick start', slug: 'docs/getting-started/quickstart' },
             { label: 'Tutorial: your first contract', slug: 'docs/tutorials/first-contract' },

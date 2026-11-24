@@ -18,6 +18,22 @@ runs Bitcoin regtest under the hood. It is not Signet.**
 [Website](https://labcoat.sh) · [Documentation](https://labcoat.sh/docs/) ·
 [Agent index](https://labcoat.sh/llms.txt) · [Security policy](SECURITY.md)
 
+## Start with your agent
+
+Paste this into Claude Code, Codex, or another coding agent with terminal
+access. It sets up Labcoat, creates a project, and takes the Counter starter
+through one increment:
+
+```text
+Set up Labcoat in a fresh project in my workspace and run the Counter starter through one increment. Use https://labcoat.sh/docs/getting-started/agent-onboarding/ for preflight. If Labcoat is missing, I authorize the official user-local installer, subject to your tool approvals. If a system package is missing, stop and tell me which package is needed and why.
+
+After labcoat init, follow the project’s generated AGENTS.md and SKILL.md and the installed labcoat docs --llm. Use Labcoat Network, the local Bitcoin regtest, and preserve existing projects, wallets, and chains. Run the workflow yourself and allow time for the first Rust build.
+
+Report the project path, Labcoat version, test result, and Counter contract ID. Verify that simulate reports decoded.uint changing from 0 to 1. Give the increment transaction ID and summarize that transaction’s typed call and return trace events. Label any return_data you quote as raw hex.
+```
+
+[What the agent checks before it installs anything](https://labcoat.sh/docs/getting-started/agent-onboarding/).
+
 ## Install
 
 ```bash

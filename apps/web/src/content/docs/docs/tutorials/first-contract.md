@@ -7,9 +7,10 @@ This tutorial takes the Counter contract every Labcoat project starts with
 and runs it through the whole loop: test, deploy, call, trace, change, and
 deploy again. It assumes you know some Rust and nothing about Alkanes.
 
-You need a [Labcoat installation](/docs/getting-started/installation/) and
-about ten minutes. The first build compiles the Alkanes runtime and takes the
-longest.
+You need a [Labcoat installation](/docs/getting-started/installation/), its
+[compilation prerequisites](/docs/getting-started/installation/#compilation-prerequisites)
+(`labcoat doctor` checks them), and about ten minutes. The first build
+compiles the Alkanes runtime and takes the longest.
 
 ## Create the project
 

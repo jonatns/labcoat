@@ -5,11 +5,19 @@ description: Labcoat is the Rust-native CLI for building, testing, and operating
 
 # Labcoat: the Alkanes contract workflow
 
+Setting Labcoat up from nothing? Run the preflight at
+https://labcoat.sh/docs/getting-started/agent-onboarding/ first: platform,
+installation, prerequisites, and local network settings. Inside a project,
+its generated `AGENTS.md` and `SKILL.md` match the installed release and
+take precedence over this file.
+
 New projects start with `labcoat init <project-name>` (or `labcoat init` for an
 interactive prompt). Native integration
 tests live under `tests/`; use `labcoat new <name>` to add a minimal
 contract package and matching test without copying the example.
-Run integration tests with `labcoat test`.
+Run integration tests with `labcoat test`. The first run in a project builds
+every dependency: allow up to 20 minutes, start it once, and poll it rather
+than starting a second build.
 
 Every command supports `--json` and then emits exactly one envelope on
 stdout (`{ok, command, schema, result | error{code, message, hint}}`),

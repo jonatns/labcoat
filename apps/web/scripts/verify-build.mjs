@@ -8,6 +8,9 @@ const required = [
   'index.html',
   'docs/index.html',
   'docs/getting-started/quickstart/index.html',
+  'docs/getting-started/agent-onboarding/index.html',
+  'docs/getting-started/agent-onboarding.md.txt',
+  'agent-prompt.txt',
   'docs/index.md.txt',
   'llms.txt',
   'llms-full.txt',
@@ -60,6 +63,20 @@ for (const file of htmlFiles) {
 
 if (broken.length) {
   throw new Error(`Broken local references:\n${broken.join('\n')}`);
+}
+
+// One prompt, wherever it appears. The home page and /agent-prompt.txt are
+// rendered from src/agent-prompt.txt; the README repeats it for people who
+// arrive from the repository, so check that copy against the source.
+const normalize = (text) => text.replace(/\s+/g, ' ').trim();
+const prompt = normalize(await readFile(path.join(root, 'src/agent-prompt.txt'), 'utf8'));
+const served = normalize(await readFile(path.join(dist, 'agent-prompt.txt'), 'utf8'));
+if (served !== prompt) {
+  throw new Error('dist/agent-prompt.txt does not match src/agent-prompt.txt');
+}
+const readme = normalize(await readFile(path.resolve(root, '../../README.md'), 'utf8'));
+if (!readme.includes(prompt)) {
+  throw new Error('README.md does not carry the agent prompt from apps/web/src/agent-prompt.txt verbatim');
 }
 
 const appVercel = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));

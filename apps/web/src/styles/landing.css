@@ -200,6 +200,142 @@
   height: 15px;
 }
 
+/* Start: agent prompt or manual install ------------------------------------ */
+
+.start {
+  width: min(100%, 34rem);
+}
+
+.start-tabs {
+  display: flex;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  background: var(--ground);
+}
+
+.start-tabs button {
+  min-height: 44px;
+  padding: 0 1.1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-muted);
+  font: 0.78rem var(--font-mono);
+  cursor: pointer;
+}
+
+.start-tabs button:hover {
+  color: var(--ink);
+}
+
+.start-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--acid);
+  color: var(--ink);
+}
+
+.start-tabs button:focus-visible,
+.agent-prompt-details summary:focus-visible {
+  outline: 2px solid var(--acid);
+  outline-offset: -2px;
+}
+
+.start-note {
+  margin: 0.65rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.agent-prompt {
+  width: min(100%, 34rem);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.agent-prompt-details summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  color: var(--ink-soft);
+  font: 0.78rem var(--font-mono);
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-prompt-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-prompt-details summary::before {
+  content: '+';
+  width: 0.7rem;
+  color: var(--acid);
+  font-weight: 700;
+}
+
+.agent-prompt-details[open] summary::before {
+  content: '−';
+}
+
+.agent-prompt-details summary:hover {
+  color: var(--ink);
+}
+
+.agent-prompt-details[open] summary {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* Plain English, so body type and normal wrapping: no shell prompt, no
+   horizontal scrolling at any width. */
+.agent-prompt-text {
+  padding: 1rem 1rem 0.25rem;
+  color: var(--ink);
+  font-size: 0.86rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.agent-prompt-text p {
+  margin: 0 0 0.75rem;
+}
+
+.agent-prompt-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-prompt-bar p {
+  flex: 1 1 14rem;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.agent-prompt-bar .button {
+  flex: none;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.agent-prompt-bar .button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.closing .agent-prompt {
+  margin-inline: auto;
+  text-align: left;
+}
+
 .hero-support {
   margin: 0.65rem 0 0;
   color: var(--ink-muted);

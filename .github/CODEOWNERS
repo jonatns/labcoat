@@ -1,0 +1,22 @@
+# The text below is handed to coding agents that have a terminal on someone
+# else's machine, or run by people who trust it. A change to any of it needs a
+# maintainer's review. Enforce this with "Require review from Code Owners" on
+# the main branch.
+
+# The prompt people copy, and every surface that serves it.
+/apps/web/src/agent-prompt.txt                                          @jonatns
+/apps/web/src/agent-prompt.ts                                           @jonatns
+/apps/web/src/pages/agent-prompt.txt.ts                                 @jonatns
+/apps/web/src/components/AgentPrompt.astro                              @jonatns
+
+# What an agent is told to do before and after it creates a project.
+/apps/web/src/content/docs/docs/getting-started/agent-onboarding.md     @jonatns
+/skills/SKILL.md                                                        @jonatns
+/crates/labcoat-cli/templates/default/AGENTS.md                         @jonatns
+/crates/labcoat-cli/templates/default/SKILL.md                          @jonatns
+
+# The installer, and the route that serves it at labcoat.sh/install.
+/install-labcoat.sh                                                     @jonatns
+/apps/web/src/pages/install.ts                                          @jonatns
+
+/.github/CODEOWNERS                                                     @jonatns
