@@ -3,9 +3,14 @@
 - Status: proposed
 - Date: 2026-11-24
 
-Nothing in this document is implemented. It records a proposed direction for
-Labcoat Network and the evidence behind it. Until it is accepted and built,
-`docs/RELEASING.md` and `TOOLCHAIN.md` describe the runtime that ships.
+This document records a proposed direction for Labcoat Network and the
+evidence behind it. `docs/RELEASING.md` and `TOOLCHAIN.md` describe the
+runtime that ships.
+
+What exists so far is `crates/labcoat-runtime`, a first building block that
+the CLI does not use: an indexer host that runs `alkanes.wasm` over state in
+memory, a regtest block builder with no transaction validation, and
+snapshots. Neither step below is done.
 
 ## Context
 
@@ -201,7 +206,10 @@ run the release acceptance flow against both runtimes while they coexist.
   Esplorashrew module loaded.
 - A spike of the indexer host that indexes a deploy and a call, and returns
   the same `simulate` and `trace` results as the Qubitcoin-backed network for
-  the starter Counter project.
+  the starter Counter project. `crates/labcoat-runtime` covers the first part:
+  its tests run the `alkanes.wasm` published with `cli-v0.3.0` over the genesis
+  block and empty blocks and read back the `sequence`, `getbytecode`, and
+  `getblock` views. Deploys, calls, and the comparison are still to do.
 - A written list of the node behaviors the simulated chain will not model.
 
 ## References

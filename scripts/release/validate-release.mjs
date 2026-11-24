@@ -29,7 +29,7 @@ function workspaceVersion() {
 
 function validateCargo() {
   const version = workspaceVersion();
-  for (const name of ['labcoat-cli', 'labcoat-core', 'labcoat-deploy', 'labcoat-test', 'isomer-core']) {
+  for (const name of ['labcoat-cli', 'labcoat-core', 'labcoat-deploy', 'labcoat-test', 'labcoat-runtime', 'isomer-core']) {
     const pkg = cargoPackage(`crates/${name}/Cargo.toml`);
     if (!/^version\.workspace\s*=\s*true$/m.test(pkg)) {
       fail(`${name} must inherit the workspace version`);

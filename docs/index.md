@@ -28,6 +28,7 @@ crates/labcoat-core  contract toolkit on pinned alkanes-rs
 crates/labcoat-cli   CLI, JSON envelopes, and MCP server
 crates/labcoat-deploy deployment script API
 crates/labcoat-test  native WebAssembly contract test harness
+crates/labcoat-runtime in-process indexer host and simulated chain (not used by the CLI yet)
 ```
 
 The `labcoat` binary is the supported public interface to these crates.

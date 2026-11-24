@@ -2772,6 +2772,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "labcoat-runtime"
+version = "0.3.0"
+dependencies = [
+ "bitcoin 0.32.101",
+ "thiserror 2.0.17",
+ "tracing",
+ "wasmtime",
+ "wat",
+]
+
+[[package]]
 name = "labcoat-test"
 version = "0.3.0"
 dependencies = [
