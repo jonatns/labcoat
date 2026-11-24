@@ -24,6 +24,9 @@ proposed and is not part of the supported product.
 >   one step by name. There is no `labcoat apply`: where this document says
 >   apply, read deploy. Direct `labcoat deploy <package>` is gone, so every
 >   deploy of a declared contract is recorded in the run file.
+> - Labcoat Network no longer runs Qubitcoin: it is Labcoat's own runtime
+>   (ADR 0001), served by `labcoat node`. Where this document says Qubitcoin,
+>   read the Labcoat Network node; it serves the same chain and index queries.
 > - Initializer opcodes, reserved and cloned targets, the standard proxy,
 >   beacon, and beacon-proxy contracts, auth-token handling, and import of
 >   existing contracts are implemented by that model (Milestone 2 and parts

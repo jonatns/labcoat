@@ -71,7 +71,6 @@ Planned, not available:
 Unsupported:
 
 - Windows;
-- Labcoat Network runtime on macOS x86_64 or Linux arm64;
 - treating Labcoat Network or its wallet defaults as a production security
   boundary;
 - assuming website examples match an older unpinned executable.

@@ -47,6 +47,28 @@ of a second, because it reloads the saved index instead of indexing the blocks
 again. Use `labcoat reset` to start from a fresh chain. The mempool is not
 saved: mine pending transactions before `labcoat down`.
 
+## JSON-RPC
+
+Labcoat Network answers Bitcoin Core-style JSON-RPC at
+`http://127.0.0.1:18443`, for tools and web apps as well as the CLI:
+
+- chain and transactions: `getblockcount`, `getblockhash`, `getblock`,
+  `getrawtransaction`, `gettxout`, `sendrawtransaction`, `testmempoolaccept`,
+  `getmempoolinfo`, `getrawmempool`, and `generatetoaddress`;
+- indexes: `secondaryheight` and `secondaryview` for `alkanes` and `esplora`,
+  and `metashrew_height` and `metashrew_view`;
+- snapshots: `labcoat_snapshot` returns an id, and `labcoat_revert` with that
+  id returns the chain, mempool, and index to that moment in memory. Reverting
+  uses the snapshot and every later one, as Hardhat's `evm_revert` does.
+
+```bash
+id=$(curl -s -d '{"jsonrpc":"2.0","id":1,"method":"labcoat_snapshot"}' http://127.0.0.1:18443 | jq .result)
+labcoat mine 5
+curl -s -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"labcoat_revert\",\"params\":[$id]}" http://127.0.0.1:18443
+```
+
+`labcoat snapshot` and `labcoat restore` save whole chains to disk instead.
+
 ## Wallet workflow
 
 `labcoat up` creates a wallet for the network and tops it up to 10 BTC when

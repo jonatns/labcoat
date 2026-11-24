@@ -3,9 +3,8 @@ title: Installation
 description: Install the Labcoat CLI and its matching managed runtime.
 ---
 
-Labcoat publishes CLI executables for macOS and Linux on arm64 and x86_64.
-Windows is not supported. The Labcoat Network runtime currently supports macOS
-arm64 and Linux x86_64.
+Labcoat publishes CLI executables for macOS and Linux on arm64 and x86_64, and
+Labcoat Network runs on all of them. Windows is not supported.
 
 ## Inspect and install
 
