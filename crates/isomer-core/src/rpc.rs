@@ -361,9 +361,11 @@ mod tests {
                     });
                     continue;
                 };
-                use std::io::{Read, Write};
-                let mut request = [0u8; 4096];
-                let _ = stream.read(&mut request);
+                use std::io::Write;
+                // Read the whole request, as a real server does: answering
+                // before the body arrives and closing with it unread makes
+                // the kernel reset the connection.
+                read_request(&mut stream);
                 let _ = write!(
                     stream,
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -372,6 +374,33 @@ mod tests {
             }
         });
         config
+    }
+
+    fn read_request(stream: &mut std::net::TcpStream) {
+        use std::io::Read;
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let headers_end = loop {
+            if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                break end + 4;
+            }
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => request.extend_from_slice(&chunk[..read]),
+            }
+        };
+        let headers = String::from_utf8_lossy(&request[..headers_end]).to_ascii_lowercase();
+        let length: usize = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(0);
+        while request.len() < headers_end + length {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => request.extend_from_slice(&chunk[..read]),
+            }
+        }
     }
 
     #[test]
