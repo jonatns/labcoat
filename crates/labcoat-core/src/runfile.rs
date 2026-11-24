@@ -168,7 +168,7 @@ pub(crate) fn lock(root: &Path) -> Result<std::fs::File> {
         Err(std::fs::TryLockError::WouldBlock) => Err(LabcoatError::new(
             "DEPLOYMENT_LOCKED",
             "another process is updating this project's deployments",
-            "retry after the other apply or import finishes",
+            "retry after the other deploy or import finishes",
         )),
         Err(std::fs::TryLockError::Error(error)) => Err(io_err(error)),
     }

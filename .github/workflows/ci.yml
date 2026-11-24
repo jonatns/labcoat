@@ -120,11 +120,19 @@ jobs:
           grep -q '"passed": true' "$RUNNER_TEMP/labcoat-test.json"
           test ! -e build/counter.wasm
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            deploy counter --dry-run --json \
+            build counter --json \
+            | tee "$RUNNER_TEMP/labcoat-build-counter.json"
+          grep -q '"ok": true' "$RUNNER_TEMP/labcoat-build-counter.json"
+          cmp build/counter.abi.json .labcoat/test-artifacts/counter.abi.json
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            deploy --wasm build/counter.wasm --dry-run --json \
             | tee "$RUNNER_TEMP/labcoat-deploy.json"
           grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
-          grep -q '"package": "counter"' "$RUNNER_TEMP/labcoat-deploy.json"
-          cmp build/counter.abi.json .labcoat/test-artifacts/counter.abi.json
+          grep -q '"name": "counter"' "$RUNNER_TEMP/labcoat-deploy.json"
+          "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            deploy counter --json \
+            | tee "$RUNNER_TEMP/labcoat-deploy-unconfirmed.json"
+          grep -q '"code": "BROADCAST_REQUIRED"' "$RUNNER_TEMP/labcoat-deploy-unconfirmed.json"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
             build stateful --json \
             | tee "$RUNNER_TEMP/labcoat-build.json"

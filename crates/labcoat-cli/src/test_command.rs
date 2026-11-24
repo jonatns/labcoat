@@ -1,7 +1,7 @@
 use crate::contract::{CmdResult, Ctx, EnvelopeError};
 
 /// `labcoat test --e2e [filter]` — reset the Labcoat Network (opt-out with
-/// `--no-reset`), apply the `deploy.rs` deployment script when present,
+/// `--no-reset`), run the `deploy.rs` deployment when present,
 /// then run the project's ignored `tests/e2e.rs` tests with the context
 /// env set.
 pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResult {
@@ -111,7 +111,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
             })?;
     }
 
-    let applied = if project_root
+    let deployed = if project_root
         .join(labcoat_core::deployment::SCRIPT)
         .is_file()
     {
@@ -126,7 +126,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
         )
         .await
         .map_err(core_error)?;
-        Some(serde_json::to_value(report).expect("serializable apply report"))
+        Some(serde_json::to_value(report).expect("serializable deploy report"))
     } else {
         None
     };
@@ -169,7 +169,7 @@ pub async fn run_e2e(ctx: &Ctx, filter: Option<&str>, no_reset: bool) -> CmdResu
     Ok(serde_json::json!({
         "e2e": true,
         "reset": reset,
-        "applied": applied,
+        "deployed": deployed,
         "passed": true,
         "output": String::from_utf8_lossy(&output.stdout),
     }))

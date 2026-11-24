@@ -12,8 +12,8 @@ contract later with `labcoat new token`.
 contracts/           Rust contract sources
 tests/               Native integration tests; tests/e2e.rs runs on Labcoat Network
 Cargo.toml           Host-side test project
-deploy.rs            Deployment script for plan and apply
-deployments/         Per-network run files, created on apply
+deploy.rs            Deployment script for plan and deploy
+deployments/         Per-network run files, created on deploy
 labcoat.toml         Public project configuration
 labcoat.lock         Per-network address book, created on deploy
 rust-toolchain.toml  Pinned Rust toolchain and WebAssembly targets
@@ -28,7 +28,7 @@ installs it on first use. See [Deployment scripts](/docs/deployments/) for
 for durable deployment history.
 
 `deploy.rs` is registered in the root `Cargo.toml` as the `deploy` example
-target, which is how `labcoat plan` and `labcoat apply` run it.
+target, which is how `labcoat plan` and `labcoat deploy` run it.
 
 ## Settings precedence
 

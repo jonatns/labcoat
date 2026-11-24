@@ -53,7 +53,7 @@ Current:
 - Labcoat Network runtime on macOS arm64 and Linux x86_64;
 - Rust contract scaffolding, native Wasm tests, and package builds;
 - local wallets, deployment, calls, simulation, traces, JSON, and MCP;
-- deployment scripts with `deploy.rs`, `plan`, `apply`, and `import`, the
+- deployment scripts with `deploy.rs`, `plan`, `deploy`, and `import`, the
   standard upgradeable proxy and beacon contracts, plus network e2e tests;
 - atomic two-wallet exchanges, locally or through a PSBT ceremony;
 - generated TypeScript read clients (`labcoat generate web`);

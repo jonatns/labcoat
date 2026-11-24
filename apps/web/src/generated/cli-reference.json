@@ -66,7 +66,7 @@
             "required": false
           },
           {
-            "description": "Run tests/e2e.rs against Labcoat Network: reset the chain, apply deploy.rs, then execute the ignored e2e tests",
+            "description": "Run tests/e2e.rs against Labcoat Network: reset the chain, run the deploy.rs deployment, then execute the ignored e2e tests",
             "id": "e2e",
             "possibleValues": [
               "true",
@@ -449,13 +449,52 @@
       {
         "arguments": [
           {
-            "description": "Exact Cargo contract package name",
-            "id": "package",
+            "description": "Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)",
+            "id": "replace",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Run deploy.rs and show which deployment steps are pending, complete, or in conflict",
+        "name": "plan",
+        "path": "labcoat plan",
+        "subcommands": [],
+        "usage": "plan [OPTIONS]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Step name from deploy.rs (every pending step when omitted)",
+            "id": "step",
             "possibleValues": [],
             "required": false
           },
           {
-            "description": "Explicit path to a raw .wasm artifact (skips compilation)",
+            "description": "Sign and broadcast the pending transactions",
+            "id": "broadcast",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          },
+          {
+            "description": "Show what would happen without signing or broadcasting",
+            "id": "dry_run",
+            "possibleValues": [
+              "true",
+              "false"
+            ],
+            "required": false
+          },
+          {
+            "description": "Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable; runs the whole deployment, so it takes no step name)",
+            "id": "replace",
+            "possibleValues": [],
+            "required": false
+          },
+          {
+            "description": "Deploy this raw .wasm artifact outside deploy.rs instead of a step; it is recorded in labcoat.lock only",
             "id": "wasm",
             "possibleValues": [],
             "required": false
@@ -467,13 +506,13 @@
             "required": false
           },
           {
-            "description": "Constructor args, one per ABI constructor parameter (raw u128 / 0x-hex cellpack values when the artifact exposes no ABI constructor)",
+            "description": "Constructor args for --wasm deployments, one per ABI constructor parameter (raw u128 / 0x-hex cellpack values when the artifact exposes no ABI constructor)",
             "id": "args",
             "possibleValues": [],
             "required": false
           },
           {
-            "description": "Deploy to reserved number N (cellpack target [3,N]) instead of the next free id ([1,0])",
+            "description": "Deploy a --wasm artifact to reserved number N (cellpack target [3,N]) instead of the next free id ([1,0])",
             "id": "reserve",
             "possibleValues": [],
             "required": false
@@ -507,22 +546,40 @@
             "id": "edicts",
             "possibleValues": [],
             "required": false
-          },
-          {
-            "description": "Validate inputs and show what would happen without broadcasting",
-            "id": "dry_run",
-            "possibleValues": [
-              "true",
-              "false"
-            ],
-            "required": false
           }
         ],
-        "description": "Build and deploy a contract package, or deploy an explicit raw Wasm",
+        "description": "Execute the pending deployment steps deploy.rs declares, or one of them by name. Requires --broadcast or --dry-run",
         "name": "deploy",
         "path": "labcoat deploy",
         "subcommands": [],
-        "usage": "deploy [OPTIONS] [PACKAGE]"
+        "usage": "deploy [OPTIONS] [STEP]"
+      },
+      {
+        "arguments": [
+          {
+            "description": "Contract step name from deploy.rs",
+            "id": "name",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "The deployed contract's block:tx id",
+            "id": "id",
+            "possibleValues": [],
+            "required": true
+          },
+          {
+            "description": "Deployment or reveal transaction ID, used to recover auth tokens and other created IDs",
+            "id": "txid",
+            "possibleValues": [],
+            "required": false
+          }
+        ],
+        "description": "Record a contract that already exists on chain as a deployment step, without deploying",
+        "name": "import",
+        "path": "labcoat import",
+        "subcommands": [],
+        "usage": "import [OPTIONS] <NAME> <ID>"
       },
       {
         "arguments": [
@@ -733,72 +790,6 @@
         "path": "labcoat exchange-settle",
         "subcommands": [],
         "usage": "exchange-settle [OPTIONS] --plan <PLAN> --psbt <PSBT> --seller-wallet-file <SELLER_WALLET_FILE>"
-      },
-      {
-        "arguments": [
-          {
-            "description": "Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)",
-            "id": "replace",
-            "possibleValues": [],
-            "required": false
-          }
-        ],
-        "description": "Run deploy.rs and show which deployment steps are pending, complete, or in conflict",
-        "name": "plan",
-        "path": "labcoat plan",
-        "subcommands": [],
-        "usage": "plan [OPTIONS]"
-      },
-      {
-        "arguments": [
-          {
-            "description": "Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)",
-            "id": "replace",
-            "possibleValues": [],
-            "required": false
-          },
-          {
-            "description": "Broadcast the pending transactions (without this flag apply only shows the plan)",
-            "id": "broadcast",
-            "possibleValues": [
-              "true",
-              "false"
-            ],
-            "required": false
-          }
-        ],
-        "description": "Execute the pending deployment steps deploy.rs declares",
-        "name": "apply",
-        "path": "labcoat apply",
-        "subcommands": [],
-        "usage": "apply [OPTIONS]"
-      },
-      {
-        "arguments": [
-          {
-            "description": "Contract step name from deploy.rs",
-            "id": "name",
-            "possibleValues": [],
-            "required": true
-          },
-          {
-            "description": "The deployed contract's block:tx id",
-            "id": "id",
-            "possibleValues": [],
-            "required": true
-          },
-          {
-            "description": "Deployment or reveal transaction ID, used to recover auth tokens and other created IDs",
-            "id": "txid",
-            "possibleValues": [],
-            "required": false
-          }
-        ],
-        "description": "Record a contract that already exists on chain as a deployment step, without deploying",
-        "name": "import",
-        "path": "labcoat import",
-        "subcommands": [],
-        "usage": "import [OPTIONS] <NAME> <ID>"
       },
       {
         "arguments": [
@@ -1024,8 +1015,8 @@
       "labcoat up",
       "labcoat wallet init",
       "labcoat fund <address> && labcoat mine 1",
-      "labcoat build counter",
-      "labcoat deploy counter",
+      "labcoat plan",
+      "labcoat deploy --broadcast",
       "labcoat abi verify counter",
       "labcoat simulate counter get_count",
       "labcoat call counter increment",
@@ -1192,12 +1183,12 @@
       {
         "code": "DEPLOYMENT_CONFLICT",
         "meaning": "a deployment step that already ran no longer matches deploy.rs, or references an instance that was replaced",
-        "recovery": "restore the step, or name it in `labcoat apply --replace <name>` to deploy a new instance (or run a call again)"
+        "recovery": "restore the step, or name it in `labcoat deploy --replace <name>` to deploy a new instance (or run a call again)"
       },
       {
         "code": "DEPLOYMENT_LOCKED",
         "meaning": "another process is updating the project's deployments",
-        "recovery": "retry after the other apply or import finishes"
+        "recovery": "retry after the other deploy or import finishes"
       },
       {
         "code": "RUN_FILE_INVALID",
@@ -1235,9 +1226,14 @@
         "recovery": "re-run against current state (`labcoat state list`)"
       },
       {
-        "code": "APPLY_BLOCKED",
-        "meaning": "a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting)",
+        "code": "DEPLOYMENT_BLOCKED",
+        "meaning": "a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting, a step deployed on its own before the steps it references)",
         "recovery": "read the step's detail in `labcoat plan`"
+      },
+      {
+        "code": "BROADCAST_REQUIRED",
+        "meaning": "`labcoat deploy` was run without saying whether to broadcast",
+        "recovery": "pass `--broadcast` to sign and send, or `--dry-run` (or run `labcoat plan`) to preview without signing"
       },
       {
         "code": "TOOLKIT_ERROR",
@@ -1457,62 +1453,6 @@
         "name": "abi_verify"
       },
       {
-        "description": "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
-        "inputSchema": {
-          "properties": {
-            "args": {
-              "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "edicts": {
-              "description": "edicts block:tx:amount:target appended to the protostone",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "inputs": {
-              "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats",
-              "type": "string"
-            },
-            "name": {
-              "description": "optional name for wasm deployments",
-              "type": "string"
-            },
-            "package": {
-              "description": "exact Cargo contract package name",
-              "type": "string"
-            },
-            "pointer": {
-              "description": "protostone pointer target vN or pN (default v0)",
-              "type": "string"
-            },
-            "refund": {
-              "description": "protostone refund target (default: pointer)",
-              "type": "string"
-            },
-            "reserve": {
-              "description": "reserved number N for a [3,N] deploy target (default: next free id via [1,0])",
-              "type": "string"
-            },
-            "to": {
-              "description": "recipient address for protostone outputs (default: wallet primary address)",
-              "type": "string"
-            },
-            "wasm": {
-              "description": "explicit path to raw .wasm; skips compilation",
-              "type": "string"
-            }
-          },
-          "required": [],
-          "type": "object"
-        },
-        "name": "deploy"
-      },
-      {
         "description": "Execute a state-changing contract call and wait for its trace.",
         "inputSchema": {
           "properties": {
@@ -1714,25 +1654,73 @@
         "name": "plan"
       },
       {
-        "description": "Execute the pending deployment steps deploy.rs declares. Requires broadcast: true to transact; otherwise returns the plan. Refuses while any step is in conflict.",
+        "description": "Execute the pending deployment steps deploy.rs declares, or only the step named in step. broadcast is required: true signs and broadcasts, false returns the plan without signing. Refuses while a step is in conflict. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.",
         "inputSchema": {
           "properties": {
-            "broadcast": {
-              "description": "actually broadcast transactions",
-              "type": "boolean"
-            },
-            "replace": {
-              "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again",
+            "args": {
+              "description": "wasm only: constructor args, one per ABI constructor parameter (decimal u128 or 0x-hex cellpack values when the artifact exposes no ABI constructor)",
               "items": {
                 "type": "string"
               },
               "type": "array"
+            },
+            "broadcast": {
+              "description": "true signs and broadcasts; false previews without signing",
+              "type": "boolean"
+            },
+            "edicts": {
+              "description": "wasm only: edicts block:tx:amount:target appended to the protostone",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "inputs": {
+              "description": "wasm only: comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats",
+              "type": "string"
+            },
+            "name": {
+              "description": "wasm only: contract name (default: file stem)",
+              "type": "string"
+            },
+            "pointer": {
+              "description": "wasm only: protostone pointer target vN or pN (default v0)",
+              "type": "string"
+            },
+            "refund": {
+              "description": "wasm only: protostone refund target (default: pointer)",
+              "type": "string"
+            },
+            "replace": {
+              "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again; runs the whole deployment, so it takes no step",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reserve": {
+              "description": "wasm only: reserved number N for a [3,N] deploy target (default: next free id via [1,0])",
+              "type": "string"
+            },
+            "step": {
+              "description": "step name from deploy.rs; every pending step when omitted",
+              "type": "string"
+            },
+            "to": {
+              "description": "wasm only: recipient address for protostone outputs (default: wallet primary address)",
+              "type": "string"
+            },
+            "wasm": {
+              "description": "path to a raw .wasm to deploy outside deploy.rs instead of a step",
+              "type": "string"
             }
           },
-          "required": [],
+          "required": [
+            "broadcast"
+          ],
           "type": "object"
         },
-        "name": "apply"
+        "name": "deploy"
       },
       {
         "description": "Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.",
@@ -1825,11 +1813,11 @@
         "name": "Deploy"
       },
       {
-        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
+        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat deploy --broadcast` signs. `labcoat deploy <step> --broadcast` runs one step, once everything it references is deployed. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
         "name": "Deployment script"
       },
       {
-        "detail": "Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that apply refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: apply reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.",
+        "detail": "Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that deploy refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: deploy reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.",
         "name": "Step lifecycles"
       },
       {

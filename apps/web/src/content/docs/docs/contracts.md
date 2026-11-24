@@ -32,18 +32,27 @@ Compilation writes:
 ## Deploy
 
 ```bash
-labcoat deploy my-token --dry-run
-labcoat deploy my-token
+labcoat plan
+labcoat deploy --broadcast
 
-# Advanced: deploy an external raw artifact without compiling a package
-labcoat deploy --wasm /path/to/my-token.wasm --name my-token
+# One step of deploy.rs
+labcoat deploy my-token --broadcast
+
+# Advanced: a prebuilt raw artifact that deploy.rs does not declare
+labcoat deploy --wasm /path/to/my-token.wasm --name my-token --broadcast
 ```
 
-Package deployment always recompiles the selected contract, uses a Bitcoin
-commit/reveal envelope, waits for the create trace, and records the resulting
-`block:tx` ID in `labcoat.lock`. To deploy several contracts that reference
-each other, declare them in `deploy.rs` and use
-[plan and apply](/docs/deployments/).
+A project deploys what its `deploy.rs` declares, and a new project's declares
+its Counter contract. Add one with `d.contract("my-token", "my-token")`.
+Deploy recompiles every package the script references, uses a Bitcoin
+commit/reveal envelope, waits for the create trace, and records each
+`block:tx` ID in `labcoat.lock`. A step runs once per network, so deploying
+again does nothing until a step is pending.
+
+Deploy needs `--broadcast` to sign and send, or `--dry-run` to preview;
+`labcoat plan` is the same preview. See
+[Deployment scripts](/docs/deployments/) for references between contracts,
+existing Alkanes, and upgrades.
 
 ## Simulate and call
 

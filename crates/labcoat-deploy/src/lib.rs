@@ -1,10 +1,10 @@
 //! Deployment scripts: describe a project's deployment in Rust, and let
-//! `labcoat plan` / `labcoat apply` review and execute it.
+//! `labcoat plan` / `labcoat deploy` review and execute it.
 //!
 //! A deployment script is the `deploy.rs` example target of a Labcoat
 //! project. It *declares* steps and never executes them: every builder
 //! returns a handle, the script prints the resulting graph, and the
-//! `labcoat` CLI — the only process that holds a signer — plans and applies
+//! `labcoat` CLI — the only process that holds a signer — plans and deploys
 //! it. A script therefore cannot read a step's result and branch on it;
 //! anything that reacts to chain results belongs in `tests/e2e.rs` or the
 //! application.
@@ -28,7 +28,7 @@
 //!
 //! - [`Deployment::contract`], [`Deployment::clone_of`], and
 //!   [`Deployment::call`] are **pinned**: they run once per network, and
-//!   editing one after it ran is a conflict that `labcoat apply` refuses
+//!   editing one after it ran is a conflict that `labcoat deploy` refuses
 //!   until `--replace <name>` names it.
 //! - [`Deployment::implementation`] is **replaceable**: changed code
 //!   deploys a new instance and keeps the old record. Use it only for code
@@ -704,7 +704,7 @@ impl Setting {
 /// Build the deployment and hand its graph to `labcoat`. Call this from
 /// the `main` of the project's `deploy.rs`.
 ///
-/// `labcoat plan` and `labcoat apply` run the script with
+/// `labcoat plan` and `labcoat deploy` run the script with
 /// `LABCOAT_DEPLOY_NETWORK` and `LABCOAT_DEPLOY_GRAPH` set and read the
 /// graph from that file. Run directly (`cargo run --example deploy`), the
 /// script prints the graph for the `labcoat` network to stdout.

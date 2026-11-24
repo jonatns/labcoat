@@ -41,17 +41,18 @@ labcoat mine 1
 labcoat wallet utxos
 ```
 
-## Build and deploy
+## Plan and deploy
 
 ```bash
-labcoat build counter
-labcoat deploy counter --dry-run
-labcoat deploy counter
+labcoat plan
+labcoat deploy --broadcast
 ```
 
-Deploy selects and recompiles the exact Cargo package before creating the
-commit/reveal envelope and recording the resulting Alkanes ID in
-`labcoat.lock`. Use `--wasm <path>` only for an external raw Wasm artifact.
+The project's `deploy.rs` declares one step: its Counter contract.
+`labcoat plan` shows that step as pending and signs nothing.
+`labcoat deploy --broadcast` recompiles the Cargo package, creates the
+commit/reveal envelope, and records the resulting Alkanes ID in
+`labcoat.lock`. The step runs once, so deploying again does nothing.
 
 ## Interact and inspect
 
@@ -77,7 +78,7 @@ labcoat down
 
 - [Tokens and exchanges](/docs/tutorials/token-exchange/) builds on this
   project: a fixed-supply token, two wallets, and an atomic swap.
-- [Deployment scripts](/docs/deployments/) replaces one-off deploys with a
-  script that declares the whole deployment and runs each step once.
+- [Deployment scripts](/docs/deployments/) covers `deploy.rs` in full:
+  contracts that reference each other, existing Alkanes, and upgrades.
 - [An upgradeable contract](/docs/tutorials/upgradeable-contract/) puts this
   project's Counter behind a proxy and upgrades it.

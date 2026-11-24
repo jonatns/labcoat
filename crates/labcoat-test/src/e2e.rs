@@ -3,8 +3,8 @@
 //!
 //! Tests live in `tests/e2e.rs`, are marked `#[ignore]` (so plain
 //! `cargo test` skips them), and run via `labcoat test --e2e`, which
-//! resets the network, applies the `deploy.rs` deployment script, and
-//! executes them with the environment this context reads:
+//! resets the network, runs the `deploy.rs` deployment, and executes them
+//! with the environment this context reads:
 //!
 //! ```text
 //! LABCOAT_E2E_BIN   absolute path of the labcoat binary driving the run
@@ -255,7 +255,7 @@ impl E2e {
 
     /// The `block:tx` id of a contract or external Alkane by name: a
     /// `deploy.rs` step, or a contract recorded in labcoat.lock by
-    /// `labcoat deploy` or [`E2e::deploy`].
+    /// `labcoat deploy --wasm` or [`E2e::deploy`].
     pub fn contract(&self, name: &str) -> Result<String> {
         if let Some(id) = self
             .step_record(name)
@@ -265,7 +265,7 @@ impl E2e {
         }
         let path = self.root.join("labcoat.lock");
         let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("cannot read {} — did apply run?", path.display()))?;
+            .with_context(|| format!("cannot read {} — did deploy run?", path.display()))?;
         let lockfile: Value = serde_json::from_str(&text)?;
         lockfile
             .get("networks")
@@ -545,16 +545,38 @@ impl E2e {
     }
 
     /// Broadcast a deploy outside `deploy.rs` (e.g. signed by a
-    /// disposable wallet) and record it in labcoat.lock.
+    /// disposable wallet) and record it in labcoat.lock. The name must not
+    /// be one a `deploy.rs` step already ran under.
     pub fn deploy(&self, deploy: Deploy) -> Result<Outcome> {
-        let mut args: Vec<String> = vec!["deploy".into()];
-        match &deploy.source {
-            DeploySource::Package(package) => args.push(package.clone()),
-            DeploySource::Wasm { path, name } => {
-                args.extend(["--wasm".into(), path.clone()]);
-                args.extend(["--name".into(), name.clone()]);
+        let (wasm, name) = match &deploy.source {
+            // `labcoat deploy` takes deploy.rs steps; anything else is an
+            // artifact. Build the package first so the test never deploys
+            // a stale one.
+            DeploySource::Package(package) => {
+                let built = self.invoke(None, &["build", package])?;
+                let wasm = built
+                    .get("contracts")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .find(|contract| {
+                        contract.get("name").and_then(Value::as_str) == Some(package.as_str())
+                    })
+                    .and_then(|contract| contract.get("wasmPath"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("labcoat build {package} reported no wasm artifact"))?;
+                (wasm.to_string(), package.clone())
             }
-        }
+            DeploySource::Wasm { path, name } => (path.clone(), name.clone()),
+        };
+        let mut args: Vec<String> = vec![
+            "deploy".into(),
+            "--wasm".into(),
+            wasm,
+            "--name".into(),
+            name,
+            "--broadcast".into(),
+        ];
         if let Some(reserve) = deploy.reserve {
             args.extend(["--reserve".into(), reserve.to_string()]);
         }

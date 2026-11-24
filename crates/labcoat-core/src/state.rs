@@ -134,7 +134,7 @@ pub enum InstanceOrigin {
     Deployed,
     /// Imported from a v1 labcoat.lock record by `state migrate`.
     Imported,
-    /// Recorded by an apply reserve adoption.
+    /// Recorded when a deploy adopts an occupied reserve.
     Adopted,
 }
 

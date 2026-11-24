@@ -24,7 +24,7 @@ Source: https://github.com/jonatns/labcoat
 - [Projects and configuration](https://labcoat.sh/docs/projects-configuration/): Layout, settings precedence, and labcoat.lock
 - [Labcoat Network and wallets](https://labcoat.sh/docs/labcoat-network/): Local chain lifecycle and wallets
 - [Contracts](https://labcoat.sh/docs/contracts/): Test, build, deploy, simulate, call, and trace
-- [Deployment scripts](https://labcoat.sh/docs/deployments/): deploy.rs, plan/apply/import, upgradeable contracts, and e2e tests
+- [Deployment scripts](https://labcoat.sh/docs/deployments/): deploy.rs, plan/deploy/import, upgradeable contracts, and e2e tests
 - [Atomic exchanges](https://labcoat.sh/docs/exchanges/): Two-wallet asset swaps and the PSBT ceremony
 - [Web apps](https://labcoat.sh/docs/web-apps/): Generated TypeScript read client
 - [Deployment state](https://labcoat.sh/docs/deployment-state/): Durable per-environment deployment history

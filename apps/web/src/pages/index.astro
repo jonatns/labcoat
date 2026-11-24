@@ -109,7 +109,7 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
           <div><dt><code>labcoat test</code></dt><dd>Build WASIp1 WebAssembly and run native Rust integration tests</dd></div>
           <div><dt><code>labcoat up</code></dt><dd>Prepare this CLI release's exact runtime bundle and boot Labcoat Network</dd></div>
           <div><dt><code>labcoat fund</code></dt><dd>Send BTC from the dev wallet to an address</dd></div>
-          <div><dt><code>labcoat deploy</code></dt><dd>Build and deploy a contract package, or deploy an explicit raw Wasm</dd></div>
+          <div><dt><code>labcoat deploy</code></dt><dd>Execute the pending deployment steps deploy.rs declares, or one of them by name</dd></div>
           <div><dt><code>labcoat simulate</code></dt><dd>Simulate a deployed contract against live indexed chain state</dd></div>
           <div><dt><code>labcoat trace</code></dt><dd>Decoded protostone traces for a transaction</dd></div>
           <div><dt><code>labcoat snapshot</code></dt><dd>Snapshot the Labcoat Network data directory (stops services first)</dd></div>
@@ -121,7 +121,7 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
       <section class="section" id="systems" aria-labelledby="systems-title">
         <div class="section-intro">
           <h2 id="systems-title">Deploy the system, not just the contract.</h2>
-          <p>Declare several contracts and the references between them in <code>deploy.rs</code>. <code>labcoat plan</code> shows what has not run yet, and <code>labcoat apply</code> runs each step once; applying an unchanged script does nothing, and new code behind a proxy goes out as an upgrade.</p>
+          <p>Declare several contracts and the references between them in <code>deploy.rs</code>. <code>labcoat plan</code> shows what has not run yet, and <code>labcoat deploy</code> runs each step once; deploying an unchanged script does nothing, and new code behind a proxy goes out as an upgrade.</p>
         </div>
         <div class="systems-layout">
           <figure class="code-window">
@@ -131,7 +131,7 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
 <span class="t-info">› Plan for deploy.rs — 2 pending step(s)</span></code></pre>
           </figure>
           <dl class="feature-list">
-            <div><dt>Network e2e tests</dt><dd>Reset the chain, apply the script, and drive multi-wallet flows from Rust with <code>labcoat test --e2e</code>.</dd></div>
+            <div><dt>Network e2e tests</dt><dd>Reset the chain, deploy the script, and drive multi-wallet flows from Rust with <code>labcoat test --e2e</code>.</dd></div>
             <div><dt>Atomic exchanges</dt><dd>Swap two Alkane assets between wallets in one transaction, locally or through a seller-last PSBT ceremony.</dd></div>
             <div><dt>Web clients</dt><dd>Generate a typed TypeScript client for balances and simulations with <code>labcoat generate web</code>.</dd></div>
             <div><dt>Deployment history</dt><dd>Keep every instance of every contract, and refuse to deploy onto a chain that was reset.</dd></div>

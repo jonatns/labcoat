@@ -1,40 +1,69 @@
 ---
 title: Deployment scripts
-description: Declare a multi-contract deployment in deploy.rs, review the plan, and apply each step once per network.
+description: Declare a project's deployment in deploy.rs, review the plan, and deploy each step once per network.
 ---
 
-`labcoat deploy` deploys one contract. When a project has several contracts
-that reference each other, an existing Alkane to point at, or a contract to
-upgrade, declare the whole deployment in `deploy.rs` and let `labcoat plan`
-and `labcoat apply` carry it out.
+A project declares its deployment in `deploy.rs`: the contracts it deploys,
+the existing Alkanes they point at, the calls that configure them, and the
+contracts it upgrades. `labcoat plan` shows what deploying would do, and
+`labcoat deploy` does it, running each step once per network.
 
-## Plan, then apply
+## Plan, then deploy
 
 ```bash
 labcoat plan
-labcoat apply --broadcast
+labcoat deploy --broadcast
 ```
 
 `labcoat plan` builds every referenced package, runs `deploy.rs` to read the
 steps it declares, and compares them with the network's
 [run file](#the-run-file) and the chain. It never loads a signer or
-broadcasts. `labcoat apply` without `--broadcast` prints the same plan; add
-`--broadcast` to execute the pending steps in the order the script declares
-them.
+broadcasts. `labcoat deploy --broadcast` executes the pending steps in the
+order the script declares them.
+
+Deploy signs and spends, so it never guesses which you meant: pass
+`--broadcast` to execute, or `--dry-run` to print the same plan without
+signing. With neither flag it stops with `BROADCAST_REQUIRED`.
 
 Each step in the plan has one status:
 
 | Status | Meaning |
 |---|---|
-| `pending` | Runs on the next `apply --broadcast`. The plan says what it will do: `create`, `clone`, `replace`, `call`, `rerun`, `update`, or `check`. |
+| `pending` | Runs on the next `deploy --broadcast`. The plan says what it will do: `create`, `clone`, `replace`, `call`, `rerun`, `update`, or `check`. |
 | `complete` | Already ran with this definition; skipped. |
-| `conflict` | Ran with a different definition, or references a contract that was since replaced. Apply refuses until you resolve it. See [Steps run once](#steps-run-once). |
-| `adopt` | A reserved id already holds matching code with no record; apply records it without redeploying. |
-| `interrupted` | A transaction is awaiting an execution trace, or the previous apply stopped before it could prepare the reveal. |
-| `blocked` | Cannot proceed, for example because a reserved id holds different code. |
+| `conflict` | Ran with a different definition, or references a contract that was since replaced. Deploy refuses until you resolve it. See [Steps run once](#steps-run-once). |
+| `adopt` | A reserved id already holds matching code with no record; deploy records it without redeploying. |
+| `interrupted` | A transaction is awaiting an execution trace, or the previous deploy stopped before it could prepare the reveal. |
+| `blocked` | Cannot proceed, for example because a reserved id holds different code, or a step deployed on its own references one that has not run. |
 
-Applying an unchanged script a second time is a no-op. Every new project
+Deploying an unchanged script a second time is a no-op. Every new project
 includes a `deploy.rs` that deploys its Counter contract.
+
+### Deploy one step
+
+```bash
+labcoat deploy token --broadcast
+```
+
+Naming a step runs that step alone and leaves the other pending steps for
+later. Everything it references has to be deployed already; if something is
+not, the step is `blocked`, and `--dry-run` names what to deploy first.
+`--replace` is checked against the whole deployment, so it takes no step
+name.
+
+### Deploy an artifact outside the script
+
+```bash
+labcoat deploy --wasm build/token.wasm --name beta --args 5000 --broadcast
+```
+
+`--wasm` deploys a prebuilt `.wasm` that `deploy.rs` does not declare: an
+experiment, or an extra instance signed by another wallet. Its name,
+constructor arguments, reserve number, and transaction options are flags. The
+result is recorded in `labcoat.lock` only, so the plan does not know about
+it, and Labcoat refuses a name that a `deploy.rs` step already ran under.
+Anything that belongs to the project is a step instead:
+`d.contract_wasm(name, path)` deploys a prebuilt artifact from the script.
 
 ## Write the script
 
@@ -112,7 +141,7 @@ d.contract("token", "my-token")
 
 - **`reserve(n)`** deploys to the predictable id `4:n`, which later steps can
   reference before the deploy runs. Without it the contract gets the next free
-  id `2:n`, known after apply.
+  id `2:n`, known after the deploy.
 - **`init(method)`** names the initializer the deploy transaction calls.
   Without it, Labcoat uses the ABI's opcode-0 constructor.
 - **`arg(name, value)`** passes a named argument; `positional(value)` passes
@@ -160,7 +189,7 @@ script with that record. It does not try to make the chain match a script you
 edited afterwards.
 
 If you edit a pinned step after it ran, the plan reports a `conflict` and
-`apply --broadcast` stops with `DEPLOYMENT_CONFLICT` before sending anything:
+`deploy --broadcast` stops with `DEPLOYMENT_CONFLICT` before sending anything:
 
 ```text
 ! Plan for deploy.rs — 0 pending, 1 in conflict
@@ -180,7 +209,7 @@ You have three ways out:
 
   ```bash
   labcoat plan --replace token
-  labcoat apply --replace token --broadcast
+  labcoat deploy --replace token --broadcast
   ```
 
   For a call, `--replace` runs it again.
@@ -238,7 +267,7 @@ You can reimport the same ID with its reveal transaction to recover missing
 auth-token IDs from an earlier import.
 
 **A reserved id that already holds matching code** needs no command: the plan
-shows `adopt`, and apply records it without redeploying. This is how a
+shows `adopt`, and deploy records it without redeploying. This is how a
 standard contract that already sits at a well-known reserve, such as the auth
 token at `4:65517`, joins your deployment. A reserve that holds code with a
 different ABI is `blocked` instead.
@@ -290,8 +319,8 @@ d.call("init_counter", &counter, "initialize").abi_of(&logic);
   implementation. A proxy's own ABI lists only proxy methods, so a call
   through it has to say whose method it means.
 
-When the logic changes, one `apply` deploys the new code and repoints the
-beacon:
+When the logic changes, one `labcoat deploy --broadcast` deploys the new code
+and repoints the beacon:
 
 ```text
 Kind      Name                           Status             Id/Target
@@ -337,11 +366,11 @@ d.setting("market_fee", &market, 30)
 
 On every plan Labcoat reads the current value and compares it with the
 declared one. They match: `complete`. They differ, whether because you changed
-the script or because someone changed the chain: `pending (update)`, and apply
-sends the write call and verifies the value before reporting success.
+the script or because someone changed the chain: `pending (update)`, and
+deploy sends the write call and verifies the value before reporting success.
 
 A setting declared for a contract that does not exist yet shows
-`pending (check)`. Apply checks it once the contract is deployed and sends
+`pending (check)`. Deploy checks it once the contract is deployed and sends
 nothing when the initializer already set the value.
 
 Without `.read(…)`, Labcoat compares against the last successful write and
@@ -350,7 +379,7 @@ sends the first write when the current value is unknown. The standard
 has a successful write. A beacon's setting reads the chain.
 
 Labcoat cannot check that a new implementation's storage layout is compatible
-with the old one. Test an upgrade on Labcoat Network before applying it to a
+with the old one. Test an upgrade on Labcoat Network before deploying it to a
 shared network.
 
 ## The run file
@@ -361,28 +390,28 @@ referenced, the arguments as executed, the transaction id, and the earlier
 instances it replaced. It is what makes a step run once.
 
 - **Commit it for shared networks.** A teammate with the file sees the same
-  plan you do; without it, their apply would deploy everything again.
+  plan you do; without it, their deploy would run every step again.
 - **The Labcoat Network file is disposable.** `labcoat reset` starts a new
   chain, the plan ignores records from the earlier one, and a new project's
   `.gitignore` excludes `deployments/labcoat.json`.
 
 `labcoat.lock` remains the address book that maps a name to its active id for
 `labcoat call`, `labcoat simulate`, and
-[generated web clients](/docs/web-apps/). Apply updates it as contracts
-deploy.
+[generated web clients](/docs/web-apps/). `labcoat deploy` updates it as each
+contract deploys.
 
 Labcoat records the commit and execution transaction IDs before submission.
-Run `labcoat apply --broadcast` again after the indexer catches up. It checks
+Run `labcoat deploy --broadcast` again after the indexer catches up. It checks
 the recorded transaction and continues once its result is known. If the
-funding commit was sent and Labcoat saved a prepared reveal, apply can
+funding commit was sent and Labcoat saved a prepared reveal, deploy can
 continue from that reveal.
 
-If apply stopped before saving the reveal, check the recorded commit and the
+If deploy stopped before saving the reveal, check the recorded commit and the
 wallet. Use `labcoat import <name> <id> --txid <reveal-txid>` if the
 deployment landed. Use `--replace <name>` for a contract or call only after
-verifying its previous execution cannot still land. Run one apply or import
+verifying its previous execution cannot still land. Run one deploy or import
 at a time per checkout. When deploying from different checkouts, share the
-latest run file and coordinate who applies it.
+latest run file and coordinate who deploys.
 
 ## Keep usage out of the script
 
@@ -398,7 +427,7 @@ labcoat test --e2e
 labcoat test --e2e covered_call --no-reset
 ```
 
-`labcoat test --e2e` resets Labcoat Network, applies `deploy.rs`, and runs the
+`labcoat test --e2e` resets Labcoat Network, deploys `deploy.rs`, and runs the
 `#[ignore]`d tests in `tests/e2e.rs`. Pass a test-name filter to run a
 subset, and `--no-reset` to keep the current chain. E2e runs only target
 Labcoat Network and refuse any shared network.
@@ -440,12 +469,12 @@ Two complete examples:
 
 ## Public networks
 
-`plan`, `apply`, and `import` accept the global `--network`, `--signer`, and
+`plan`, `deploy`, and `import` accept the global `--network`, `--signer`, and
 `--yes` options. Non-regtest networks require an explicit signing approval,
 and `--signer psbt-file:<dir>` hands every transaction to an external signer,
 as described in
 [Atomic exchanges](/docs/exchanges/#sign-with-an-external-wallet). The wallet
-that applies an upgrade must hold the contract's auth token.
+that deploys an upgrade must hold the contract's auth token.
 
 Mainnet deployment controls are not production-ready; see
 [Stability and releases](/docs/reference/stability/).

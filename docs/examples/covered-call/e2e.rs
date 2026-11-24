@@ -67,7 +67,7 @@ fn covered_call_exercise_and_redeem() {
     .unwrap();
 
     // Mine to expiry, then the writer redeems the WRITER claims.
-    let expiry = e2e.height().unwrap() + 100; // matches height + 100 at apply
+    let expiry = e2e.height().unwrap() + 100; // matches height + 100 at deploy
     e2e.mine_until(expiry).unwrap();
     e2e.call(
         Call::new(&series, "20").inputs(&format!("{writer_claims}:100")),

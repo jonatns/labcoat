@@ -85,5 +85,5 @@ machine, a hardware-wallet app, Sparrow, or `labcoat wallet sign-psbt` on
 another keystore; Labcoat never holds that key material.
 
 ```bash
-labcoat deploy my-token --signer psbt-file:./signing
+labcoat deploy --broadcast --signer psbt-file:./signing
 ```

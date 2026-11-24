@@ -254,7 +254,12 @@ fn color_choice(mode: ColorMode) -> ColorChoice {
 
 fn build_document(command: &str, value: &Value, verbose: bool) -> Document {
     match command {
-        "call" | "deploy" => execution_document(command, value, verbose),
+        "call" => execution_document(command, value, verbose),
+        // Deploy reports deploy.rs steps (a plan under --dry-run, what ran
+        // under --broadcast) or, for --wasm, one execution.
+        "deploy" if value.get("actions").is_none() => execution_document(command, value, verbose),
+        "deploy" if value.get("pending").is_none() => deploy_report_document(value),
+        "plan" | "deploy" => plan_document(value),
         "simulate" => simulate_document(value, verbose),
         "trace" => trace_document(value, verbose),
         "status" | "up" => status_document(command, value, verbose),
@@ -268,17 +273,6 @@ fn build_document(command: &str, value: &Value, verbose: bool) -> Document {
         "state-list" => state_list_document(value, verbose),
         "state-show" => state_show_document(value, verbose),
         "state-migrate" => state_migrate_document(value),
-        "plan" => plan_document(value),
-        "apply"
-            if value
-                .get("actions")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().any(|x| x.get("outcome").is_some()))
-                == Some(true) =>
-        {
-            apply_document(value)
-        }
-        "apply" => plan_document(value),
         "logs" => logs_document(value, verbose),
         "snapshot" if value.get("snapshots").is_some() => snapshots_document(value),
         "abi-fetch" | "abi-verify" => abi_document(command, value, verbose),
@@ -914,6 +908,10 @@ fn plan_document(value: &Value) -> Document {
     let mut document = Document::default();
     let pending = value.get("pending").and_then(Value::as_u64).unwrap_or(0);
     let conflicts = value.get("conflicts").and_then(Value::as_u64).unwrap_or(0);
+    let scope = match value.get("only").and_then(Value::as_str) {
+        Some(only) => format!("{} step `{only}`", string_at(value, "script")),
+        None => string_at(value, "script"),
+    };
     document.headline(
         if conflicts > 0 {
             Tone::Warning
@@ -921,15 +919,9 @@ fn plan_document(value: &Value) -> Document {
             Tone::Info
         },
         if conflicts > 0 {
-            format!(
-                "Plan for {} — {pending} pending, {conflicts} in conflict",
-                string_at(value, "script")
-            )
+            format!("Plan for {scope} — {pending} pending, {conflicts} in conflict")
         } else {
-            format!(
-                "Plan for {} — {pending} pending step(s)",
-                string_at(value, "script")
-            )
+            format!("Plan for {scope} — {pending} pending step(s)")
         },
     );
     document.fields(fields(
@@ -1040,7 +1032,7 @@ fn plan_document(value: &Value) -> Document {
     if conflicts > 0 {
         document.note(
             Tone::Warning,
-            "Apply refuses while a step is in conflict: restore the step, or name it in --replace.",
+            "Deploy refuses while a step is in conflict: restore the step, or name it in --replace.",
         );
     } else if value.get("dryRun").and_then(Value::as_bool) == Some(true) && pending > 0 {
         document.note(
@@ -1051,25 +1043,25 @@ fn plan_document(value: &Value) -> Document {
     document
 }
 
-fn apply_document(value: &Value) -> Document {
+fn deploy_report_document(value: &Value) -> Document {
     let mut document = Document::default();
     let actions = value
         .get("actions")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let applied = actions
+    let executed = actions
         .iter()
         .filter(|a| {
             matches!(
                 a.get("outcome").and_then(Value::as_str),
-                Some("applied") | Some("adopted")
+                Some("executed") | Some("adopted")
             )
         })
         .count();
     document.headline(
         Tone::Success,
-        format!("Applied {applied} of {} step(s)", actions.len()),
+        format!("Executed {executed} of {} step(s)", actions.len()),
     );
     document.fields(fields(
         value,
@@ -1117,6 +1109,12 @@ fn apply_document(value: &Value) -> Document {
             vec!["Step".into(), "Transaction".into()],
             transactions,
         ));
+    }
+    if executed == 0 {
+        document.note(
+            Tone::Info,
+            "Nothing was pending, so nothing was broadcast. Name a contract or call in --replace to run it again.",
+        );
     }
     document
 }
@@ -1587,30 +1585,59 @@ mod tests {
         assert!(!output.contains("beacon=2:2"));
         assert!(output.contains("counter_beacon_implementation: 2:1 → <counter_logic.id>"));
         assert!(output.contains("Recorded but no longer declared in deploy.rs: old_market."));
-        assert!(output.contains("Apply refuses while a step is in conflict"));
+        assert!(output.contains("Deploy refuses while a step is in conflict"));
     }
 
     #[test]
-    fn apply_report_lists_transactions_separately() {
+    fn deploy_report_lists_transactions_separately() {
         let txid = "73c7d9682d8c881353979b78d60f14f2f18b26221c90bf5f9f7acf35a2ed0b97";
         let value = serde_json::json!({
             "network": "labcoat",
             "actions": [
                 {"kind": "contract", "name": "auth_token", "outcome": "skipped-complete", "id": "4:65517"},
-                {"kind": "contract", "name": "counter_logic", "outcome": "applied", "id": "2:5", "txid": txid,
+                {"kind": "contract", "name": "counter_logic", "outcome": "executed", "id": "2:5", "txid": txid,
                  "detail": "the code changed — deploys a new instance and keeps 2:1 in the record's history"},
-                {"kind": "setting", "name": "counter_beacon_implementation", "outcome": "applied", "id": "2:2",
+                {"kind": "setting", "name": "counter_beacon_implementation", "outcome": "executed", "id": "2:2",
                  "txid": txid, "detail": "2:1 → 2:5"},
             ],
         });
-        let output = render_plain("apply", &value, false, 100);
-        assert!(output.contains("Applied 2 of 3 step(s)"));
+        let output = render_plain("deploy", &value, false, 100);
+        assert!(output.contains("Executed 2 of 3 step(s)"));
         assert!(
-            output.contains("counter_beacon_implementation  applied           2:2      2:1 → 2:5")
+            output.contains("counter_beacon_implementation  executed          2:2      2:1 → 2:5")
         );
         assert!(output.contains(&format!("counter_logic                  {txid}")));
         // A long explanation never widens the summary table.
         assert!(!output.contains("the code changed"));
+        assert!(!output.contains("Nothing was pending"));
+    }
+
+    #[test]
+    fn deploy_renders_a_plan_a_report_or_a_single_wasm_execution() {
+        // --dry-run on deploy.rs steps is the plan, narrowed to a named step.
+        let plan = serde_json::json!({
+            "script": "deploy.rs", "network": "labcoat", "height": 108, "only": "counter",
+            "pending": 1, "conflicts": 0, "staleRecords": 0, "dryRun": true,
+            "actions": [{"kind": "contract", "name": "counter", "status": "pending", "action": "create", "target": "1:0"}],
+        });
+        let output = render_plain("deploy", &plan, false, 100);
+        assert!(output.contains("Plan for deploy.rs step `counter` — 1 pending step(s)"));
+        assert!(output.contains("Re-run with --broadcast to execute the pending steps."));
+
+        // --broadcast with nothing left to run says so.
+        let report = serde_json::json!({
+            "network": "labcoat",
+            "actions": [{"kind": "contract", "name": "counter", "outcome": "skipped-complete", "id": "2:4"}],
+        });
+        let output = render_plain("deploy", &report, false, 100);
+        assert!(output.contains("Executed 0 of 1 step(s)"));
+        assert!(output.contains("Nothing was pending, so nothing was broadcast."));
+
+        // --wasm is one transaction, rendered like a call.
+        let wasm = serde_json::json!({"name": "beta", "status": "success", "alkanesId": "2:9", "txid": "ab"});
+        let output = render_plain("deploy", &wasm, false, 100);
+        assert!(output.contains("Deploy succeeded"));
+        assert!(output.contains("2:9"));
     }
 
     #[test]

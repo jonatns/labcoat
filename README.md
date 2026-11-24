@@ -64,7 +64,8 @@ labcoat wallet addresses
 labcoat fund <address>
 labcoat mine 1
 
-labcoat deploy counter
+labcoat plan
+labcoat deploy --broadcast
 labcoat simulate counter get_count
 labcoat call counter increment
 labcoat trace <txid> --wait

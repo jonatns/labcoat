@@ -3,8 +3,8 @@
 // stdout in human mode (stderr progress and logs are left out). init, test,
 // and up were captured from real runs; deploy, call, and trace were rendered
 // by the CLI's own formatter (crates/labcoat-cli/src/output.rs) from the
-// result shapes those commands return, so their transaction IDs and fees are
-// examples. Keep these in step with the renderer when its wording changes.
+// result shapes those commands return, so their transaction IDs, chain hash, and
+// fees are examples. Keep these in step with the renderer when its wording changes.
 const steps = [
   {
     id: 'init',
@@ -43,15 +43,17 @@ JSON-RPC  http://127.0.0.1:18443`,
   },
   {
     id: 'deploy',
-    command: 'labcoat deploy counter',
-    output: `✓ Deploy succeeded
+    command: 'labcoat deploy --broadcast',
+    output: `✓ Executed 1 of 1 step(s)
 
-Contract            counter
-Alkanes ID          2:1
-Transaction         9c41e0f7d2a85b36c1e04f9a7d3b2e6c58a1f0d94b7e23c6a5d8f1b0e9c47a32
-Commit transaction  3f8b2d61a7c94e05b8d1f6a3c29e7b04d5a6f8e1c3b72d9a04e6f5c8b1d3a297
-Fee                 4,318 sats
-Commit fee          211 sats`,
+Network  labcoat
+Chain    6aff2e92d6a50cc9e6134dc8f167aae3bf80cf902d1e75a81f3c2871f42b8e39
+
+Kind      Name     Outcome   Id   Change
+contract  counter  executed  2:1
+
+Step     Transaction
+counter  9c41e0f7d2a85b36c1e04f9a7d3b2e6c58a1f0d94b7e23c6a5d8f1b0e9c47a32`,
   },
   {
     id: 'call',

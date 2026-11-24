@@ -13,7 +13,7 @@ and progress stay on stderr.
 
 ```bash
 labcoat status --json
-labcoat deploy my-token --dry-run --json
+labcoat deploy --broadcast --json
 ```
 
 ```json
@@ -38,10 +38,11 @@ the envelope rather than inferring application success from the process code.
 labcoat mcp serve
 ```
 
-The stdio MCP server exposes Labcoat Network, wallet, build, test, deployment,
-deployment plan, apply, and import, call, simulation, trace, balance, atomic exchange,
+The stdio MCP server exposes Labcoat Network, wallet, build, test, deployment
+plan, deploy, and import, call, simulation, trace, balance, atomic exchange,
 durable state, and web generation tools, using the same typed operations as
-the CLI.
+the CLI. The `deploy` tool takes a required `broadcast` boolean: `false`
+returns the plan without signing.
 
 Pin the Labcoat version used by an agent. The public website tracks current
 `main`; `labcoat docs --llm` is the installed-version authority.

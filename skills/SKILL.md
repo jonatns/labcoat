@@ -55,13 +55,24 @@ the first build.
 ## 4. Deploy
 
 ```bash
-labcoat deploy my-token --json          # add --dry-run to preview
+labcoat plan --json                          # what would run; never signs
+labcoat deploy --broadcast --json            # run every pending deploy.rs step
+labcoat deploy my-token --broadcast --json   # run one step
 ```
 
-Deploys via commit/reveal envelope, waits for the `create` trace, returns
-`result.alkanesId` (`block:tx`), and records the deployment in
-`labcoat.lock` under the current network. Use `--wasm <raw-file.wasm>` only
-when intentionally deploying an explicit artifact instead of a Cargo package.
+`deploy.rs` declares what the project deploys (described below); a new
+project's declares its Counter. Deploy recompiles each package, sends a
+commit/reveal envelope per contract, waits for the `create` trace, and
+records each id in `labcoat.lock` under the current network. Each step's
+`outcome`, `id` (`block:tx`), and `txid` are in `result.actions`. A step runs
+once per network, so deploying again does nothing until a step is pending.
+
+Deploy never broadcasts by default: pass `--broadcast` to sign and send, or
+`--dry-run` to get the plan. With neither it fails with `BROADCAST_REQUIRED`.
+To deploy a contract `deploy.rs` does not declare, add a step for it. Use
+`labcoat deploy --wasm <raw-file.wasm> --name <name> --broadcast` only for a
+one-off artifact outside the deployment; it is recorded in `labcoat.lock`
+alone and returns `result.alkanesId`.
 
 ## 5. Call & simulate
 
@@ -80,15 +91,16 @@ warning and the deployed ABI is used. A numeric opcode keeps the raw cellpack
 format for advanced calls. Simulation always uses deployed code and live
 indexed state; use `labcoat test <package>` for an undeployed local build.
 `result.status` is `success` or `revert` (with `result.revertReason` decoded).
-Both `deploy` and `call` accept transaction shaping: `--inputs
+`call` and `deploy --wasm` accept transaction shaping: `--inputs
 block:tx:amount` (incoming alkanes; `B:sats` for bitcoin), `--to <address>`
 (protostone recipient), `--pointer`/`--refund` (`vN`/`pN` routing), repeated
-`--edict block:tx:amount:target`, and `deploy --reserve N` targets `[3,N]`.
+`--edict block:tx:amount:target`, and `deploy --wasm --reserve N` targets
+`[3,N]`. A `deploy.rs` step declares the same options in the script.
 `labcoat balance <address> --json` lists alkanes token balances.
 
-Declare multi-step deployments in `deploy.rs`, the project's `deploy` Cargo
+Declare the deployment in `deploy.rs`, the project's `deploy` Cargo
 example target, with `labcoat`. The script only declares steps:
-`labcoat plan` runs it to read them (no signer), and `labcoat apply
+`labcoat plan` runs it to read them (no signer), and `labcoat deploy
 --broadcast` executes what has not run. Steps run in declaration order and
 reference only earlier steps.
 
@@ -126,7 +138,7 @@ fn main() {
 
 A contract, clone, or call is pinned: it runs once per network and is
 recorded in `deployments/<network>.json`. Editing it afterwards, or replacing
-something it references, is a `conflict`, and apply stops with
+something it references, is a `conflict`, and deploy stops with
 `DEPLOYMENT_CONFLICT` before broadcasting. Do not work around a conflict:
 restore the step, or pass `--replace <name>` (a new instance with a new id;
 every step that referenced the old one must be replaced too), or on Labcoat
@@ -147,13 +159,13 @@ d.call("init_counter", &counter, "initialize").abi_of(&logic);
 
 `d.implementation` is the only replaceable step: changed code deploys a new
 instance, and the beacon's `<name>_implementation` setting repoints it in the
-same apply, spending and returning the auth token the deploying wallet holds.
+same deploy, spending and returning the auth token the deploying wallet holds.
 `d.proxy(name, package, &logic)` is the standalone proxy. Call through a
 proxy with `--abi <implementation>` (`labcoat call counter increment --abi
 counter_logic`): the proxy's own ABI lists only proxy methods.
 
 Imperative multi-step flows belong in `tests/e2e.rs` (`labcoat test --e2e`),
-which resets the chain, applies `deploy.rs`, and runs `#[ignore]`d Rust
+which resets the chain, deploys `deploy.rs`, and runs `#[ignore]`d Rust
 tests using `labcoat_test::e2e::E2e` (disposable wallets, calls, balances,
 mining).
 
@@ -206,7 +218,6 @@ fallback.
 - `test` — Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.
 - `abi_fetch` — Fetch ABI metadata from the in-process Alkanes indexer.
 - `abi_verify` — Compare a deployed ABI with a locally built contract package.
-- `deploy` — Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.
 - `call` — Execute a state-changing contract call and wait for its trace.
 - `exchange_plan` — Build an owner-partitioned atomic exchange plan and return its base64 PSBT.
 - `exchange_settle` — Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact.
@@ -214,7 +225,7 @@ fallback.
 - `trace` — Decoded protostone traces for a transaction.
 - `balance` — Alkanes token balances held by an address.
 - `plan` — Run the project's deploy.rs deployment script and reconcile its steps against the network's run file and chain state; shows pending, complete, and conflicting steps without loading a signer.
-- `apply` — Execute the pending deployment steps deploy.rs declares. Requires broadcast: true to transact; otherwise returns the plan. Refuses while any step is in conflict.
+- `deploy` — Execute the pending deployment steps deploy.rs declares, or only the step named in step. broadcast is required: true signs and broadcasts, false returns the plan without signing. Refuses while a step is in conflict. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.
 - `import` — Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.
 - `state_list` — List resources and active instances in this environment's durable deployment state.
 - `state_show` — Show one resource's active instance from durable state; history: true includes every earlier instance.

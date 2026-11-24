@@ -170,8 +170,8 @@ deploys `alpha` and the buyer deploys `beta`.
 
 ```bash
 labcoat build token
-labcoat --wallet-file seller.json deploy --wasm build/token.wasm --name alpha --args 1000
-labcoat deploy --wasm build/token.wasm --name beta --args 5000
+labcoat --wallet-file seller.json deploy --wasm build/token.wasm --name alpha --args 1000 --broadcast
+labcoat deploy --wasm build/token.wasm --name beta --args 5000 --broadcast
 ```
 
 `--args` fills the constructor's `supply` parameter. Both names are now in

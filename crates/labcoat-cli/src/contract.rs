@@ -253,6 +253,15 @@ impl TxFlags {
         }
     }
 
+    /// True when no transaction-shaping flag was given.
+    fn is_empty(&self) -> bool {
+        self.inputs.is_none()
+            && self.to.is_none()
+            && self.pointer.is_none()
+            && self.refund.is_none()
+            && self.edicts.is_empty()
+    }
+
     /// Non-default fields as dry-run metadata.
     fn metadata(&self) -> serde_json::Value {
         serde_json::json!({
@@ -685,19 +694,14 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, Cmd
 
 pub fn build(package: Option<&str>, out_dir: &str) -> (&'static str, CmdResult) {
     let res = build_selected(package, out_dir)
-        .map(|selection| serde_json::json!({ "contracts": selection.outcomes }));
+        .map(|outcomes| serde_json::json!({ "contracts": outcomes }));
     ("build", to_envelope(res))
-}
-
-struct CompileSelection {
-    workspace_root: PathBuf,
-    outcomes: Vec<labcoat_core::compile::CompileOutcome>,
 }
 
 fn build_selected(
     package: Option<&str>,
     out_dir: &str,
-) -> Result<CompileSelection, labcoat_core::LabcoatError> {
+) -> Result<Vec<labcoat_core::compile::CompileOutcome>, labcoat_core::LabcoatError> {
     let cwd = std::env::current_dir().map_err(|e| {
         labcoat_core::LabcoatError::new(
             "CONFIG_INVALID",
@@ -707,16 +711,12 @@ fn build_selected(
     })?;
     let workspace = labcoat_core::workspace::discover(&cwd)?;
     let packages = labcoat_core::workspace::select(&workspace, package)?;
-    let outcomes = labcoat_core::compile::compile_packages(
+    labcoat_core::compile::compile_packages(
         &workspace,
         &packages,
         &PathBuf::from(out_dir),
         "wasm32-unknown-unknown",
-    )?;
-    Ok(CompileSelection {
-        workspace_root: workspace.root,
-        outcomes,
-    })
+    )
 }
 
 pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
@@ -817,165 +817,279 @@ pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
     }
 }
 
+/// What `labcoat deploy` (or the `deploy` MCP tool) was asked to deploy.
+#[derive(Debug)]
+pub enum DeployRequest {
+    /// Steps deploy.rs declares: every pending one, or the named one.
+    Steps {
+        only: Option<String>,
+        replace: Vec<String>,
+    },
+    /// A prebuilt artifact, deployed outside deploy.rs.
+    Wasm {
+        path: String,
+        name: Option<String>,
+        args: Vec<String>,
+        reserve: Option<u128>,
+        tx: TxFlags,
+    },
+}
+
+/// The deploy flags as given, before they are checked against each other.
+#[derive(Default)]
+pub struct DeployFlags {
+    pub step: Option<String>,
+    pub replace: Vec<String>,
+    pub wasm: Option<String>,
+    pub name: Option<String>,
+    pub args: Vec<String>,
+    pub reserve: Option<u128>,
+    pub tx: TxFlags,
+}
+
+impl DeployFlags {
+    /// Sort the flags into one of the two things deploy does. A flag that
+    /// belongs to the other one is an error rather than silently ignored.
+    pub fn request(self) -> Result<DeployRequest, EnvelopeError> {
+        let invalid = |message: &str, hint: &'static str| EnvelopeError {
+            code: "CONFIG_INVALID",
+            message: message.to_string(),
+            hint,
+        };
+        match self.wasm {
+            Some(path) => {
+                if self.step.is_some() || !self.replace.is_empty() {
+                    return Err(invalid(
+                        "--wasm deploys a prebuilt artifact outside deploy.rs, so it takes no step name or --replace",
+                        "drop --wasm to deploy a deploy.rs step, or drop the step name and --replace",
+                    ));
+                }
+                Ok(DeployRequest::Wasm {
+                    path,
+                    name: self.name,
+                    args: self.args,
+                    reserve: self.reserve,
+                    tx: self.tx,
+                })
+            }
+            None => {
+                if self.name.is_some()
+                    || !self.args.is_empty()
+                    || self.reserve.is_some()
+                    || !self.tx.is_empty()
+                {
+                    return Err(invalid(
+                        "--name, --args, --reserve, and the transaction flags apply only to --wasm deploys",
+                        "declare a step's arguments, reserve number, and transaction shape in deploy.rs (`.arg(name, value)`, `.reserve(n)`, `.inputs(..)`)",
+                    ));
+                }
+                Ok(DeployRequest::Steps {
+                    only: self.step,
+                    replace: self.replace,
+                })
+            }
+        }
+    }
+}
+
+/// Deploy signs and spends, so it never guesses: the caller says whether
+/// to broadcast or to preview. Returns true for broadcast.
+pub fn deploy_mode(broadcast: bool, dry_run: bool) -> Result<bool, EnvelopeError> {
+    match (broadcast, dry_run) {
+        (true, false) => Ok(true),
+        (false, true) => Ok(false),
+        (true, true) => Err(EnvelopeError {
+            code: "CONFIG_INVALID",
+            message: "--broadcast and --dry-run cannot be combined".into(),
+            hint: "pass --broadcast to sign and send, or --dry-run to preview",
+        }),
+        (false, false) => Err(EnvelopeError {
+            code: "BROADCAST_REQUIRED",
+            message: "deploy signs and broadcasts transactions, so it needs an explicit --broadcast"
+                .into(),
+            hint: "pass --broadcast to execute, or --dry-run (or `labcoat plan`) to preview without signing",
+        }),
+    }
+}
+
+/// `labcoat deploy` — under `broadcast`, execute deploy.rs's pending steps
+/// (or the named one) or deploy the given artifact; otherwise show what
+/// would happen without loading a signer.
 pub async fn deploy(
     ctx: &Ctx,
-    package: Option<&str>,
-    wasm: Option<&str>,
-    name: Option<String>,
-    args: &[String],
-    reserve: Option<u128>,
-    tx: &TxFlags,
+    request: DeployRequest,
+    broadcast: bool,
 ) -> (&'static str, CmdResult) {
-    let res = async {
-        let artifact = resolve_deployment_artifact(package, wasm, name)?;
-        let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
-        let outcome = toolkit::deploy_in(
-            &ctx.mutating_config(),
-            &ctx.signer_spec()?,
-            &artifact.deployment_root,
-            toolkit::DeployRequest {
-                wasm_path: &artifact.wasm_path,
-                contract_name: Some(artifact.contract_name),
-                initializer: None,
-                cellpack_args: &constructor.cellpack,
-                fee_rate: ctx.config.fee_rate,
-                target: deploy_target(reserve),
-                options: &tx.options(),
-            },
-        )
-        .await?;
-        let mut value = serde_json::to_value(outcome).expect("serializable deploy outcome");
-        if let serde_json::Value::Object(object) = &mut value {
-            object.insert(
-                "argsEncoding".into(),
-                serde_json::to_value(constructor.encoding).expect("serializable encoding"),
-            );
-            object.insert("constructor".into(), serde_json::json!(constructor.method));
+    let res = match request {
+        DeployRequest::Steps { only, replace } => {
+            deploy_steps(ctx, only, &replace, broadcast).await
         }
-        Ok(value)
-    }
-    .await;
+        DeployRequest::Wasm {
+            path,
+            name,
+            args,
+            reserve,
+            tx,
+        } => {
+            if broadcast {
+                deploy_wasm(ctx, &path, name, &args, reserve, &tx).await
+            } else {
+                deploy_wasm_dry_run(ctx, &path, name, &args, reserve, &tx)
+            }
+        }
+    };
     ("deploy", to_envelope(res))
 }
 
-/// --dry-run deploy: validate the wasm payload and args, show the plan.
-pub fn deploy_dry_run(
+/// Deploy.rs steps: the plan without `broadcast`, the executed report with it.
+async fn deploy_steps(
     ctx: &Ctx,
-    package: Option<&str>,
-    wasm: Option<&str>,
+    only: Option<String>,
+    replace: &[String],
+    broadcast: bool,
+) -> Result<serde_json::Value, labcoat_core::LabcoatError> {
+    let root = project_root()?;
+    let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
+    let options = deployment_options(only, replace);
+    if !broadcast {
+        let outcome = labcoat_core::apply::plan(&ctx.config, &root, &graph, &options).await?;
+        let mut value = serde_json::to_value(outcome.plan).expect("serializable plan");
+        if let serde_json::Value::Object(object) = &mut value {
+            object.insert("dryRun".into(), serde_json::json!(true));
+            object.insert(
+                "wouldBroadcast".into(),
+                serde_json::json!("re-run with --broadcast to execute the pending steps"),
+            );
+        }
+        return Ok(value);
+    }
+    let report = labcoat_core::apply::apply(
+        &ctx.mutating_config(),
+        &ctx.signer_spec()?,
+        &root,
+        &graph,
+        &options,
+    )
+    .await?;
+    Ok(serde_json::to_value(report).expect("serializable deploy report"))
+}
+
+/// A prebuilt artifact outside deploy.rs, recorded in labcoat.lock only.
+async fn deploy_wasm(
+    ctx: &Ctx,
+    wasm: &str,
     name: Option<String>,
     args: &[String],
     reserve: Option<u128>,
     tx: &TxFlags,
-) -> (&'static str, CmdResult) {
-    let res = (|| {
-        let artifact = resolve_deployment_artifact(package, wasm, name)?;
-        let bytes = std::fs::read(&artifact.wasm_path).map_err(|e| {
-            labcoat_core::LabcoatError::new(
-                "CONFIG_INVALID",
-                format!("cannot read {}: {}", artifact.wasm_path.display(), e),
-                "build the package or check the --wasm path",
-            )
-        })?;
-        if bytes.starts_with(&[0x1f, 0x8b]) {
-            return Err(labcoat_core::LabcoatError::new(
-                "ENVELOPE_INVALID",
-                "wasm payload is gzip-compressed; deploy wants the raw .wasm".to_string(),
-                "pass the .wasm produced by `labcoat build`",
-            ));
-        }
-        let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
-        let options = tx.options();
-        options.input_requirements()?;
-        let target = deploy_target(reserve);
-        let spec = toolkit::deploy_spec(target, &constructor.cellpack, &options);
-        labcoat_core::execute::validate_spec(&spec)?;
-        use sha2::Digest;
-        Ok(serde_json::json!({
-            "dryRun": true,
-            "network": ctx.config.network_id(),
-            "bitcoinNetwork": ctx.config.bitcoin_network_id(),
-            "package": artifact.package,
-            "wasm": artifact.wasm_path.display().to_string(),
-            "wasmBytes": bytes.len(),
-            "wasmSha256": hex::encode(sha2::Sha256::digest(&bytes)),
-            "name": artifact.contract_name,
-            "target": match target {
-                toolkit::DeployTarget::New => "1:0 (next free id)".to_string(),
-                toolkit::DeployTarget::Reserve(n) => format!("3:{n} (reserved)"),
-                clone @ toolkit::DeployTarget::Clone { .. } => {
-                    format!("{} (template clone)", clone.label())
-                }
-            },
-            "constructor": constructor.method,
-            "argsEncoding": constructor.encoding,
-            "cellpackArgs": constructor.cellpack.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-            "protostoneSpec": spec,
-            "tx": tx.metadata(),
-            "wouldBroadcast": "commit + reveal transactions with the wasm envelope",
-        }))
-    })();
-    ("deploy", to_envelope(res))
+) -> Result<serde_json::Value, labcoat_core::LabcoatError> {
+    let artifact = raw_deployment_artifact(wasm, name)?;
+    // labcoat.lock maps one name to one contract. Taking a step's name
+    // here would leave the deployment's record pointing at another one.
+    if let Some(kind) = labcoat_core::apply::recorded_step_kind(
+        &ctx.config,
+        &artifact.deployment_root,
+        &artifact.contract_name,
+    )
+    .await?
+    {
+        return Err(labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            format!(
+                "`{}` is already the name of a deploy.rs {kind} step on {}",
+                artifact.contract_name,
+                ctx.config.network_id()
+            ),
+            "pass --name <other> to deploy this artifact outside deploy.rs, or drop --wasm to deploy the step",
+        ));
+    }
+    let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
+    let outcome = toolkit::deploy_in(
+        &ctx.mutating_config(),
+        &ctx.signer_spec()?,
+        &artifact.deployment_root,
+        toolkit::DeployRequest {
+            wasm_path: &artifact.wasm_path,
+            contract_name: Some(artifact.contract_name),
+            initializer: None,
+            cellpack_args: &constructor.cellpack,
+            fee_rate: ctx.config.fee_rate,
+            target: deploy_target(reserve),
+            options: &tx.options(),
+        },
+    )
+    .await?;
+    let mut value = serde_json::to_value(outcome).expect("serializable deploy outcome");
+    if let serde_json::Value::Object(object) = &mut value {
+        object.insert(
+            "argsEncoding".into(),
+            serde_json::to_value(constructor.encoding).expect("serializable encoding"),
+        );
+        object.insert("constructor".into(), serde_json::json!(constructor.method));
+    }
+    Ok(value)
+}
+
+/// --dry-run for a --wasm deploy: validate the payload and args offline
+/// and show what would be sent.
+fn deploy_wasm_dry_run(
+    ctx: &Ctx,
+    wasm: &str,
+    name: Option<String>,
+    args: &[String],
+    reserve: Option<u128>,
+    tx: &TxFlags,
+) -> Result<serde_json::Value, labcoat_core::LabcoatError> {
+    let artifact = raw_deployment_artifact(wasm, name)?;
+    let bytes = std::fs::read(&artifact.wasm_path).map_err(|e| {
+        labcoat_core::LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("cannot read {}: {}", artifact.wasm_path.display(), e),
+            "check the --wasm path, or build it with `labcoat build <package>`",
+        )
+    })?;
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return Err(labcoat_core::LabcoatError::new(
+            "ENVELOPE_INVALID",
+            "wasm payload is gzip-compressed; deploy wants the raw .wasm".to_string(),
+            "pass the .wasm produced by `labcoat build`",
+        ));
+    }
+    let constructor = resolve_constructor_args(ctx, &artifact.wasm_path, args)?;
+    let options = tx.options();
+    options.input_requirements()?;
+    let target = deploy_target(reserve);
+    let spec = toolkit::deploy_spec(target, &constructor.cellpack, &options);
+    labcoat_core::execute::validate_spec(&spec)?;
+    use sha2::Digest;
+    Ok(serde_json::json!({
+        "dryRun": true,
+        "network": ctx.config.network_id(),
+        "bitcoinNetwork": ctx.config.bitcoin_network_id(),
+        "wasm": artifact.wasm_path.display().to_string(),
+        "wasmBytes": bytes.len(),
+        "wasmSha256": hex::encode(sha2::Sha256::digest(&bytes)),
+        "name": artifact.contract_name,
+        "target": match target {
+            toolkit::DeployTarget::New => "1:0 (next free id)".to_string(),
+            toolkit::DeployTarget::Reserve(n) => format!("3:{n} (reserved)"),
+            clone @ toolkit::DeployTarget::Clone { .. } => {
+                format!("{} (template clone)", clone.label())
+            }
+        },
+        "constructor": constructor.method,
+        "argsEncoding": constructor.encoding,
+        "cellpackArgs": constructor.cellpack.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+        "protostoneSpec": spec,
+        "tx": tx.metadata(),
+        "wouldBroadcast": "commit + reveal transactions with the wasm envelope",
+    }))
 }
 
 struct DeploymentArtifact {
-    package: Option<String>,
     wasm_path: PathBuf,
     contract_name: String,
     deployment_root: PathBuf,
-}
-
-fn resolve_deployment_artifact(
-    package: Option<&str>,
-    wasm: Option<&str>,
-    name: Option<String>,
-) -> Result<DeploymentArtifact, labcoat_core::LabcoatError> {
-    match (package, wasm) {
-        (Some(package), None) => {
-            if name.is_some() {
-                return Err(labcoat_core::LabcoatError::new(
-                    "CONFIG_INVALID",
-                    "--name is only valid with --wasm",
-                    "omit --name when deploying a Cargo contract package",
-                ));
-            }
-            let mut selection = build_selected(Some(package), "build")?;
-            let outcome = selection.outcomes.pop().ok_or_else(|| {
-                labcoat_core::LabcoatError::new(
-                    "PACKAGE_NOT_FOUND",
-                    format!("contract package `{package}` was not compiled"),
-                    "pass an exact Cargo package name",
-                )
-            })?;
-            Ok(package_deployment_artifact(
-                selection.workspace_root,
-                outcome,
-            ))
-        }
-        (None, Some(wasm)) => raw_deployment_artifact(wasm, name),
-        (Some(_), Some(_)) => Err(labcoat_core::LabcoatError::new(
-            "CONFIG_INVALID",
-            "deploy accepts either a package or --wasm, not both",
-            "use `labcoat deploy <package>` or `labcoat deploy --wasm <path>`",
-        )),
-        (None, None) => Err(labcoat_core::LabcoatError::new(
-            "CONFIG_INVALID",
-            "deploy requires a contract package or --wasm path",
-            "use `labcoat deploy <package>` or `labcoat deploy --wasm <path>`",
-        )),
-    }
-}
-
-fn package_deployment_artifact(
-    workspace_root: PathBuf,
-    outcome: labcoat_core::compile::CompileOutcome,
-) -> DeploymentArtifact {
-    DeploymentArtifact {
-        package: Some(outcome.name.clone()),
-        wasm_path: PathBuf::from(outcome.wasm_path),
-        contract_name: outcome.name,
-        deployment_root: workspace_root,
-    }
 }
 
 fn raw_deployment_artifact(
@@ -1005,7 +1119,6 @@ fn raw_deployment_artifact(
         )
     })?;
     Ok(DeploymentArtifact {
-        package: None,
         wasm_path,
         contract_name,
         deployment_root,
@@ -1349,9 +1462,10 @@ fn project_root() -> Result<PathBuf, labcoat_core::LabcoatError> {
     })
 }
 
-fn apply_options(replace: &[String]) -> labcoat_core::apply::Options {
+fn deployment_options(only: Option<String>, replace: &[String]) -> labcoat_core::apply::Options {
     labcoat_core::apply::Options {
         replace: replace.iter().cloned().collect(),
+        only,
     }
 }
 
@@ -1361,45 +1475,17 @@ pub async fn plan(ctx: &Ctx, replace: &[String]) -> (&'static str, CmdResult) {
     let res = async {
         let root = project_root()?;
         let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
-        let outcome =
-            labcoat_core::apply::plan(&ctx.config, &root, &graph, &apply_options(replace)).await?;
+        let outcome = labcoat_core::apply::plan(
+            &ctx.config,
+            &root,
+            &graph,
+            &deployment_options(None, replace),
+        )
+        .await?;
         Ok(serde_json::to_value(outcome.plan).expect("serializable plan"))
     }
     .await;
     ("plan", to_envelope(res))
-}
-
-/// `labcoat apply` — execute the plan's pending steps under --broadcast;
-/// without the flag it only shows the plan.
-pub async fn apply(ctx: &Ctx, replace: &[String], broadcast: bool) -> (&'static str, CmdResult) {
-    let res = async {
-        let root = project_root()?;
-        let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
-        let options = apply_options(replace);
-        if !broadcast {
-            let outcome = labcoat_core::apply::plan(&ctx.config, &root, &graph, &options).await?;
-            let mut value = serde_json::to_value(outcome.plan).expect("serializable plan");
-            if let serde_json::Value::Object(object) = &mut value {
-                object.insert("dryRun".into(), serde_json::json!(true));
-                object.insert(
-                    "wouldBroadcast".into(),
-                    serde_json::json!("re-run with --broadcast to execute the pending steps"),
-                );
-            }
-            return Ok(value);
-        }
-        let report = labcoat_core::apply::apply(
-            &ctx.mutating_config(),
-            &ctx.signer_spec()?,
-            &root,
-            &graph,
-            &options,
-        )
-        .await?;
-        Ok(serde_json::to_value(report).expect("serializable apply report"))
-    }
-    .await;
-    ("apply", to_envelope(res))
 }
 
 /// `labcoat import <name> <id>` — record an existing on-chain contract as
@@ -1649,7 +1735,6 @@ mod deployment_tests {
     #[test]
     fn raw_wasm_uses_file_stem_unless_name_is_explicit() {
         let derived = raw_deployment_artifact("/tmp/counter.wasm", None).unwrap();
-        assert_eq!(derived.package, None);
         assert_eq!(derived.contract_name, "counter");
         assert_eq!(derived.wasm_path, PathBuf::from("/tmp/counter.wasm"));
 
@@ -1658,27 +1743,82 @@ mod deployment_tests {
     }
 
     #[test]
-    fn package_artifact_keeps_canonical_name_and_workspace_root() {
-        let root = PathBuf::from("/workspace");
-        let artifact = package_deployment_artifact(
-            root.clone(),
-            labcoat_core::compile::CompileOutcome {
-                name: "my-token".into(),
-                wasm_path: "/workspace/build/my-token.wasm".into(),
-                wasm_gz_path: "/workspace/build/my-token.wasm.gz".into(),
-                abi_path: "/workspace/build/my-token.abi.json".into(),
-                wasm_sha256: "hash".into(),
-            },
+    fn deploy_needs_an_explicit_broadcast_or_dry_run() {
+        assert!(deploy_mode(true, false).unwrap());
+        assert!(!deploy_mode(false, true).unwrap());
+        assert_eq!(
+            deploy_mode(false, false).unwrap_err().code,
+            "BROADCAST_REQUIRED"
         );
-        assert_eq!(artifact.package.as_deref(), Some("my-token"));
-        assert_eq!(artifact.contract_name, "my-token");
-        assert_eq!(artifact.deployment_root, root);
+        assert_eq!(deploy_mode(true, true).unwrap_err().code, "CONFIG_INVALID");
     }
 
     #[test]
-    fn deployment_source_validation_rejects_missing_or_conflicting_inputs() {
-        assert!(resolve_deployment_artifact(None, None, None).is_err());
-        assert!(resolve_deployment_artifact(Some("counter"), Some("counter.wasm"), None).is_err());
+    fn deploy_flags_select_steps_or_a_wasm_artifact_never_both() {
+        // No flags: every pending step.
+        assert!(matches!(
+            DeployFlags::default().request().unwrap(),
+            DeployRequest::Steps { only: None, replace } if replace.is_empty()
+        ));
+        // A name: that step alone.
+        let named = DeployFlags {
+            step: Some("counter".into()),
+            ..DeployFlags::default()
+        };
+        assert!(matches!(
+            named.request().unwrap(),
+            DeployRequest::Steps { only: Some(only), .. } if only == "counter"
+        ));
+        // --wasm: the artifact, with the flags that describe it.
+        let wasm = DeployFlags {
+            wasm: Some("build/token.wasm".into()),
+            name: Some("beta".into()),
+            args: vec!["5000".into()],
+            reserve: Some(7),
+            ..DeployFlags::default()
+        };
+        assert!(matches!(
+            wasm.request().unwrap(),
+            DeployRequest::Wasm { name: Some(name), reserve: Some(7), .. } if name == "beta"
+        ));
+
+        for flags in [
+            // A step's arguments, reserve, and transaction shape live in
+            // deploy.rs.
+            DeployFlags {
+                step: Some("counter".into()),
+                args: vec!["1".into()],
+                ..DeployFlags::default()
+            },
+            DeployFlags {
+                reserve: Some(7),
+                ..DeployFlags::default()
+            },
+            DeployFlags {
+                name: Some("beta".into()),
+                ..DeployFlags::default()
+            },
+            DeployFlags {
+                tx: TxFlags {
+                    to: Some("bcrt1qexample".into()),
+                    ..TxFlags::default()
+                },
+                ..DeployFlags::default()
+            },
+            // --wasm is outside deploy.rs: no step to name or replace.
+            DeployFlags {
+                wasm: Some("x.wasm".into()),
+                step: Some("counter".into()),
+                ..DeployFlags::default()
+            },
+            DeployFlags {
+                wasm: Some("x.wasm".into()),
+                replace: vec!["counter".into()],
+                ..DeployFlags::default()
+            },
+        ] {
+            assert_eq!(flags.request().unwrap_err().code, "CONFIG_INVALID");
+        }
     }
 
     #[test]

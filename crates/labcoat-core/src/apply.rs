@@ -1,10 +1,10 @@
-//! `labcoat plan` / `labcoat apply` — reconcile the deployment graph a
+//! `labcoat plan` / `labcoat deploy` — reconcile the deployment graph a
 //! project's `deploy.rs` declares against the network's run file and
 //! chain state, then execute what has not run.
 //!
 //! A ledger, not convergence: Alkanes deployments are one-shot and
 //! immutable, so a pinned step runs once and is then compared with its
-//! record. An edited step is a `conflict` apply refuses, never a diff it
+//! record. An edited step is a `conflict` deploy refuses, never a diff it
 //! repairs; `--replace <name>` deploys a new instance and keeps the old
 //! record. Only two things change without that flag: a replaceable
 //! implementation (new code deploys a new instance) and a setting (a
@@ -33,6 +33,10 @@ pub struct Options {
     /// Pinned steps to run again: a contract deploys a new instance, a
     /// call executes again.
     pub replace: BTreeSet<String>,
+    /// Run this step alone instead of every pending step. Everything it
+    /// references must already be deployed, and it cannot be combined
+    /// with `replace`, which is checked against the whole deployment.
+    pub only: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -41,21 +45,22 @@ pub struct Options {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionStatus {
-    /// Runs on the next `apply --broadcast`.
+    /// Runs on the next `deploy --broadcast`.
     Pending,
-    /// Already ran with this definition; apply skips it.
+    /// Already ran with this definition; deploy skips it.
     Complete,
     /// Ran with a different definition, or references an instance that
-    /// was since replaced. Apply refuses until the step is restored or
+    /// was since replaced. Deploy refuses until the step is restored or
     /// named in `--replace`.
     Conflict,
-    /// A reserved id already holds matching code with no record; apply
+    /// A reserved id already holds matching code with no record; deploy
     /// records it without redeploying.
     Adopt,
-    /// A previous apply stopped mid-broadcast; verify that transaction
+    /// A previous deploy stopped mid-broadcast; verify that transaction
     /// before continuing.
     Interrupted,
-    /// Cannot proceed (a reserve holds different code, a read failed).
+    /// Cannot proceed (a reserve holds different code, a read failed, a
+    /// step deployed on its own references one that has not run).
     Blocked,
 }
 
@@ -73,7 +78,7 @@ pub struct PlannedAction {
     /// The deploy cellpack target (`1:0`, `3:N`, `5:N`, `6:N`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
-    /// The step's Alkane id, when known before apply.
+    /// The step's Alkane id, when known before it runs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// Arguments with resolvable references resolved; the rest stay
@@ -94,6 +99,10 @@ pub struct Plan {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_id: Option<String>,
     pub height: u64,
+    /// The one step this plan covers, when a step was named.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub only: Option<String>,
+    /// One action per declared step, or the named step's alone.
     pub actions: Vec<PlannedAction>,
     /// Run-file records ignored because they belong to a previous chain
     /// instance (before a reset).
@@ -105,9 +114,12 @@ pub struct Plan {
     pub conflicts: usize,
 }
 
-/// Everything apply needs beyond the serializable plan.
+/// Everything deploy needs beyond the serializable plan.
 pub struct PlanOutcome {
     pub plan: Plan,
+    /// One action per declared step in declaration order, even when the
+    /// plan itself covers a single step.
+    actions: Vec<PlannedAction>,
     artifacts: BTreeMap<String, Artifact>,
     resolved: Resolved,
     run: RunFile,
@@ -144,7 +156,7 @@ struct Facts {
     /// Reserve number → deployed ABI bytes at `4:N`, for occupied reserves.
     reserve_abis: BTreeMap<u128, Vec<u8>>,
     /// Setting name → current value, for settings with a read whose target
-    /// is known before apply.
+    /// is known before deploy.
     readings: BTreeMap<String, (String, Reading)>,
     ready_reveals: BTreeSet<String>,
 }
@@ -248,7 +260,7 @@ fn preview_args(args: &Args, resolved: &Resolved, height: u64) -> Vec<String> {
 
 fn unresolved(kind: &str, name: &str) -> LabcoatError {
     LabcoatError::new(
-        "APPLY_BLOCKED",
+        "DEPLOYMENT_BLOCKED",
         format!("{kind} `{name}` references a step that has no id yet"),
         "run the referenced step first — `labcoat plan` shows what is pending",
     )
@@ -495,7 +507,7 @@ fn interrupted_detail(name: &str, record: &StepRecord) -> String {
         } else {
             " If it was dropped, pass `--replace` for this step only after verifying that."
         };
-        return format!("transaction {txid} is awaiting an execution trace — re-run apply after it is indexed.{replacement}");
+        return format!("transaction {txid} is awaiting an execution trace — run `labcoat deploy --broadcast` again after it is indexed.{replacement}");
     }
     if let Some(commit) = &record.commit_txid {
         return format!(
@@ -503,7 +515,7 @@ fn interrupted_detail(name: &str, record: &StepRecord) -> String {
         );
     }
     format!(
-        "an earlier apply did not record a transaction id — check the wallet before retrying `{name}`"
+        "an earlier deploy did not record a transaction id — check the wallet before retrying `{name}`"
     )
 }
 
@@ -572,6 +584,36 @@ fn reconcile(
                     "run `labcoat plan` to list the declared steps",
                 ))
             }
+        }
+    }
+    if let Some(only) = &options.only {
+        match graph.steps.iter().find(|step| step.name() == only) {
+            Some(Step::External(_)) => {
+                return Err(LabcoatError::new(
+                    "CONFIG_INVALID",
+                    format!(
+                        "`{only}` is an external reference: it names an Alkane that already exists, so there is nothing to deploy"
+                    ),
+                    "name a contract, call, or setting step from deploy.rs",
+                ))
+            }
+            Some(_) => {}
+            None => {
+                return Err(LabcoatError::new(
+                    "CONFIG_INVALID",
+                    format!("deploy.rs declares no step named `{only}`"),
+                    "declare the step in deploy.rs (`d.contract(name, package)` deploys a contract package), or run `labcoat plan` to list the declared steps",
+                ))
+            }
+        }
+        if !options.replace.is_empty() {
+            return Err(LabcoatError::new(
+                "CONFIG_INVALID",
+                format!(
+                    "--replace is checked against the whole deployment and cannot be combined with the step name `{only}`"
+                ),
+                "drop the step name: `labcoat deploy --replace <step> --broadcast` runs every pending step",
+            ));
         }
     }
 
@@ -732,7 +774,7 @@ fn reconcile(
                                     action.status = ActionStatus::Adopt;
                                     action.action = "adopt";
                                     action.detail = Some(
-                                        "already deployed on-chain with a matching ABI but not recorded — apply records it without redeploying"
+                                        "already deployed on-chain with a matching ABI but not recorded — deploy records it without redeploying"
                                             .to_string(),
                                     );
                                     resolved.insert(name, &id, std::slice::from_ref(&id))?;
@@ -846,7 +888,49 @@ fn reconcile(
         actions.push(action);
     }
 
+    if let Some(only) = &options.only {
+        block_on_unmet_references(graph, &mut actions, only);
+    }
+
     Ok(Reconciled { actions, resolved })
+}
+
+/// A step that runs on its own needs everything it references to be
+/// deployed already: the full run would have run those steps first.
+fn block_on_unmet_references(graph: &Graph, actions: &mut [PlannedAction], only: &str) {
+    let Some(index) = graph.steps.iter().position(|step| step.name() == only) else {
+        return;
+    };
+    if !matches!(
+        actions[index].status,
+        ActionStatus::Pending | ActionStatus::Adopt
+    ) {
+        return;
+    }
+    let referenced: BTreeSet<&str> = graph.steps[index]
+        .references()
+        .into_iter()
+        .map(|reference| reference.step.as_str())
+        .collect();
+    let unmet: Vec<String> = graph
+        .steps
+        .iter()
+        .zip(actions.iter())
+        .filter(|(step, action)| {
+            referenced.contains(step.name()) && action.status != ActionStatus::Complete
+        })
+        .map(|(step, _)| format!("`{}`", step.name()))
+        .collect();
+    if unmet.is_empty() {
+        return;
+    }
+    actions[index].status = ActionStatus::Blocked;
+    actions[index].detail = Some(format!(
+        "references {}, which {} not deployed yet — deploy {} first, or run `labcoat deploy` without a step name to run every pending step in order",
+        unmet.join(", "),
+        if unmet.len() == 1 { "is" } else { "are" },
+        if unmet.len() == 1 { "it" } else { "them" },
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -1024,6 +1108,23 @@ fn current_run(
     Ok((loaded, 0))
 }
 
+/// The kind of the deploy.rs step recorded as `name` on this chain, if
+/// there is one. A deploy outside deploy.rs checks this so it never points
+/// labcoat.lock at a contract the deployment's own record does not know.
+pub async fn recorded_step_kind(
+    config: &ToolkitConfig,
+    root: &Path,
+    name: &str,
+) -> Result<Option<String>> {
+    let loaded = runfile::load(root, config.network_id())?;
+    if !loaded.steps.contains_key(name) {
+        return Ok(None);
+    }
+    let chain_id = toolkit::chain_instance_id(config).await;
+    let (run, _) = current_run(config, loaded, chain_id.as_deref())?;
+    Ok(run.steps.get(name).map(|record| record.kind.clone()))
+}
+
 // An unknown trace, or a successful deploy trace without a creation ID,
 // is still pending. Only an explicit execution outcome can settle it.
 fn apply_trace(record: &mut StepRecord, status: &str, created: Vec<String>) -> bool {
@@ -1118,11 +1219,23 @@ pub async fn plan(
         .filter(|name| !declared.contains(name.as_str()))
         .cloned()
         .collect();
-    let pending = actions
+    // A named step narrows what the plan reports and what deploy checks;
+    // the full list stays aligned with the graph for execution.
+    let shown: Vec<PlannedAction> = actions
+        .iter()
+        .filter(|action| {
+            options
+                .only
+                .as_deref()
+                .is_none_or(|only| action.name == only)
+        })
+        .cloned()
+        .collect();
+    let pending = shown
         .iter()
         .filter(|action| matches!(action.status, ActionStatus::Pending | ActionStatus::Adopt))
         .count();
-    let conflicts = actions
+    let conflicts = shown
         .iter()
         .filter(|action| action.status == ActionStatus::Conflict)
         .count();
@@ -1133,12 +1246,14 @@ pub async fn plan(
             network,
             chain_id: facts.chain_id,
             height: facts.height,
-            actions,
+            only: options.only.clone(),
+            actions: shown,
             stale_records,
             undeclared,
             pending,
             conflicts,
         },
+        actions,
         artifacts,
         resolved,
         run,
@@ -1147,14 +1262,14 @@ pub async fn plan(
 }
 
 // ---------------------------------------------------------------------------
-// Apply
+// Deploy
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppliedAction {
     pub kind: &'static str,
     pub name: String,
-    /// applied | adopted | in-sync | skipped-complete
+    /// executed | adopted | in-sync | skipped-complete
     pub outcome: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -1178,7 +1293,7 @@ pub struct ApplyReport {
 fn stop(kind: &str, name: &str, error: LabcoatError) -> LabcoatError {
     LabcoatError::new(
         error.code,
-        format!("apply stopped at {kind} `{name}`: {}", error.message),
+        format!("deploy stopped at {kind} `{name}`: {}", error.message),
         error.hint,
     )
 }
@@ -1292,9 +1407,9 @@ fn finish_attempt(
     runfile::save(root, run)?;
     if !settled {
         return Err(LabcoatError::new(
-            "APPLY_BLOCKED",
+            "DEPLOYMENT_BLOCKED",
             format!("waiting for an execution trace for {}", outcome.txid),
-            "re-run apply after the transaction is indexed",
+            "run `labcoat deploy --broadcast` again after the transaction is indexed",
         ));
     }
     if status == RecordStatus::Revert {
@@ -1326,8 +1441,9 @@ async fn contract_abi(
     }
 }
 
-/// Execute the plan's pending steps in declaration order. Requires
-/// broadcast intent — the CLI only calls this under `--broadcast`.
+/// Execute the plan's pending steps in declaration order, or only the
+/// step `options.only` names. Requires broadcast intent — the CLI only
+/// calls this under `--broadcast`.
 pub async fn apply(
     config: &ToolkitConfig,
     signer: &crate::signer::SignerSpec,
@@ -1338,6 +1454,7 @@ pub async fn apply(
     let _deployment_lock = runfile::lock(root)?;
     let PlanOutcome {
         plan,
+        actions,
         artifacts,
         mut resolved,
         mut run,
@@ -1354,7 +1471,8 @@ pub async fn apply(
         runfile::save(root, &run)?;
     }
 
-    // Fail fast on states that need a human, before any broadcast.
+    // Fail fast on states that need a human, before any broadcast. With a
+    // named step the plan holds that step alone, so only it is checked.
     let conflicts: Vec<String> = plan
         .actions
         .iter()
@@ -1377,7 +1495,11 @@ pub async fn apply(
                 plan.network,
                 conflicts.join(" | ")
             ),
-            "a step that ran is never changed in place — restore it in deploy.rs, or name it in `--replace` to run it again; on Labcoat Network, `labcoat reset` starts a fresh chain",
+            if options.only.is_some() {
+                "a step that ran is never changed in place — restore it in deploy.rs, or drop the step name and run `labcoat deploy --replace <step> --broadcast`; on Labcoat Network, `labcoat reset` starts a fresh chain"
+            } else {
+                "a step that ran is never changed in place — restore it in deploy.rs, or name it in `--replace` to run it again; on Labcoat Network, `labcoat reset` starts a fresh chain"
+            },
         ));
     }
     for action in &plan.actions {
@@ -1386,14 +1508,14 @@ pub async fn apply(
             ActionStatus::Interrupted | ActionStatus::Blocked
         ) {
             return Err(LabcoatError::new(
-                "APPLY_BLOCKED",
+                "DEPLOYMENT_BLOCKED",
                 format!(
                     "{} `{}` cannot proceed: {}",
                     action.kind,
                     action.name,
                     action.detail.as_deref().unwrap_or("unknown reason")
                 ),
-                "resolve the reported state and re-run apply",
+                "resolve the reported state and run `labcoat deploy --broadcast` again",
             ));
         }
     }
@@ -1414,8 +1536,15 @@ pub async fn apply(
         detail: None,
     };
 
-    for (step, action) in graph.steps.iter().zip(&plan.actions) {
+    for (step, action) in graph.steps.iter().zip(&actions) {
         let name = step.name();
+        // A named step runs alone. External references broadcast nothing,
+        // so they are still recorded.
+        if options.only.as_deref().is_some_and(|only| only != name)
+            && !matches!(step, Step::External(_))
+        {
+            continue;
+        }
         // A preview uses the planning tip. Execution resolves height at the
         // step that consumes it, after earlier transactions may have mined.
         let height = if action.status == ActionStatus::Pending && step.uses_height() {
@@ -1488,7 +1617,7 @@ pub async fn apply(
                         .and_then(|id| execute::load_pending_reveal(config, id))
                         .ok_or_else(|| {
                             fail(LabcoatError::new(
-                                "APPLY_BLOCKED",
+                                "DEPLOYMENT_BLOCKED",
                                 "the prepared reveal is unavailable",
                                 "restore the pending reveal file or inspect the recorded commit",
                             ))
@@ -1585,7 +1714,7 @@ pub async fn apply(
                 report.actions.push(AppliedAction {
                     kind: "contract",
                     name: name.to_string(),
-                    outcome: "applied".into(),
+                    outcome: "executed".into(),
                     id: Some(id.to_string()),
                     txid: Some(outcome.txid.clone()),
                     fee: Some(outcome.fee),
@@ -1663,7 +1792,7 @@ pub async fn apply(
                 report.actions.push(AppliedAction {
                     kind: "call",
                     name: name.to_string(),
-                    outcome: "applied".into(),
+                    outcome: "executed".into(),
                     id: Some(target_id),
                     txid: Some(outcome.txid.clone()),
                     fee: Some(outcome.fee),
@@ -1699,7 +1828,7 @@ pub async fn apply(
                         Reading::Value(value) => Some(value),
                         Reading::Failed(reason) => {
                             return Err(fail(LabcoatError::new(
-                                "APPLY_BLOCKED",
+                                "DEPLOYMENT_BLOCKED",
                                 format!("cannot read the current value: {reason}"),
                                 "check the setting's read method",
                             )))
@@ -1785,14 +1914,14 @@ pub async fn apply(
                 .map_err(fail)?;
                 finish_attempt(config, root, &mut run, name, started, &outcome).map_err(fail)?;
                 // Read the value back: a write that succeeds without
-                // taking effect must not be recorded as applied.
+                // taking effect must not be recorded as executed.
                 if setting.read.is_some() {
                     let after = read_setting(config, setting, &target_id)
                         .await
                         .map_err(fail)?;
                     if after != Reading::Value(desired.clone()) {
                         return Err(fail(LabcoatError::new(
-                            "APPLY_BLOCKED",
+                            "DEPLOYMENT_BLOCKED",
                             format!(
                                 "the update transaction {} succeeded but the value reads back as {}",
                                 outcome.txid,
@@ -1808,7 +1937,7 @@ pub async fn apply(
                 report.actions.push(AppliedAction {
                     kind: "setting",
                     name: name.to_string(),
-                    outcome: "applied".into(),
+                    outcome: "executed".into(),
                     id: Some(target_id),
                     txid: Some(outcome.txid.clone()),
                     fee: Some(outcome.fee),
@@ -1890,7 +2019,7 @@ pub async fn import(
                     "`{name}` already has a {} record for another step or instance",
                     existing.kind
                 ),
-                "use a different step name or explicitly replace the recorded step with apply",
+                "use a different step name, or replace the recorded step with `labcoat deploy --replace <name>`",
             ));
         }
     }
@@ -1954,7 +2083,7 @@ pub async fn import(
         let traces = toolkit::trace(config, &txid.to_string(), false).await?;
         imported_creations(&id, traces).ok_or_else(|| {
             LabcoatError::new(
-                "APPLY_BLOCKED",
+                "DEPLOYMENT_BLOCKED",
                 format!("transaction {txid} has no successful deployment trace for {id}"),
                 "check the reveal transaction id and wait for it to be indexed",
             )
@@ -1967,7 +2096,7 @@ pub async fn import(
     };
     if required_index.is_some_and(|index| index >= created.len()) {
         return Err(LabcoatError::new(
-            "APPLY_BLOCKED",
+            "DEPLOYMENT_BLOCKED",
             format!(
                 "`{name}` needs additional Alkane IDs from its deployment, such as its auth token"
             ),
@@ -2069,7 +2198,7 @@ mod tests {
         }
     }
 
-    /// Record every pending contract and call as if apply had run it,
+    /// Record every pending contract and call as if deploy had run it,
     /// assigning sequential ids from `next`.
     fn settle(
         graph: &Graph,
@@ -2134,6 +2263,7 @@ mod tests {
     fn replace(names: &[&str]) -> Options {
         Options {
             replace: names.iter().map(|name| name.to_string()).collect(),
+            ..Options::default()
         }
     }
 
@@ -2154,7 +2284,7 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_graph_is_pending_and_an_applied_one_is_complete() {
+    fn a_fresh_graph_is_pending_and_a_deployed_one_is_complete() {
         let graph = token_and_market();
         let artifacts = artifacts(&[("token", "aa"), ("market", "bb")]);
         let mut run = RunFile::empty("labcoat", Some("chain".into()));
@@ -2355,7 +2485,7 @@ mod tests {
     }
 
     #[test]
-    fn reserves_resolve_before_apply_and_occupied_ones_adopt_or_block() {
+    fn reserves_resolve_before_deploy_and_occupied_ones_adopt_or_block() {
         let graph = graph(&format!(
             "{},{}",
             contract("token", "pinned", r#","reserve":"65011""#, ""),
@@ -2494,7 +2624,7 @@ mod tests {
         assert_eq!(drifted, ActionStatus::Pending);
         assert_eq!(detail.as_deref(), Some("2:99 → 2:5"));
         // New code: the implementation is replaced, so the target is not
-        // known until apply.
+        // known until deploy.
         let v2 = artifacts(&[("logic", "v2"), ("beacon", "bb")]);
         let (upgrade, detail) = status(&read("2:5"), &v2, &run);
         assert_eq!(upgrade, ActionStatus::Pending);
@@ -2739,6 +2869,129 @@ mod tests {
         }
     }
 
+    fn only(name: &str) -> Options {
+        Options {
+            only: Some(name.to_string()),
+            ..Options::default()
+        }
+    }
+
+    #[test]
+    fn a_named_step_waits_for_what_it_references() {
+        let graph = token_and_market();
+        let artifacts = artifacts(&[("token", "aa"), ("market", "bb")]);
+        let mut run = RunFile::empty("labcoat", Some("chain".into()));
+
+        // `token` references nothing, so it can run on its own.
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &only("token"))[0],
+            ("token".to_string(), ActionStatus::Pending, "create")
+        );
+        // `market` references `token`, which has not run.
+        let planned = reconcile(
+            &graph,
+            "labcoat",
+            &artifacts,
+            &facts(),
+            &run,
+            &only("market"),
+        )
+        .unwrap()
+        .actions;
+        assert_eq!(planned[1].status, ActionStatus::Blocked);
+        assert!(planned[1].detail.as_deref().unwrap().contains("`token`"));
+        // Naming a step never changes how the other steps reconcile.
+        assert_eq!(planned[0].status, ActionStatus::Pending);
+
+        // Once `token` is recorded, `market` is free to run.
+        let token_alone = graph_of_token();
+        settle(
+            &token_alone,
+            &artifacts,
+            &mut run,
+            &Options::default(),
+            &mut 4,
+        );
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &only("market")),
+            [
+                ("token".to_string(), ActionStatus::Complete, "none"),
+                ("market".to_string(), ActionStatus::Pending, "create"),
+            ]
+        );
+    }
+
+    fn graph_of_token() -> Graph {
+        graph(&contract(
+            "token",
+            "pinned",
+            "",
+            r#"["supply",{"lit":"100"}]"#,
+        ))
+    }
+
+    #[test]
+    fn a_named_step_that_already_ran_keeps_its_status() {
+        let graph = token_and_market();
+        let artifacts = artifacts(&[("token", "aa"), ("market", "bb")]);
+        let mut run = RunFile::empty("labcoat", Some("chain".into()));
+        settle(&graph, &artifacts, &mut run, &Options::default(), &mut 4);
+
+        // Unchanged: nothing to do.
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &only("market"))[1].1,
+            ActionStatus::Complete
+        );
+        // Edited: still a conflict, exactly as in the full plan.
+        let rebuilt = self::artifacts(&[("token", "aa"), ("market", "cc")]);
+        assert_eq!(
+            statuses(&graph, &rebuilt, &run, &only("market"))[1].1,
+            ActionStatus::Conflict
+        );
+    }
+
+    #[test]
+    fn a_named_step_must_be_declared_deployable_and_not_replaced() {
+        let graph = graph(&format!(
+            r#"{{"kind":"external","name":"usd","ids":{{"*":[4,1]}}}},{}"#,
+            contract(
+                "market",
+                "pinned",
+                "",
+                &format!(r#"["quote",{}]"#, id_ref("usd"))
+            )
+        ));
+        let artifacts = artifacts(&[("market", "bb")]);
+        let run = RunFile::empty("labcoat", Some("chain".into()));
+        let refused = |options: Options| {
+            reconcile(&graph, "labcoat", &artifacts, &facts(), &run, &options)
+                .err()
+                .unwrap()
+        };
+
+        let undeclared = refused(only("nope"));
+        assert_eq!(undeclared.code, "CONFIG_INVALID");
+        assert!(undeclared.message.contains("no step named `nope`"));
+
+        let external = refused(only("usd"));
+        assert_eq!(external.code, "CONFIG_INVALID");
+        assert!(external.message.contains("external reference"));
+
+        let replaced = refused(Options {
+            replace: ["market".to_string()].into(),
+            only: Some("market".to_string()),
+        });
+        assert_eq!(replaced.code, "CONFIG_INVALID");
+        assert!(replaced.message.contains("--replace"));
+
+        // An external is always resolved, so a step that references only
+        // externals can run on its own.
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &only("market"))[1],
+            ("market".to_string(), ActionStatus::Pending, "create")
+        );
+    }
+
     #[test]
     fn a_run_file_from_another_chain_is_only_ignored_on_regtest() {
         // Labcoat Network is reset routinely: stale records are skipped.
@@ -2746,7 +2999,7 @@ mod tests {
         assert!(refuse_foreign_chain(&local, "labcoat", true).is_ok());
 
         // A shared network is never reset, so a mismatch means the wrong
-        // endpoint — refusing is what keeps apply from redeploying.
+        // endpoint — refusing is what keeps deploy from redeploying.
         let shared = ToolkitConfig {
             network: crate::NetworkTarget::Signet,
             ..ToolkitConfig::default()

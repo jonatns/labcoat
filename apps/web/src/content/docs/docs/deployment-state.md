@@ -22,8 +22,8 @@ Migration copies the active network's `labcoat.lock` records into
 `labcoat.lock` first and refuses to overwrite existing state. Projects that
 never migrate behave exactly as before.
 
-From then on, every `labcoat deploy` and `labcoat apply --broadcast` appends
-the new instance to the contract's history. `labcoat.lock` stays in place and
+From then on, every `labcoat deploy --broadcast` appends the new instance to
+the contract's history. `labcoat.lock` stays in place and
 remains the source for name resolution.
 
 ## Inspect it
