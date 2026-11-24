@@ -117,7 +117,11 @@ impl ProcessManager {
     /// Anything else, on the port or under the same program name, is left
     /// running.
     pub fn stop_running(config: &IsomerConfig) {
-        Self::stop_running_in(config, &get_network_dir(), &crate::config::get_data_dir());
+        Self::stop_running_in(
+            config,
+            &get_network_dir(),
+            &crate::config::get_legacy_data_dir(),
+        );
     }
 
     fn stop_running_in(
@@ -563,7 +567,7 @@ mod tests {
     #[test]
     fn a_foreign_service_on_the_port_is_never_asked_to_stop() {
         let home = std::env::temp_dir().join(format!("labcoat-foreign-{}", std::process::id()));
-        let network_dir = home.join("runtime-v3/network");
+        let network_dir = home.join("network");
         std::fs::create_dir_all(&network_dir).unwrap();
         // A stale pid file naming a live process that is not a Labcoat
         // node: the test's own parent.
@@ -587,17 +591,16 @@ mod tests {
 
     #[test]
     fn only_this_data_homes_node_is_recognized() {
-        let network =
-            std::path::Path::new("/home/dev/Application Support/Isomer/runtime-v3/network");
-        let ours = "/usr/local/bin/labcoat node --port 18443 --data-dir /home/dev/Application Support/Isomer/runtime-v3/network --indexer /r/alkanes.wasm --cache-dir /r/compiled";
+        let network = std::path::Path::new("/home/dev/Application Support/Labcoat/network");
+        let ours = "/usr/local/bin/labcoat node --port 18443 --data-dir /home/dev/Application Support/Labcoat/network --indexer /r/alkanes.wasm --cache-dir /r/compiled";
         assert!(is_node_for(ours, network));
         // Another data home's node, a directory that only starts the same
         // way, and an unrelated process that was given a recorded pid.
         for other in [
-            "/usr/local/bin/labcoat node --port 18443 --data-dir /elsewhere/Isomer/runtime-v3/network --indexer /r/alkanes.wasm --cache-dir /r/compiled",
-            "/usr/local/bin/labcoat node --port 18443 --data-dir /home/dev/Application Support/Isomer/runtime-v3/network-2 --indexer /r/alkanes.wasm --cache-dir /r/compiled",
+            "/usr/local/bin/labcoat node --port 18443 --data-dir /elsewhere/Labcoat/network --indexer /r/alkanes.wasm --cache-dir /r/compiled",
+            "/usr/local/bin/labcoat node --port 18443 --data-dir /home/dev/Application Support/Labcoat/network-2 --indexer /r/alkanes.wasm --cache-dir /r/compiled",
             "/usr/bin/python3 -m http.server 18443",
-            "vim /home/dev/Application Support/Isomer/runtime-v3/network/node.pid",
+            "vim /home/dev/Application Support/Labcoat/network/node.pid",
         ] {
             assert!(!is_node_for(other, network), "{other}");
         }

@@ -96,13 +96,27 @@ fn port_override(value: Option<&str>) -> Option<u16> {
     }
 }
 
-/// Get the Isomer data directory
-pub fn get_data_dir() -> PathBuf {
+/// The directory the platform keeps application data in, or
+/// `LABCOAT_DATA_HOME`.
+fn data_home() -> PathBuf {
     std::env::var_os("LABCOAT_DATA_HOME")
         .map(PathBuf::from)
         .or_else(dirs::data_dir)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("Isomer")
+}
+
+/// Labcoat's one data directory: `Labcoat` on macOS, `labcoat` on Linux.
+/// The chain, its snapshots and logs, the network configuration, the
+/// keystores, and the versioned runtimes all live below it.
+pub fn get_data_dir() -> PathBuf {
+    labcoat_product_dir(&data_home(), std::env::consts::OS)
+}
+
+/// Where releases up to 0.3.0 kept the chain, under the project's earlier
+/// name. Nothing is read from or written to it; it is only how a
+/// `qubitcoind` one of those releases left running is recognized.
+pub fn get_legacy_data_dir() -> PathBuf {
+    data_home().join("Isomer")
 }
 
 fn labcoat_product_dir(data_dir: &Path, target_os: &str) -> PathBuf {
@@ -127,12 +141,8 @@ pub fn get_bin_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("LABCOAT_RUNTIME_DIR").filter(|dir| !dir.is_empty()) {
         return PathBuf::from(dir);
     }
-    let data_dir = std::env::var_os("LABCOAT_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(dirs::data_dir)
-        .unwrap_or_else(|| PathBuf::from("."));
     labcoat_runtime_dir(
-        &data_dir,
+        &data_home(),
         std::env::consts::OS,
         &format!("cli-v{}", env!("CARGO_PKG_VERSION")),
     )
@@ -141,16 +151,12 @@ pub fn get_bin_dir() -> PathBuf {
 /// Get the directory Labcoat keeps keystores in, outside every project.
 /// `reset` never touches it.
 pub fn get_wallets_dir() -> PathBuf {
-    let data_dir = std::env::var_os("LABCOAT_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(dirs::data_dir)
-        .unwrap_or_else(|| PathBuf::from("."));
-    labcoat_product_dir(&data_dir, std::env::consts::OS).join("wallets")
+    get_data_dir().join("wallets")
 }
 
-/// Get the runtime data directory (bitcoin data, indexes, etc)
+/// The directory a snapshot copies and a restore replaces: the network's.
 pub fn get_runtime_dir() -> PathBuf {
-    get_data_dir().join("runtime-v3")
+    get_network_dir()
 }
 
 /// Get the logs directory
@@ -160,7 +166,7 @@ pub fn get_logs_dir() -> PathBuf {
 
 /// Where Labcoat Network saves its chain, faucet, and instance id.
 pub fn get_network_dir() -> PathBuf {
-    get_runtime_dir().join("network")
+    get_data_dir().join("network")
 }
 
 /// Where compiled indexer modules are cached, per release.
