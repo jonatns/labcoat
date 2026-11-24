@@ -52,9 +52,10 @@ relative to that file, and relative `--out-dir` and `--build-dir` values are
 relative to the project root. Other paths typed on the command line are
 relative to the working directory.
 
-Before `deploy`, `import`, `call`, and the exchange commands write anything,
-they print the network and endpoint they resolved, such as
-`network: labcoat (http://127.0.0.1:18443)`.
+Before `deploy`, `import`, `call`, and the exchange commands write to
+anything other than Labcoat Network on this machine, they print the network
+and endpoint they resolved, such as
+`network: signet (https://signet.subfrost.io/v4/jsonrpc)`.
 
 If `labcoat.toml` cannot be parsed, commands stop with `CONFIG_INVALID`.
 `labcoat doctor` and `labcoat docs` still run: `doctor` reports the problem

@@ -673,16 +673,21 @@ fn preview(
     lines.join("\n")
 }
 
-/// The approval gate for every signature. Regtest targets (and `--yes`)
-/// auto-approve after printing the preview; public networks require an
-/// interactive confirmation.
+/// The approval gate for every signature. Public networks print the
+/// preview and require an interactive confirmation, or `--yes`. Regtest
+/// targets auto-approve, and there the preview is a log line that only
+/// `--verbose` shows: nothing is being approved, and the coins are worthless.
 fn approve_transaction(
     config: &ToolkitConfig,
     _wallet_fingerprint: &Option<String>,
     preview: &str,
 ) -> Result<()> {
+    if config.network.uses_regtest() {
+        tracing::info!("{preview}");
+        return Ok(());
+    }
     eprintln!("{preview}");
-    if config.network.uses_regtest() || config.assume_yes {
+    if config.assume_yes {
         return Ok(());
     }
     if !std::io::stdin().is_terminal() {
