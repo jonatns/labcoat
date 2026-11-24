@@ -13,8 +13,9 @@ Run integration tests with `labcoat test`.
 
 Every command supports `--json` and then emits exactly one envelope on
 stdout (`{ok, command, schema, result | error{code, message, hint}}`),
-logs on stderr, exit 0 whenever an envelope was printed (`labcoat up --ci`
-alone exits non-zero when the network or its wallet is not ready). On any
+logs on stderr, exit 0 whenever an envelope was printed. Two commands also
+use the exit code: `labcoat up --ci` exits non-zero when the network or its
+wallet is not ready, and `labcoat doctor` when a check fails. On any
 error, `error.hint` names the next command to run — follow it. Commands work
 from any directory inside the project.
 

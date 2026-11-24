@@ -33,7 +33,7 @@ labcoat down
 
 Human-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.
 
-Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code. `labcoat up --ci` is the exception: it exits non-zero unless Labcoat Network and its funded wallet are ready.
+Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code. Two commands also use the exit code: `labcoat up --ci` exits non-zero unless Labcoat Network and its funded wallet are ready, and `labcoat doctor` exits non-zero when a check fails.
 
 ```json
 {"ok":true,"command":"status","schema":"labcoat/v1/status","result":{}}
