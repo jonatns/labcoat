@@ -41,8 +41,12 @@ The **Release Labcoat** workflow runs only for a merged, labeled
 3. generates `runtime-manifest.json` with its exact size and SHA-256 checksum;
 4. builds the CLI, which contains Labcoat Network, for macOS and Linux on arm64
    and x86_64;
-5. runs the Linux runtime, wallet, contract, deployment, simulation, and trace
-   acceptance flow against the assembled local artifacts;
+5. runs `scripts/release/acceptance.sh` against the assembled Linux x86_64
+   executable: boot, `init`, `test`, `deploy`, `call`, `trace`, a command from
+   a subdirectory, `test --e2e` beside the running network, and a restart,
+   checking every JSON envelope and the Counter's decoded value. It then boots
+   Labcoat Network from the published executable of each of the four targets
+   (`--boot-only`);
 6. creates a draft, uploads and attests all ten assets, then publishes the
    immutable `cli-vX.Y.Z` release;
 7. installs the published CLI and verifies that generated projects pin
@@ -50,6 +54,25 @@ The **Release Labcoat** workflow runs only for a merged, labeled
 
 Run **Release Labcoat** manually with `dry_run=true` to build and validate the
 complete product without creating a tag or GitHub release.
+
+## Run the acceptance flow locally
+
+The acceptance script takes any `labcoat` executable. Give it a scratch data
+home, and a port of its own when a Labcoat Network is already running on
+18443, so it never touches the network you develop on:
+
+```bash
+cargo build -p labcoat-cli
+export LABCOAT_DATA_HOME=$(mktemp -d) LABCOAT_RPC_PORT=18555
+export LABCOAT_TEST_CRATE_PATH=$PWD/crates/labcoat-test
+scripts/release/acceptance.sh target/debug/labcoat --bundle <dir-with-alkanes.wasm>
+```
+
+`--bundle` installs an `alkanes.wasm` you built or downloaded; any module
+built with the `regtest` feature from the revision in
+`crates/labcoat-cli/runtime-sources.json` works. Leave it out to accept a
+published release, which downloads its own runtime. `--boot-only` stops after
+booting, funding, and mining, and needs no Rust toolchain.
 
 ## Completion checklist
 

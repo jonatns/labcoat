@@ -230,46 +230,50 @@ jobs:
           mkdir -p "$bundle"
           cp dist/runtime-manifest.json dist/alkanes.wasm "$bundle/"
           chmod +x dist/labcoat-linux-x86_64
-      - name: Boot and verify the complete runtime
+      - name: Run the developer workflow against the release executable
+        # install -> init -> test -> up -> deploy -> call -> trace -> e2e ->
+        # restart, checking every JSON envelope and the Counter's decoded
+        # value. The same script runs locally; see docs/RELEASING.md.
         run: |
-          trap 'dist/labcoat-linux-x86_64 down --json || true' EXIT
-          dist/labcoat-linux-x86_64 binaries --json | grep -q '"installed"'
-          dist/labcoat-linux-x86_64 up --no-download --ci --json
-          chain=$(curl -fsS --data-binary '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' http://127.0.0.1:18443 | jq -r .result)
-          alkanes=$(curl -fsS --data-binary '{"jsonrpc":"2.0","id":1,"method":"secondaryheight","params":["alkanes"]}' http://127.0.0.1:18443 | jq -r .result)
-          esplora=$(curl -fsS --data-binary '{"jsonrpc":"2.0","id":1,"method":"secondaryheight","params":["esplora"]}' http://127.0.0.1:18443 | jq -r .result)
-          test "$chain" -ge 101
-          test "$chain" = "$alkanes"
-          test "$chain" = "$esplora"
-          work=$(mktemp -d)
-          cd "$work"
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" init counter-app --json
-          cd counter-app
-          wallet=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" up --no-download --ci --json)
-          test "$(jq -r .result.wallet.balanceSats <<<"$wallet")" -ge 100000000
-          address=$(jq -r .result.wallet.address <<<"$wallet")
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" test --json
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" deploy --json
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" simulate counter get_count --json
-          call=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" call counter increment --json)
-          txid=$(jq -r '.result.txid // .result.revealTxid' <<<"$call")
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" trace "$txid" --wait --json
-          # A resumed chain must index the first user block after restart.
-          before=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" wallet utxos --json | jq '.result | length')
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" down --json
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" up --no-download --ci --json
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" fund "$address" 1 --json
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" mine 1 --json
-          after=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" wallet utxos --json | jq '.result | length')
-          test "$after" -gt "$before"
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" simulate counter get_count --json
-          cd "$GITHUB_WORKSPACE"
-          dist/labcoat-linux-x86_64 down --json
-          trap - EXIT
+          dist/labcoat-linux-x86_64 binaries --json | jq -e '.ok and (.result | tostring | test("installed"))'
+          scripts/release/acceptance.sh dist/labcoat-linux-x86_64 --bundle dist
+
+  runtime-boot:
+    # Labcoat Network is advertised on every platform the CLI is published
+    # for, so each published executable must boot it before release.
+    needs: [metadata, assemble]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            suffix: linux-x86_64
+          - runner: ubuntu-22.04-arm
+            suffix: linux-arm64
+          - runner: macos-latest
+            suffix: darwin-arm64
+          - runner: macos-15-intel
+            suffix: darwin-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: labcoat-release-${{ needs.metadata.outputs.version }}
+          path: dist
+      - name: Boot Labcoat Network from the release executable
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          export LABCOAT_DATA_HOME="$RUNNER_TEMP/labcoat-data"
+          chmod +x "dist/labcoat-$SUFFIX"
+          scripts/release/acceptance.sh "dist/labcoat-$SUFFIX" --bundle dist --boot-only
 
   publish:
     if: needs.metadata.outputs.publish == 'true'
-    needs: [metadata, assemble, runtime-acceptance]
+    needs: [metadata, assemble, runtime-acceptance, runtime-boot]
     runs-on: ubuntu-latest
     permissions:
       contents: write

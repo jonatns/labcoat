@@ -8,13 +8,24 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 - run Labcoat Network inside the `labcoat` executable instead of a downloaded `qubitcoind`: `labcoat up` starts it as a background `labcoat node` process, and the runtime bundle is just `alkanes.wasm`. The service is now `node` (`labcoat logs --service node`), `up` reports its endpoint as `endpoints.rpc` instead of `endpoints.qubitcoin_rpc`, and chains, snapshots, and network settings from Qubitcoin-based releases are not read: the next `labcoat up` starts a new chain. Projects keep their deployment records, which name the old chain and are replaced on the next `labcoat deploy`
 - stop publishing `qubitcoind` and `esplorashrew.wasm` with releases; `runtime-manifest.json` is schema 2 and lists only `alkanes.wasm`
+- run `labcoat test --e2e` on a network of the project's own instead of the shared Labcoat Network: its chain, port, built-in wallet, and deployment records (`labcoat.lock`, `deployments/`, durable state) live under the project's `.labcoat/e2e/`, and the network is stopped when the run ends. A run no longer resets the chain `labcoat up` started or replaces the records of what is deployed there, and `--no-reset` keeps the chain the previous e2e run left. `labcoat-test` reads the run's records through `LABCOAT_RECORDS_DIR`, so run `labcoat upgrade` in existing projects
+- make `labcoat up --ci` exit non-zero unless Labcoat Network is ready and its built-in wallet is funded; it used to print `ok: false`, or a wallet error inside `ok: true`, and exit 0. Every other command still exits 0 when it prints an envelope
+- report a missing WebAssembly-capable C compiler as `TOOLCHAIN_MISSING` instead of `COMPILE_FAILED`
+- resolve a relative `wallet_file` in `labcoat.toml` against that file, and a relative `--out-dir` or `--build-dir` of `labcoat generate web` against the project root, instead of the working directory
 
 ### Added
 
 - run Labcoat Network on every platform the CLI supports, now including macOS x86_64 and Linux arm64
 - validate transactions on Labcoat Network as Bitcoin Core relays them: signatures and scripts for taproot (key and script path), P2WPKH, P2PKH, and nested P2WPKH spends, coinbase maturity, absolute and BIP 68 relative timelocks measured against median time past, the 1 sat/vB minimum fee, dust, and the 400,000 weight-unit limit. Rejections use Bitcoin Core's reasons
 - answer Esplora address and transaction queries from Labcoat Network's own ledger, with each input's `prevout`
-- add `labcoat_snapshot` and `labcoat_revert` JSON-RPC methods for instant in-memory snapshots, and `labcoat_info`, which names the serving release and data directory. `labcoat up`, `status`, and the faucet use it to trust only this release's node for this data home: a `qubitcoind` left by an earlier release, or a node serving another `LABCOAT_DATA_HOME`, is stopped and replaced rather than reused
+- add `labcoat_snapshot` and `labcoat_revert` JSON-RPC methods for instant in-memory snapshots, and `labcoat_info`, which names the serving release and data directory. `labcoat up`, `status`, and the faucet use it to trust only this release's node for this data home: a `qubitcoind` left by an earlier release, or an earlier release's node for the same data home, is stopped and replaced rather than reused. A network serving another `LABCOAT_DATA_HOME` is left running: `labcoat up` fails and names it, and `labcoat down` and `labcoat reset` do not stop it
+- add `LABCOAT_RPC_PORT`: run a data home's Labcoat Network on another port, beside the one on 18443. Contract commands follow it without an `rpc_url`
+- run every command from any directory inside a project: settings, `deploy.rs`, build artifacts, and deployment records are read from the project root, the nearest directory above the working directory that holds `labcoat.toml`. `labcoat plan` in `contracts/counter/` used to fail to find `deploy.rs`, and commands there silently fell back to the default network
+- print the resolved network and endpoint before `deploy`, `import`, `call`, and the exchange commands write to it
+- fail `labcoat test --e2e <filter>` with `TEST_FAILED` when the filter matches no test, and build the tests before the network starts
+- add the `TOOLCHAIN_MISSING` error for a missing Cargo, Rust WebAssembly target, or WASI C headers, each naming what to install. A project without Cargo on `PATH` used to be told to run Labcoat from a Cargo workspace
+- add a `project config` check to `labcoat doctor`, and let `labcoat doctor` and `labcoat docs` run in a project whose `labcoat.toml` cannot be parsed
+- add `scripts/release/acceptance.sh`: the release's developer-workflow check, runnable against any `labcoat` executable. The release workflow runs it on Linux x86_64 and boots Labcoat Network from the published executable on all four platforms
 - find the faucet's coins on the chain each time it funds, so a restart that drops an unmined funding transaction no longer strands the coins it spent
 
 ### Changed

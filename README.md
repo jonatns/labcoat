@@ -33,8 +33,10 @@ version with:
 curl -fsSL https://labcoat.sh/install | sh -s -- 0.1.0
 ```
 
-CLI binaries, and Labcoat Network with them, are available for macOS and Linux
-on arm64 and x86_64. Windows is not supported.
+CLI binaries are available for macOS and Linux on arm64 and x86_64. Windows is
+not supported. Releases after 0.3.0 run Labcoat Network on all four; 0.3.0 and
+earlier run it only on macOS arm64 and Linux x86_64. See
+[platform support](https://labcoat.sh/docs/getting-started/installation/#platform-support).
 
 Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
 a WebAssembly backend:
