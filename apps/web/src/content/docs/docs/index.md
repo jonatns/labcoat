@@ -98,14 +98,18 @@ Labcoat Network runtime, and the matching `labcoat-test` harness together.
 After upgrading the CLI, run `labcoat upgrade` in each project. See
 [Stability and releases](/docs/reference/stability/).
 
-## New since 0.2.0
-
-These docs track the `main` branch, which adds:
+## New in 0.3.0
 
 - [Deployment scripts](/docs/deployments/) with `deploy.rs`, `plan`, `deploy`,
   and `import`, upgradeable proxies and beacons, and network e2e tests through
-  `labcoat test --e2e`. The [upgradeable contract tutorial](/docs/tutorials/upgradeable-contract/)
+  `labcoat test --e2e`. `labcoat deploy` now runs `deploy.rs`. The
+  [upgradeable contract tutorial](/docs/tutorials/upgradeable-contract/)
   walks through a full deploy and upgrade.
+- A [built-in funded wallet](/docs/labcoat-network/#wallet-workflow) on Labcoat
+  Network: `labcoat up` creates and funds it, and keystores live outside the
+  project.
+- [Subfrost endpoints](/docs/projects-configuration/#signet-and-mainnet-through-subfrost)
+  for `--network signet` and `--network mainnet`.
 - [Atomic exchanges](/docs/exchanges/) between two wallets, locally or through
   a seller-last PSBT ceremony, with single-asset outputs.
 - [Generated web clients](/docs/web-apps/) for reading contracts from a browser.
