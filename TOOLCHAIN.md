@@ -38,6 +38,25 @@ templates, and in `runtime-sources.json`; update only the affected git
 dependencies; run the full integration suite against `labcoat up`; and land the
 change in its own reviewed PR. CI verifies the pin is reachable from `main`.
 
+## Prebuilt runtime modules
+
+`kungfuflex/esplorashrew-rs` is no longer publicly readable, so a release
+cannot build `esplorashrew.wasm` from source. `runtime-sources.json` therefore
+lists it under `prebuilt`: the release workflow downloads the module that
+`cli-v0.2.0` built from the same pinned revision, and fails unless that
+release's manifest records the revision and the pinned SHA-256 and the
+download matches the digest. Remove the `prebuilt` entry when pinning a
+revision that can be built from source again; a new revision cannot reuse an
+older build.
+
+## Runtime build runners
+
+The release builds `qubitcoind` on pinned runner images, `ubuntu-24.04` and
+`macos-15`, not on `ubuntu-latest` or a retired label. The pinned Qubitcoin
+revision vendors RocksDB 8.1.1, which does not compile with the GCC on
+`ubuntu-26.04`, and the older Ubuntu image keeps the Linux binary's glibc
+baseline. Revisit both pins when the Qubitcoin revision changes.
+
 ## Toolchains
 
 | Tool | Version | Where enforced |

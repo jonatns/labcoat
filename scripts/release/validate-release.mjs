@@ -65,6 +65,15 @@ function validateRuntimeSources() {
     if (!source.repository || !source.revision) fail(`incomplete runtime source: ${name}`);
     if (!gitCommit.test(source.revision)) fail(`${name} revision must be an immutable commit`);
   }
+  for (const [name, prebuilt] of Object.entries(runtime.prebuilt ?? {})) {
+    if (name !== 'esplorashrew-wasm') fail(`${name} has no prebuilt release path`);
+    if (!/^cli-v\d+\.\d+\.\d+$/.test(prebuilt.release ?? '')) {
+      fail(`${name} prebuilt release must be a published cli-vX.Y.Z tag`);
+    }
+    if (!/^[0-9a-f]{64}$/.test(prebuilt.sha256 ?? '')) {
+      fail(`${name} prebuilt sha256 must be a SHA-256 digest`);
+    }
+  }
   if (!gitCommit.test(runtime.compatibility?.qubitcoin_metashrew_revision ?? '')) {
     fail('runtime sources must pin the Qubitcoin-compatible Metashrew commit');
   }
