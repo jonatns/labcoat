@@ -160,7 +160,7 @@ logs [OPTIONS]
 
 Arguments and options:
 
-- `service` (optional): Filter to the Qubitcoin service (qubitcoind) Values: `qubitcoind`.
+- `service` (optional): Filter to one service (node) Values: `node`.
 - `limit` (optional): Max entries
 
 ### `labcoat reset`
@@ -654,8 +654,8 @@ doctor
 | `EXCHANGE_NETWORK_MISMATCH` | the live chain instance differs from the exchange plan | discard stale plans after a network reset |
 | `EXCHANGE_TIP_STALE` | the observed planning tip is no longer in the active chain | rebuild the plan after the reorganization |
 | `EXCHANGE_INPUT_SPENT` | a planned input has already been spent | rebuild the plan with current UTXOs |
-| `RPC_UNREACHABLE` | the configured Qubitcoin endpoint cannot be reached | run `labcoat status` |
-| `INDEXER_LAG` | indexed height did not catch chain height | inspect `qubitcoind` logs |
+| `RPC_UNREACHABLE` | the configured RPC endpoint cannot be reached | run `labcoat status` |
+| `INDEXER_LAG` | indexed height did not catch chain height | run `labcoat logs` |
 | `INSUFFICIENT_FUNDS` | spendable BTC cannot cover the operation | fund the wallet and mine a block |
 | `EXECUTION_REVERT` | the contract explicitly reverted | inspect the revert reason and trace |
 | `TRACE_TIMEOUT` | a decoded trace did not arrive in time | retry `labcoat trace --wait` |

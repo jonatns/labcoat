@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 isomer-core = { path = "../isomer-core" }
+labcoat-runtime = { path = "../labcoat-runtime" }
 labcoat-core = { path = "../labcoat-core" }
 clap = { version = "4", features = ["derive", "env"] }
 tokio.workspace = true

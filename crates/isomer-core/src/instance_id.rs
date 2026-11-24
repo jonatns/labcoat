@@ -1,17 +1,17 @@
 //! Persistent Labcoat Network chain-instance identity.
 //!
-//! A UUID stored inside the qubitcoin data directory, so `labcoat reset`
+//! A UUID stored inside the network data directory, so `labcoat reset`
 //! (which removes that directory, see `ProcessManager::reset_data`)
 //! regenerates it for free. Consumers record the UUID alongside chain
 //! state and compare it later to detect that a reset happened even when
 //! block hashes are unavailable.
 
-use crate::config::get_qubitcoin_dir;
+use crate::config::get_network_dir;
 use std::path::{Path, PathBuf};
 
 /// Location of the instance-id file: one line of plain text (the UUID).
 pub fn instance_id_path() -> PathBuf {
-    get_qubitcoin_dir().join("labcoat-instance-id")
+    get_network_dir().join("labcoat-instance-id")
 }
 
 /// Read-or-create the chain-instance UUID.

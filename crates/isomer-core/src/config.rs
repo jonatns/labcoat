@@ -8,18 +8,19 @@ use std::path::{Path, PathBuf};
 /// Service ports configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortConfig {
-    pub qubitcoin_rpc: u16,
-    pub qubitcoin_p2p: u16,
+    /// Labcoat Network's JSON-RPC port.
+    pub rpc: u16,
 }
 
 impl Default for PortConfig {
     fn default() -> Self {
-        Self {
-            qubitcoin_rpc: 18443,
-            qubitcoin_p2p: 18444,
-        }
+        Self { rpc: 18443 }
     }
 }
+
+/// The configuration version this build reads. Version 3 has a single RPC
+/// port; older files configured Qubitcoin and are ignored.
+const CONFIG_SCHEMA: u32 = 3;
 
 /// Complete Isomer configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +32,7 @@ pub struct IsomerConfig {
 impl Default for IsomerConfig {
     fn default() -> Self {
         Self {
-            schema: 2,
+            schema: CONFIG_SCHEMA,
             ports: PortConfig::default(),
         }
     }
@@ -49,7 +50,7 @@ impl IsomerConfig {
         if path.exists() {
             match std::fs::read_to_string(&path) {
                 Ok(content) => match serde_json::from_str::<Self>(&content) {
-                    Ok(config) if config.schema == 2 => return config,
+                    Ok(config) if config.schema == CONFIG_SCHEMA => return config,
                     Ok(_) => tracing::warn!("Ignoring legacy Isomer configuration"),
                     Err(e) => tracing::warn!("Failed to parse config: {}", e),
                 },
@@ -119,7 +120,7 @@ pub fn get_wallets_dir() -> PathBuf {
 
 /// Get the runtime data directory (bitcoin data, indexes, etc)
 pub fn get_runtime_dir() -> PathBuf {
-    get_data_dir().join("runtime-v2")
+    get_data_dir().join("runtime-v3")
 }
 
 /// Get the logs directory
@@ -127,9 +128,14 @@ pub fn get_logs_dir() -> PathBuf {
     get_data_dir().join("logs")
 }
 
-/// Qubitcoin's network-specific data root.
-pub fn get_qubitcoin_dir() -> PathBuf {
-    get_runtime_dir().join("qubitcoin")
+/// Where Labcoat Network saves its chain, faucet, and instance id.
+pub fn get_network_dir() -> PathBuf {
+    get_runtime_dir().join("network")
+}
+
+/// Where compiled indexer modules are cached, per release.
+pub fn get_compiled_dir() -> PathBuf {
+    get_bin_dir().join("compiled")
 }
 
 #[cfg(test)]
@@ -155,12 +161,9 @@ mod tests {
     }
 
     #[test]
-    fn v2_config_has_only_qubitcoin_ports() {
+    fn v3_config_has_one_rpc_port() {
         let value = serde_json::to_value(IsomerConfig::default()).unwrap();
-        assert_eq!(value["schema"], 2);
-        assert_eq!(
-            value["ports"],
-            serde_json::json!({"qubitcoin_rpc": 18443, "qubitcoin_p2p": 18444})
-        );
+        assert_eq!(value["schema"], 3);
+        assert_eq!(value["ports"], serde_json::json!({"rpc": 18443}));
     }
 }

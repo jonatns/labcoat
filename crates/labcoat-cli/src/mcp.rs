@@ -40,7 +40,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"address": {"type": "string"}, "amount": {"type": "number", "description": "BTC, defaults to 1"}}), &["address"]),
         tool("network_reset", "Stop services and wipe all Labcoat Network chain data.", json!({}), &[]),
         tool("network_logs", "Recent Labcoat Network service logs.",
-            json!({"service": {"type": "string", "enum": ["qubitcoind"]}, "limit": {"type": "integer"}}), &[]),
+            json!({"service": {"type": "string", "enum": ["node"]}, "limit": {"type": "integer"}}), &[]),
         tool("wallet_init", "Create or load the selected network's wallet keystore. Not needed on Labcoat Network, which comes with a funded wallet. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
             json!({"mnemonic": {"type": "string"}, "showMnemonic": {"type": "boolean"}}), &[]),
         tool("wallet_addresses", "Wallet receive addresses per script type.",

@@ -102,13 +102,13 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     ),
     (
         "RPC_UNREACHABLE",
-        "the configured Qubitcoin endpoint cannot be reached",
+        "the configured RPC endpoint cannot be reached",
         "run `labcoat status`",
     ),
     (
         "INDEXER_LAG",
         "indexed height did not catch chain height",
-        "inspect `qubitcoind` logs",
+        "run `labcoat logs`",
     ),
     (
         "INSUFFICIENT_FUNDS",
@@ -280,7 +280,7 @@ pub struct ProtocolReference {
 pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
     let commands = command
         .get_subcommands()
-        .filter(|subcommand| subcommand.get_name() != "help")
+        .filter(|subcommand| subcommand.get_name() != "help" && !subcommand.is_hide_set())
         .map(|subcommand| command_reference(subcommand, "labcoat"))
         .collect();
 
@@ -405,7 +405,7 @@ fn command_reference(command: &Command, parent: &str) -> CommandReference {
         .collect();
     let subcommands = command
         .get_subcommands()
-        .filter(|subcommand| subcommand.get_name() != "help")
+        .filter(|subcommand| subcommand.get_name() != "help" && !subcommand.is_hide_set())
         .map(|subcommand| command_reference(subcommand, &path))
         .collect();
 
@@ -529,5 +529,15 @@ mod tests {
         assert!(!markdown
             .lines()
             .any(|line| line.ends_with(' ') || line.ends_with('\t')));
+    }
+
+    #[test]
+    fn reference_leaves_out_hidden_commands() {
+        let reference = reference(crate::Cli::command(), crate::mcp::tools());
+        assert!(!reference
+            .commands
+            .iter()
+            .any(|command| command.name == "node"));
+        assert!(!reference.render_markdown().contains("labcoat node"));
     }
 }

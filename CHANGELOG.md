@@ -4,6 +4,28 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+### Breaking changes
+
+- run Labcoat Network inside the `labcoat` executable instead of a downloaded `qubitcoind`: `labcoat up` starts it as a background `labcoat node` process, and the runtime bundle is just `alkanes.wasm`. The service is now `node` (`labcoat logs --service node`), `up` reports its endpoint as `endpoints.rpc` instead of `endpoints.qubitcoin_rpc`, and chains, snapshots, and network settings from Qubitcoin-based releases are not read: the next `labcoat up` starts a new chain. Projects keep their deployment records, which name the old chain and are replaced on the next `labcoat deploy`
+- stop publishing `qubitcoind` and `esplorashrew.wasm` with releases; `runtime-manifest.json` is schema 2 and lists only `alkanes.wasm`
+
+### Added
+
+- run Labcoat Network on every platform the CLI supports, now including macOS x86_64 and Linux arm64
+- validate transactions on Labcoat Network as Bitcoin Core relays them: signatures and scripts for taproot (key and script path), P2WPKH, P2PKH, and nested P2WPKH spends, coinbase maturity, absolute and BIP 68 relative timelocks measured against median time past, the 1 sat/vB minimum fee, dust, and the 400,000 weight-unit limit. Rejections use Bitcoin Core's reasons
+- answer Esplora address and transaction queries from Labcoat Network's own ledger, with each input's `prevout`
+- add `labcoat_snapshot` and `labcoat_revert` JSON-RPC methods for instant in-memory snapshots, and `labcoat_info`, which names the serving release and data directory. `labcoat up`, `status`, and the faucet use it to trust only this release's node for this data home: a `qubitcoind` left by an earlier release, or a node serving another `LABCOAT_DATA_HOME`, is stopped and replaced rather than reused
+- find the faucet's coins on the chain each time it funds, so a restart that drops an unmined funding transaction no longer strands the coins it spent
+
+### Changed
+
+- make Labcoat Network fast: a restart reloads the saved index instead of indexing again (16.5 s to 0.2 s for `labcoat up`), calls and wallet queries answer in milliseconds (`labcoat call` 4.7 s to 0.2 s, `labcoat fund` 5.4 s to 0.07 s), and `labcoat test --e2e` resets, deploys, and runs in seconds. The compiled indexer module is cached, so only the first `labcoat up` of a release compiles it
+- reuse one RPC client per command instead of building one, with its TLS roots, for every request
+
+### Removed
+
+- remove the two warm-up blocks `labcoat up` mined when resuming a chain, a workaround for a Qubitcoin indexer defect that no longer applies
+
 ## [0.3.0](https://github.com/jonatns/labcoat/compare/cli-v0.2.0...cli-v0.3.0) - 2026-11-24
 
 ### Breaking changes

@@ -14,8 +14,8 @@ surface `error.hint` to the operator or agent.
 | --- | --- | --- |
 | `CONFIG_INVALID` | Project or environment configuration is invalid | Run `labcoat doctor` |
 | `TOOLKIT_ERROR` | A local operation failed, such as reading or writing a project file | Check permissions and disk space; the message names the path |
-| `RPC_UNREACHABLE` | The configured Qubitcoin endpoint cannot be reached | Run `labcoat status` |
-| `INDEXER_LAG` | Indexed height did not reach chain height | Inspect `labcoat logs --service qubitcoind` |
+| `RPC_UNREACHABLE` | The configured RPC endpoint cannot be reached | Run `labcoat status` |
+| `INDEXER_LAG` | Indexed height did not reach chain height | Run `labcoat logs` |
 
 ## Labcoat Network and wallets
 

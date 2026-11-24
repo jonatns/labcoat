@@ -273,9 +273,6 @@ pub async fn run() -> Vec<Check> {
             isomer_core::BinaryStatus::Invalid { reason } => {
                 Some(format!("{} is invalid: {reason}", binary.service))
             }
-            isomer_core::BinaryStatus::Unsupported { platform } => {
-                Some(format!("{} is unsupported on {platform}", binary.service))
-            }
         })
         .collect();
     if problems.is_empty() {
@@ -287,7 +284,7 @@ pub async fn run() -> Vec<Check> {
         checks.push(fail(
             "runtime bundle",
             problems.join("; "),
-            "run `labcoat binaries --download`; unsupported platforms require a supported machine",
+            "run `labcoat binaries --download`",
         ));
     }
 

@@ -3,9 +3,8 @@ title: Installation
 description: Install the Labcoat CLI and its matching managed runtime.
 ---
 
-Labcoat publishes CLI executables for macOS and Linux on arm64 and x86_64.
-Windows is not supported. The Labcoat Network runtime currently supports macOS
-arm64 and Linux x86_64.
+Labcoat publishes CLI executables for macOS and Linux on arm64 and x86_64, and
+Labcoat Network runs on all of them. Windows is not supported.
 
 ## Inspect and install
 
@@ -31,8 +30,8 @@ current executable if downloading or verification fails.
 ## CLI and runtime versions
 
 Each CLI release owns one exact runtime bundle. On the first `labcoat up`,
-Labcoat downloads `runtime-manifest.json` and its Qubitcoin/WASM assets from the
-same `cli-vX.Y.Z` GitHub release:
+Labcoat downloads `runtime-manifest.json` and the Alkanes indexer module,
+`alkanes.wasm`, from the same `cli-vX.Y.Z` GitHub release:
 
 - macOS: `~/Library/Application Support/Labcoat/runtimes/cli-vX.Y.Z/`
 - Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/runtimes/cli-vX.Y.Z/`
@@ -148,8 +147,8 @@ data directory before removing that data manually.
 
 ## Runtime and security boundaries
 
-Labcoat Network consists of one Qubitcoin process with Alkanes and
-Esplorashrew indexer modules. It is local/private and uses an unauthenticated
+Labcoat Network is one `labcoat node` process holding the chain and the
+Alkanes indexer. It is local/private and uses an unauthenticated
 Bitcoin regtest RPC endpoint bound to loopback; it is not Signet. Keep it local
 and never use production wallet seed phrases with Labcoat.
 

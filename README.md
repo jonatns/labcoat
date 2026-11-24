@@ -33,9 +33,8 @@ version with:
 curl -fsSL https://labcoat.sh/install | sh -s -- 0.1.0
 ```
 
-CLI binaries are available for macOS and Linux on arm64 and x86_64. The Labcoat
-Network runtime currently supports macOS arm64 and Linux x86_64. Windows is not
-supported.
+CLI binaries, and Labcoat Network with them, are available for macOS and Linux
+on arm64 and x86_64. Windows is not supported.
 
 Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
 a WebAssembly backend:
@@ -81,7 +80,7 @@ matching your installed executable.
 Each `cli-vX.Y.Z` release is one tested compatibility unit:
 
 - four native CLI executables and their checksums;
-- the exact Qubitcoin runtime assets supported by that CLI;
+- the exact Alkanes indexer module that CLI's Labcoat Network runs;
 - the matching `labcoat-test` source used by generated projects.
 
 `labcoat up` downloads only the runtime bundle for the installed CLI version

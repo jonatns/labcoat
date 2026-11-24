@@ -1,7 +1,12 @@
-//! Exact-version, checksummed Qubitcoin runtime management.
+//! The exact-version, checksummed runtime asset Labcoat Network needs.
+//!
+//! Labcoat Network runs inside the `labcoat` executable, so its only runtime
+//! asset is the Alkanes indexer module, `alkanes.wasm`. Each CLI release
+//! publishes it beside a `runtime-manifest.json` that pins its source and
+//! checksum. A CLI only ever reads the manifest of its own release.
 
 use crate::config::get_bin_dir;
-use crate::process_manager::ServiceId;
+use crate::process_manager::{ServiceId, INDEXER_ASSET};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -9,6 +14,11 @@ use std::path::{Path, PathBuf};
 
 const RUNTIME_MANIFEST_NAME: &str = "runtime-manifest.json";
 const RUNTIME_REPOSITORY: &str = "jonatns/labcoat";
+/// The manifest version this build reads. Version 2 lists only the indexer
+/// module; version 1 also listed Qubitcoin and Esplorashrew.
+const MANIFEST_SCHEMA: u32 = 2;
+/// The source the indexer module is built from, as named in the manifest.
+const INDEXER_SOURCE: &str = "alkanes-wasm";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -16,7 +26,6 @@ pub enum BinaryStatus {
     NotInstalled,
     Installed { version: String },
     Invalid { reason: String },
-    Unsupported { platform: String },
 }
 
 impl BinaryStatus {
@@ -41,17 +50,12 @@ struct RuntimeManifest {
     schema: u32,
     labcoat_version: String,
     release_tag: String,
-    #[allow(dead_code)]
     source_digest: String,
-    #[allow(dead_code)]
     sources: HashMap<String, RuntimeSource>,
-    #[allow(dead_code)]
-    compatibility: HashMap<String, String>,
     assets: HashMap<String, RuntimeAsset>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 struct RuntimeSource {
     repository: String,
     revision: String,
@@ -61,8 +65,6 @@ struct RuntimeSource {
 struct RuntimeAsset {
     sha256: String,
     size_bytes: u64,
-    executable: bool,
-    platform: Option<String>,
 }
 
 pub struct BinaryManager;
@@ -90,34 +92,12 @@ impl BinaryManager {
         )
     }
 
-    fn platform() -> String {
-        let os = if cfg!(target_os = "macos") {
-            "darwin"
-        } else if cfg!(target_os = "linux") {
-            "linux"
-        } else {
-            "unknown"
-        };
-        let arch = if cfg!(target_arch = "aarch64") {
-            "arm64"
-        } else if cfg!(target_arch = "x86_64") {
-            "x86_64"
-        } else {
-            "unknown"
-        };
-        format!("{os}-{arch}")
-    }
-
-    fn platform_supported(platform: &str) -> bool {
-        matches!(platform, "darwin-arm64" | "linux-x86_64")
-    }
-
     fn manifest_path() -> PathBuf {
         get_bin_dir().join(RUNTIME_MANIFEST_NAME)
     }
 
-    fn binary_path(service: ServiceId) -> PathBuf {
-        get_bin_dir().join(service.binary_name())
+    fn asset_path() -> PathBuf {
+        get_bin_dir().join(INDEXER_ASSET)
     }
 
     fn load_cached_manifest() -> Result<Option<RuntimeManifest>, String> {
@@ -137,7 +117,7 @@ impl BinaryManager {
     }
 
     fn validate_manifest(manifest: &RuntimeManifest) -> Result<(), String> {
-        if manifest.schema != 1 {
+        if manifest.schema != MANIFEST_SCHEMA {
             return Err(format!(
                 "Unsupported runtime manifest schema {}",
                 manifest.schema
@@ -157,46 +137,24 @@ impl BinaryManager {
                 Self::release_tag()
             ));
         }
-        if manifest.source_digest.len() != 64
-            || !manifest
-                .source_digest
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-        {
+        if !is_hex(&manifest.source_digest, 64) {
             return Err("Runtime manifest has an invalid source digest".into());
         }
-        if manifest.sources.len() != 3
-            || manifest.sources.values().any(|source| {
-                source.repository.is_empty()
-                    || source.revision.len() != 40
-                    || !source.revision.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
-        {
+        let source = manifest
+            .sources
+            .get(INDEXER_SOURCE)
+            .filter(|source| !source.repository.is_empty() && is_hex(&source.revision, 40));
+        if manifest.sources.len() != 1 || source.is_none() {
             return Err("Runtime manifest has invalid source provenance".into());
         }
-        if manifest
-            .compatibility
-            .get("qubitcoin_metashrew_revision")
-            .is_none_or(|revision| {
-                revision.len() != 40 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
-        {
-            return Err("Runtime manifest has invalid compatibility provenance".into());
-        }
-        if manifest.assets.is_empty() {
-            return Err("Runtime manifest has no assets".into());
-        }
-        for (name, asset) in &manifest.assets {
-            if asset.sha256.len() != 64
-                || !asset.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
-                return Err(format!(
-                    "Runtime manifest has an invalid checksum for {name}"
-                ));
-            }
-            if asset.size_bytes == 0 {
-                return Err(format!("Runtime manifest has an invalid size for {name}"));
-            }
+        let asset = manifest
+            .assets
+            .get(INDEXER_ASSET)
+            .ok_or_else(|| format!("Runtime manifest is missing {INDEXER_ASSET}"))?;
+        if manifest.assets.len() != 1 || !is_hex(&asset.sha256, 64) || asset.size_bytes == 0 {
+            return Err(format!(
+                "Runtime manifest has invalid metadata for {INDEXER_ASSET}"
+            ));
         }
         Ok(())
     }
@@ -219,74 +177,39 @@ impl BinaryManager {
         let manifest: RuntimeManifest = serde_json::from_slice(&bytes)
             .map_err(|error| format!("Invalid runtime manifest: {error}"))?;
         Self::validate_manifest(&manifest)?;
-        Self::write_atomic(&Self::manifest_path(), &bytes, false)?;
+        Self::write_atomic(&Self::manifest_path(), &bytes)?;
         Ok(manifest)
     }
 
-    fn required_assets<'a>(
-        manifest: &'a RuntimeManifest,
-        platform: &str,
-    ) -> Result<Vec<(&'a str, &'a RuntimeAsset, &'static str)>, String> {
-        let native_name = format!("qubitcoind-{platform}");
-        let native = manifest.assets.get_key_value(&native_name).ok_or_else(|| {
-            format!(
-                "Runtime {} does not support {platform}",
-                Self::release_tag()
-            )
-        })?;
-        if native.1.platform.as_deref() != Some(platform) || !native.1.executable {
-            return Err(format!(
-                "Runtime manifest has invalid native metadata for {native_name}"
-            ));
-        }
-
-        let mut assets = vec![(native.0.as_str(), native.1, "qubitcoind")];
-        for name in ["alkanes.wasm", "esplorashrew.wasm"] {
-            let asset = manifest
-                .assets
-                .get(name)
-                .ok_or_else(|| format!("Runtime manifest is missing {name}"))?;
-            if asset.platform.is_some() || asset.executable {
-                return Err(format!("Runtime manifest has invalid metadata for {name}"));
-            }
-            assets.push((name, asset, name));
-        }
-        Ok(assets)
+    fn asset(manifest: &RuntimeManifest) -> &RuntimeAsset {
+        manifest
+            .assets
+            .get(INDEXER_ASSET)
+            .expect("a validated manifest lists the indexer")
     }
 
-    fn validate_cached_bundle(manifest: &RuntimeManifest, platform: &str) -> Result<bool, String> {
-        Self::validate_bundle_in(&get_bin_dir(), manifest, platform)
-    }
-
-    fn validate_bundle_in(
-        directory: &Path,
-        manifest: &RuntimeManifest,
-        platform: &str,
-    ) -> Result<bool, String> {
-        for (_, asset, local_name) in Self::required_assets(manifest, platform)? {
-            let path = directory.join(local_name);
-            if !path.exists() {
-                return Ok(false);
-            }
-            let bytes = std::fs::read(&path)
-                .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-            Self::verify_asset(&bytes, asset, path.to_string_lossy().as_ref())?;
+    fn validate_bundle_in(directory: &Path, manifest: &RuntimeManifest) -> Result<bool, String> {
+        let path = directory.join(INDEXER_ASSET);
+        if !path.exists() {
+            return Ok(false);
         }
+        let bytes = std::fs::read(&path)
+            .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+        Self::verify_asset(
+            &bytes,
+            Self::asset(manifest),
+            path.to_string_lossy().as_ref(),
+        )?;
         Ok(true)
     }
 
+    /// Make sure this release's indexer module is installed and intact,
+    /// downloading it if not.
     pub async fn ensure_bundle(
         progress: impl Fn(ServiceId, f32) + Send + Clone + 'static,
     ) -> Result<(), String> {
-        let platform = Self::platform();
-        if !Self::platform_supported(&platform) {
-            return Err(format!(
-                "The managed Labcoat runtime is not available for {platform}; supported platforms are darwin-arm64 and linux-x86_64"
-            ));
-        }
-
         if let Ok(Some(manifest)) = Self::load_cached_manifest() {
-            if Self::validate_cached_bundle(&manifest, &platform) == Ok(true) {
+            if Self::validate_bundle_in(&get_bin_dir(), &manifest) == Ok(true) {
                 return Ok(());
             }
         }
@@ -295,28 +218,17 @@ impl BinaryManager {
             Ok(Some(manifest)) => manifest,
             Ok(None) | Err(_) => Self::fetch_manifest().await?,
         };
-        let base = format!(
-            "https://github.com/{RUNTIME_REPOSITORY}/releases/download/{}",
+        let url = format!(
+            "https://github.com/{RUNTIME_REPOSITORY}/releases/download/{}/{INDEXER_ASSET}",
             Self::release_tag()
         );
-        for (remote_name, asset, local_name) in Self::required_assets(&manifest, &platform)? {
-            let path = get_bin_dir().join(local_name);
-            if std::fs::read(&path)
-                .ok()
-                .is_some_and(|bytes| Self::verify_asset(&bytes, asset, local_name).is_ok())
-            {
-                continue;
-            }
-            let callback = progress.clone();
-            Self::download_file(
-                &format!("{base}/{remote_name}"),
-                &path,
-                asset,
-                move |value| callback(ServiceId::Qubitcoind, value),
-            )
-            .await?;
-        }
-        Ok(())
+        Self::download_file(
+            &url,
+            &Self::asset_path(),
+            Self::asset(&manifest),
+            move |value| progress(ServiceId::Node, value),
+        )
+        .await
     }
 
     pub fn check_all(&self) -> Vec<BinaryInfo> {
@@ -327,24 +239,17 @@ impl BinaryManager {
     }
 
     pub fn check_binary(&self, service: ServiceId) -> BinaryInfo {
-        let path = Self::binary_path(service);
-        let platform = Self::platform();
-        let status = if !Self::platform_supported(&platform) {
-            BinaryStatus::Unsupported { platform }
-        } else {
-            match Self::load_cached_manifest() {
-                Ok(Some(manifest)) => {
-                    match Self::validate_cached_bundle(&manifest, &Self::platform()) {
-                        Ok(true) => BinaryStatus::Installed {
-                            version: Self::release_tag(),
-                        },
-                        Ok(false) => BinaryStatus::NotInstalled,
-                        Err(reason) => BinaryStatus::Invalid { reason },
-                    }
-                }
-                Ok(None) => BinaryStatus::NotInstalled,
+        let path = Self::asset_path();
+        let status = match Self::load_cached_manifest() {
+            Ok(Some(manifest)) => match Self::validate_bundle_in(&get_bin_dir(), &manifest) {
+                Ok(true) => BinaryStatus::Installed {
+                    version: Self::release_tag(),
+                },
+                Ok(false) => BinaryStatus::NotInstalled,
                 Err(reason) => BinaryStatus::Invalid { reason },
-            }
+            },
+            Ok(None) => BinaryStatus::NotInstalled,
+            Err(reason) => BinaryStatus::Invalid { reason },
         };
         BinaryInfo {
             service: service.display_name().into(),
@@ -376,7 +281,7 @@ impl BinaryManager {
             .map_err(|error| format!("Failed to read {url}: {error}"))?;
         progress(0.9);
         Self::verify_asset(&bytes, asset, url)?;
-        Self::write_atomic(path, &bytes, asset.executable)?;
+        Self::write_atomic(path, &bytes)?;
         progress(1.0);
         Ok(())
     }
@@ -399,7 +304,7 @@ impl BinaryManager {
         Ok(())
     }
 
-    fn write_atomic(path: &Path, bytes: &[u8], executable: bool) -> Result<(), String> {
+    fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         let parent = path
             .parent()
             .ok_or_else(|| format!("Runtime path has no parent: {}", path.display()))?;
@@ -412,86 +317,42 @@ impl BinaryManager {
         let temporary = parent.join(format!(".{filename}.partial-{}", std::process::id()));
         std::fs::write(&temporary, bytes)
             .map_err(|error| format!("Failed to write {}: {error}", temporary.display()))?;
-        #[cfg(unix)]
-        if executable {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = std::fs::metadata(&temporary)
-                .map_err(|error| format!("Failed to inspect {}: {error}", temporary.display()))?
-                .permissions();
-            permissions.set_mode(0o755);
-            std::fs::set_permissions(&temporary, permissions)
-                .map_err(|error| format!("Failed to chmod {}: {error}", temporary.display()))?;
-        }
         std::fs::rename(&temporary, path).map_err(|error| {
             let _ = std::fs::remove_file(&temporary);
             format!("Failed to install {}: {error}", path.display())
-        })?;
-        #[cfg(target_os = "macos")]
-        if executable {
-            let _ = std::process::Command::new("codesign")
-                .args(["-s", "-", "-f"])
-                .arg(path)
-                .status();
-        }
-        Ok(())
+        })
     }
+}
+
+fn is_hex(value: &str, length: usize) -> bool {
+    value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn asset(bytes: &[u8], executable: bool, platform: Option<&str>) -> RuntimeAsset {
+    fn asset(bytes: &[u8]) -> RuntimeAsset {
         RuntimeAsset {
             sha256: hex::encode(Sha256::digest(bytes)),
             size_bytes: bytes.len() as u64,
-            executable,
-            platform: platform.map(str::to_owned),
         }
     }
 
     fn manifest(version: &str) -> RuntimeManifest {
         RuntimeManifest {
-            schema: 1,
+            schema: MANIFEST_SCHEMA,
             labcoat_version: version.into(),
             release_tag: format!("cli-v{version}"),
             source_digest: "0".repeat(64),
-            sources: HashMap::from([
-                (
-                    "qubitcoin".into(),
-                    RuntimeSource {
-                        repository: "example/qubitcoin".into(),
-                        revision: "1".repeat(40),
-                    },
-                ),
-                (
-                    "alkanes-wasm".into(),
-                    RuntimeSource {
-                        repository: "example/alkanes".into(),
-                        revision: "2".repeat(40),
-                    },
-                ),
-                (
-                    "esplorashrew-wasm".into(),
-                    RuntimeSource {
-                        repository: "example/esplora".into(),
-                        revision: "3".repeat(40),
-                    },
-                ),
-            ]),
-            compatibility: HashMap::from([("qubitcoin_metashrew_revision".into(), "4".repeat(40))]),
-            assets: HashMap::from([
-                (
-                    "qubitcoind-linux-x86_64".into(),
-                    asset(b"native", true, Some("linux-x86_64")),
-                ),
-                (
-                    "qubitcoind-darwin-arm64".into(),
-                    asset(b"native", true, Some("darwin-arm64")),
-                ),
-                ("alkanes.wasm".into(), asset(b"alkanes", false, None)),
-                ("esplorashrew.wasm".into(), asset(b"esplora", false, None)),
-            ]),
+            sources: HashMap::from([(
+                INDEXER_SOURCE.into(),
+                RuntimeSource {
+                    repository: "example/alkanes".into(),
+                    revision: "2".repeat(40),
+                },
+            )]),
+            assets: HashMap::from([(INDEXER_ASSET.into(), asset(b"alkanes"))]),
         }
     }
 
@@ -507,14 +368,6 @@ mod tests {
     }
 
     #[test]
-    fn runtime_support_is_explicit() {
-        assert!(BinaryManager::platform_supported("darwin-arm64"));
-        assert!(BinaryManager::platform_supported("linux-x86_64"));
-        assert!(!BinaryManager::platform_supported("darwin-x86_64"));
-        assert!(!BinaryManager::platform_supported("linux-arm64"));
-    }
-
-    #[test]
     fn manifest_must_match_the_exact_cli_release() {
         assert!(BinaryManager::validate_manifest(&manifest(env!("CARGO_PKG_VERSION"))).is_ok());
         let error = BinaryManager::validate_manifest(&manifest("9.9.9")).unwrap_err();
@@ -522,19 +375,23 @@ mod tests {
     }
 
     #[test]
-    fn required_assets_map_the_native_binary_to_a_stable_local_name() {
-        let fixture = manifest(env!("CARGO_PKG_VERSION"));
-        let assets = BinaryManager::required_assets(&fixture, "linux-x86_64").unwrap();
-        assert_eq!(assets[0].0, "qubitcoind-linux-x86_64");
-        assert_eq!(assets[0].2, "qubitcoind");
-        assert_eq!(assets[1].2, "alkanes.wasm");
-        assert_eq!(assets[2].2, "esplorashrew.wasm");
-        assert!(BinaryManager::required_assets(&fixture, "linux-arm64").is_err());
+    fn manifest_must_list_only_the_indexer() {
+        let mut fixture = manifest(env!("CARGO_PKG_VERSION"));
+        fixture
+            .assets
+            .insert("qubitcoind-linux-x86_64".into(), asset(b"native"));
+        assert!(BinaryManager::validate_manifest(&fixture).is_err());
+
+        let mut fixture = manifest(env!("CARGO_PKG_VERSION"));
+        fixture.schema = 1;
+        assert!(BinaryManager::validate_manifest(&fixture)
+            .unwrap_err()
+            .contains("schema 1"));
     }
 
     #[test]
     fn checksum_and_size_validation_reject_tampering() {
-        let fixture = asset(b"runtime", true, Some("linux-x86_64"));
+        let fixture = asset(b"runtime");
         assert!(BinaryManager::verify_asset(b"runtime", &fixture, "fixture").is_ok());
         assert!(BinaryManager::verify_asset(b"tampered", &fixture, "fixture").is_err());
         assert!(BinaryManager::verify_asset(b"short", &fixture, "fixture").is_err());
@@ -556,22 +413,18 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_and_corrupt_cached_bundles_are_not_installed() {
+    fn missing_and_corrupt_modules_are_not_installed() {
         let root =
             std::env::temp_dir().join(format!("labcoat-runtime-assets-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         std::fs::create_dir_all(&root).unwrap();
         let fixture = manifest(env!("CARGO_PKG_VERSION"));
 
-        assert!(!BinaryManager::validate_bundle_in(&root, &fixture, "linux-x86_64").unwrap());
-        std::fs::write(root.join("qubitcoind"), b"native").unwrap();
-        std::fs::write(root.join("alkanes.wasm"), b"alkanes").unwrap();
-        assert!(!BinaryManager::validate_bundle_in(&root, &fixture, "linux-x86_64").unwrap());
-
-        std::fs::write(root.join("esplorashrew.wasm"), b"corrupt").unwrap();
-        assert!(BinaryManager::validate_bundle_in(&root, &fixture, "linux-x86_64").is_err());
-        std::fs::write(root.join("esplorashrew.wasm"), b"esplora").unwrap();
-        assert!(BinaryManager::validate_bundle_in(&root, &fixture, "linux-x86_64").unwrap());
+        assert!(!BinaryManager::validate_bundle_in(&root, &fixture).unwrap());
+        std::fs::write(root.join(INDEXER_ASSET), b"corrupt").unwrap();
+        assert!(BinaryManager::validate_bundle_in(&root, &fixture).is_err());
+        std::fs::write(root.join(INDEXER_ASSET), b"alkanes").unwrap();
+        assert!(BinaryManager::validate_bundle_in(&root, &fixture).unwrap());
 
         std::fs::remove_dir_all(root).ok();
     }
