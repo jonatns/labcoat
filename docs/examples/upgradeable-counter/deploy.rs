@@ -11,10 +11,10 @@
 //!
 //! Copy this file over `deploy.rs` and the sibling `e2e.rs` over
 //! `tests/e2e.rs` (its `add` call needs the method the tutorial adds to
-//! the counter), then `labcoat plan` and `labcoat apply --broadcast`, or
+//! the counter), then `labcoat plan` and `labcoat deploy`, or
 //! `labcoat test --e2e`.
 //!
-//! To upgrade, change `contracts/counter` and apply again: the plan
+//! To upgrade, change `contracts/counter` and deploy again: the plan
 //! deploys a new `counter_logic` and points the beacon at it. `counter`
 //! keeps its id and its storage.
 

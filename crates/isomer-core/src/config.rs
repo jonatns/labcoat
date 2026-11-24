@@ -107,6 +107,16 @@ pub fn get_bin_dir() -> PathBuf {
     )
 }
 
+/// Get the directory Labcoat keeps keystores in, outside every project.
+/// `reset` never touches it.
+pub fn get_wallets_dir() -> PathBuf {
+    let data_dir = std::env::var_os("LABCOAT_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(dirs::data_dir)
+        .unwrap_or_else(|| PathBuf::from("."));
+    labcoat_product_dir(&data_dir, std::env::consts::OS).join("wallets")
+}
+
 /// Get the runtime data directory (bitcoin data, indexes, etc)
 pub fn get_runtime_dir() -> PathBuf {
     get_data_dir().join("runtime-v2")

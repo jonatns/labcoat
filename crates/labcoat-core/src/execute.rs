@@ -367,7 +367,7 @@ pub(crate) async fn run_with_broadcast(
                         "report this as a Labcoat bug",
                     ));
                 };
-                // Keep the prepared reveal until broadcast. A separate apply
+                // Keep the prepared reveal until broadcast. A separate deploy
                 // can approve and send it if the previous one stopped here.
                 let pending = persist_pending_reveal(config, &reveal);
                 approve_reveal(config, &wallet_fingerprint, &reveal)?;

@@ -12,8 +12,8 @@ contract later with `labcoat new token`.
 contracts/           Rust contract sources
 tests/               Native integration tests; tests/e2e.rs runs on Labcoat Network
 Cargo.toml           Host-side test project
-deploy.rs            Deployment script for plan and apply
-deployments/         Per-network run files, created on apply
+deploy.rs            Deployment script for plan and deploy
+deployments/         Per-network run files, created on deploy
 labcoat.toml         Public project configuration
 labcoat.lock         Per-network address book, created on deploy
 rust-toolchain.toml  Pinned Rust toolchain and WebAssembly targets
@@ -28,7 +28,7 @@ installs it on first use. See [Deployment scripts](/docs/deployments/) for
 for durable deployment history.
 
 `deploy.rs` is registered in the root `Cargo.toml` as the `deploy` example
-target, which is how `labcoat plan` and `labcoat apply` run it.
+target, which is how `labcoat plan` and `labcoat deploy` run it.
 
 ## Settings precedence
 
@@ -43,10 +43,59 @@ CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
 `default`). The default network is `labcoat` and the default Qubitcoin RPC
 endpoint is `http://127.0.0.1:18443`.
 
+## Signet and mainnet through Subfrost
+
+`--network signet` and `--network mainnet` use [Subfrost](https://subfrost.io)'s
+hosted Alkanes JSON-RPC unless you set another endpoint:
+
+```bash
+labcoat --network signet simulate 2:0 99
+labcoat --network signet plan
+```
+
+| Network | Default endpoint |
+|---|---|
+| `signet` | `https://signet.subfrost.io/v4/jsonrpc` |
+| `mainnet` | `https://mainnet.subfrost.io/v4/jsonrpc` |
+
+`rpc_url = "subfrost"` (or `--rpc-url subfrost`) names the same endpoints, and
+Subfrost's hosted regtest with `--network regtest`. Set `SUBFROST_API_KEY` to
+send an API key. The public endpoints answer without one but allow only 20
+requests a minute, which a deploy exceeds; past that Labcoat reports
+`RPC_REJECTED`. An `rpc_url` in `labcoat.toml` applies only to the network that file
+names, so a local endpoint never follows `--network signet`.
+
+Reads and `labcoat plan` work today. Signing on a public network needs a
+wallet for it (`labcoat --network signet wallet init`) and has not been
+proven end to end; mainnet deployment controls are not production-ready.
+
 `labcoat` selects Labcoat Network, Labcoat's local/private environment. It uses
 Bitcoin regtest protocol rules underneath but is not Signet. The separate
 `regtest` selector is reserved for custom regtest RPC endpoints and is rejected
 with the default Labcoat endpoint.
+
+## Wallets
+
+Keystores live in Labcoat's data directory, one per network, never in the
+project:
+
+| Platform | Path |
+|---|---|
+| macOS | `~/Library/Application Support/Labcoat/wallets/<network>.json` |
+| Linux | `~/.local/share/labcoat/wallets/<network>.json` |
+
+Labcoat Network's wallet is created and funded by `labcoat up`. Its passphrase
+is public, so Labcoat refuses to use it on any other network or to import a
+mnemonic into it. Every other network needs its own:
+
+```bash
+labcoat --network signet wallet init
+```
+
+`--wallet-file`, `LABCOAT_WALLET_FILE`, or `wallet_file` in `labcoat.toml`
+select a different keystore. A project created before this change sets
+`wallet_file = ".labcoat/wallet.json"` and keeps using it on every network;
+remove that line to use the defaults.
 
 ## Secrets
 

@@ -314,14 +314,21 @@ pub async fn run() -> Vec<Check> {
     if std::path::Path::new("labcoat.lock").exists() {
         checks.push(ok("labcoat.lock", "present"));
     }
-    if std::path::Path::new(".labcoat/wallet.json").exists() {
-        checks.push(ok("wallet", ".labcoat/wallet.json present"));
-    } else {
-        checks.push(warn(
+    match crate::settings::resolve(crate::settings::Overrides::default()) {
+        Ok(settings) if settings.wallet_file.exists() => checks.push(ok(
             "wallet",
-            "no project wallet keystore",
-            "labcoat wallet init",
-        ));
+            format!("{} present", settings.wallet_file.display()),
+        )),
+        Ok(settings) => checks.push(warn(
+            "wallet",
+            format!("no keystore at {}", settings.wallet_file.display()),
+            if crate::local_wallet::is_built_in(&settings.wallet_file) {
+                "labcoat up"
+            } else {
+                "labcoat wallet init"
+            },
+        )),
+        Err(message) => checks.push(warn("wallet", message, "fix labcoat.toml")),
     }
 
     checks

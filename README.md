@@ -1,6 +1,6 @@
 # Labcoat
 
-![Labcoat — From Rust source to decoded trace.](apps/web/public/og.svg)
+![Labcoat — From Rust source to decoded trace.](apps/web/public/og.png)
 
 **From Rust source to decoded trace.**
 
@@ -59,12 +59,9 @@ cd hello-alkane
 labcoat test
 
 labcoat up
-labcoat wallet init
-labcoat wallet addresses
-labcoat fund <address>
-labcoat mine 1
 
-labcoat deploy counter
+labcoat plan
+labcoat deploy
 labcoat simulate counter get_count
 labcoat call counter increment
 labcoat trace <txid> --wait

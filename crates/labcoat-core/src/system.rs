@@ -90,7 +90,7 @@ pub struct ToolkitConfig {
     pub network: NetworkTarget,
     /// Direct Qubitcoin RPC endpoint.
     pub rpc_url: String,
-    /// Keystore path (project-local by default).
+    /// Keystore path.
     pub wallet_file: PathBuf,
     /// Fee rate in sat/vB for state-changing operations.
     pub fee_rate: Option<f32>,
@@ -215,7 +215,11 @@ pub async fn connect(
     )
     .await
     .map_err(|e| LabcoatError::classify(e.into()))?;
-    provider.rpc_config.qubitcoin_rpc_url = Some(config.rpc_url.clone());
+    // A Qubitcoin node serves its indexers through `secondaryview`. Subfrost
+    // serves the standard Alkanes JSON-RPC instead and rejects those methods.
+    if !is_subfrost(&config.rpc_url) {
+        provider.rpc_config.qubitcoin_rpc_url = Some(config.rpc_url.clone());
+    }
     // Upstream's legacy URL selector does not consider qubitcoin_rpc_url for
     // Esplora/Ord commands. Point its JSON-RPC fallback at the same direct
     // Qubitcoin endpoint so `call()` can apply the secondaryview translation.
@@ -238,6 +242,20 @@ pub async fn connect(
     Ok(provider)
 }
 
+/// Whether `url` is a Subfrost-hosted endpoint. Upstream uses the same host
+/// rule to attach `SUBFROST_API_KEY`.
+pub fn is_subfrost(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    let host = host
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    host == "subfrost.io" || host.ends_with(".subfrost.io")
+}
+
 /// Only a definite "not found" is `WALLET_MISSING`. `Path::exists` folds
 /// every I/O error into `false`, which would tell a user whose keystore is
 /// merely unreadable that it does not exist.
@@ -247,7 +265,7 @@ fn require_keystore(path: &std::path::Path) -> Result<()> {
         Ok(false) => Err(LabcoatError::new(
             "WALLET_MISSING",
             format!("no wallet keystore exists at {}", path.display()),
-            "run `labcoat wallet init` first",
+            "run `labcoat up` for Labcoat Network's built-in wallet, or `labcoat wallet init` to create one",
         )),
         Err(error) => Err(LabcoatError::new(
             "TOOLKIT_ERROR",
@@ -368,6 +386,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn subfrost_endpoints_use_standard_json_rpc() {
+        for url in [
+            "https://signet.subfrost.io/v4/jsonrpc",
+            "https://MAINNET.subfrost.io:443/v4/jsonrpc",
+            "https://subfrost.io",
+        ] {
+            assert!(is_subfrost(url), "{url}");
+        }
+        for url in [
+            "http://127.0.0.1:18443",
+            "https://subfrost.io.example.com/v4/jsonrpc",
+            "https://example.com/subfrost.io",
+            "https://notsubfrost.io",
+        ] {
+            assert!(!is_subfrost(url), "{url}");
+        }
+
+        let config = ToolkitConfig {
+            network: NetworkTarget::Signet,
+            rpc_url: "https://signet.subfrost.io/v4/jsonrpc".into(),
+            ..ToolkitConfig::default()
+        };
+        let provider = connect(&config, None, false).await.unwrap();
+        assert!(!provider.rpc_config.is_qubitcoin_mode());
+        assert_eq!(
+            provider.rpc_config.jsonrpc_url.as_deref(),
+            Some("https://signet.subfrost.io/v4/jsonrpc")
+        );
+    }
+
+    #[tokio::test]
     async fn provider_routes_legacy_esplora_commands_to_qubitcoin() {
         let config = ToolkitConfig::default();
         let provider = connect(&config, None, false).await.unwrap();
@@ -413,7 +462,7 @@ mod tests {
             )
         );
         assert!(!error.message.contains("address-only"));
-        assert_eq!(error.hint, "run `labcoat wallet init` first");
+        assert!(error.hint.contains("labcoat wallet init"));
         // Failing early must not leave a stray `.labcoat/` behind.
         assert!(!dir.exists());
 

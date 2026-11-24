@@ -42,13 +42,19 @@ Alkanes and Esplora indexes. Use `labcoat reset` to start from a fresh chain.
 
 ## Wallet workflow
 
+`labcoat up` creates a wallet for the network and tops it up to 10 BTC when
+it holds less than 1. Every project on the machine shares it, as they share
+the chain. `labcoat reset` keeps its key, and the next `up` funds it again.
+
 ```bash
-labcoat wallet init
 labcoat wallet addresses --count 3
-labcoat fund <p2tr-address> 1
-labcoat mine 1
 labcoat wallet utxos
+labcoat fund <p2tr-address> 1   # fund any other address
+labcoat mine 1
 ```
+
+The wallet works only on Labcoat Network; see
+[Wallets](/docs/projects-configuration/#wallets).
 
 The wallet derives BIP-86, BIP-84, BIP-49, and BIP-44 addresses. P2TR is the
 primary address for Alkanes operations.

@@ -13,13 +13,17 @@ proposed and is not part of the supported product.
 >   `labcoat`), not `[resources.*]` tables in `labcoat.toml`.
 > - Immutable work — contracts, template clones, and calls — is **pinned**:
 >   it runs once per network and is compared with its record. An edited step
->   is a `conflict` that apply refuses; a new instance is an explicit
+>   is a `conflict` that deploy refuses; a new instance is an explicit
 >   `--replace`, never an automatic `replace` action. Only an
 >   `implementation` behind an upgradeable pointer redeploys on a code
 >   change, and only a `setting` (a proxy or beacon pointer, or another
 >   mutable value with a read and a write) converges.
 > - Each network's record is `deployments/<network>.json`, the run file,
 >   committed for shared networks. It replaces the apply call journal.
+> - The command that executes a plan is `labcoat deploy`, which also takes
+>   one step by name. There is no `labcoat apply`: where this document says
+>   apply, read deploy. Direct `labcoat deploy <package>` is gone, so every
+>   deploy of a declared contract is recorded in the run file.
 > - Initializer opcodes, reserved and cloned targets, the standard proxy,
 >   beacon, and beacon-proxy contracts, auth-token handling, and import of
 >   existing contracts are implemented by that model (Milestone 2 and parts

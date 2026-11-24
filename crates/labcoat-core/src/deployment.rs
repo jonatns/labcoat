@@ -1,8 +1,8 @@
 //! The deployment graph — what a project's `deploy.rs` script declares and
-//! `labcoat plan` / `labcoat apply` reconcile.
+//! `labcoat plan` / `labcoat deploy` reconcile.
 //!
 //! The script (see `labcoat`) never executes anything: it
-//! emits this graph as JSON and the CLI validates, plans, and applies it.
+//! emits this graph as JSON and the CLI validates, plans, and deploys it.
 //! Steps run in declaration order, and a step may reference only steps
 //! declared before it, so the declaration order is always a valid
 //! dependency order.
@@ -12,11 +12,11 @@
 //! - `external`: a name for an id that exists outside the deployment.
 //! - `contract` (pinned): deployed once. Its *definition* — artifact hash,
 //!   target, initializer, and symbolic arguments — is recorded when it
-//!   runs; a later change is a conflict, not something apply repairs.
+//!   runs; a later change is a conflict, not something deploy repairs.
 //! - `contract` (replaceable): code reached through an upgradeable
 //!   pointer. A changed definition deploys a new instance.
 //! - `call` (pinned): runs once.
-//! - `setting`: a mutable on-chain value apply keeps equal to the declared
+//! - `setting`: a mutable on-chain value deploy keeps equal to the declared
 //!   one, writing only when a read shows a difference.
 
 use crate::error::{LabcoatError, Result};

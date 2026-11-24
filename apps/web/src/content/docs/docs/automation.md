@@ -13,7 +13,7 @@ and progress stay on stderr.
 
 ```bash
 labcoat status --json
-labcoat deploy my-token --dry-run --json
+labcoat deploy --json
 ```
 
 ```json
@@ -23,8 +23,8 @@ labcoat deploy my-token --dry-run --json
   "schema": "labcoat/v1/error",
   "error": {
     "code": "WALLET_MISSING",
-    "message": "project wallet does not exist",
-    "hint": "run `labcoat wallet init` first"
+    "message": "no wallet keystore exists at .../wallets/signet.json",
+    "hint": "run `labcoat up` for Labcoat Network's built-in wallet, or `labcoat wallet init` to create one"
   }
 }
 ```
@@ -38,10 +38,12 @@ the envelope rather than inferring application success from the process code.
 labcoat mcp serve
 ```
 
-The stdio MCP server exposes Labcoat Network, wallet, build, test, deployment,
-deployment plan, apply, and import, call, simulation, trace, balance, atomic exchange,
+The stdio MCP server exposes Labcoat Network, wallet, build, test, deployment
+plan, deploy, and import, call, simulation, trace, balance, atomic exchange,
 durable state, and web generation tools, using the same typed operations as
-the CLI.
+the CLI. The `deploy` tool takes `dryRun: true` to return the plan
+without signing, and refuses public networks unless the server was started
+with `--yes`.
 
 Pin the Labcoat version used by an agent. The public website tracks current
 `main`; `labcoat docs --llm` is the installed-version authority.

@@ -6,8 +6,8 @@ description: Put a contract behind a beacon proxy with a deployment script, then
 Alkanes contract code cannot change after it is deployed. This tutorial puts
 the starter Counter behind a standard **beacon proxy**, so its code can be
 replaced while its id and its stored count stay put. You will write a
-deployment script, review and apply its plan on Labcoat Network, apply an
-upgrade, and see what Labcoat refuses to change.
+deployment script, review its plan and deploy it on Labcoat Network, deploy
+an upgrade, and see what Labcoat refuses to change.
 
 You need a [Labcoat installation](/docs/getting-started/installation/) and
 about fifteen minutes. The first build compiles the Alkanes runtime and takes
@@ -100,20 +100,13 @@ The script declares five steps and executes none of them. Two details matter:
   Labcoat the method name belongs to the logic: the proxy's own ABI knows only
   proxy methods.
 
-## Start the network and fund the wallet
+## Start the network
 
 ```bash
 labcoat up
-labcoat wallet init
-labcoat wallet addresses
 ```
 
-Fund the displayed address and confirm it:
-
-```bash
-labcoat fund <address>
-labcoat mine 1
-```
+It comes with a funded wallet.
 
 ## Review the plan
 
@@ -146,22 +139,22 @@ Planning signs nothing. It shows what will run and with which arguments.
 `counter_beacon_implementation` that keeps the beacon pointing at the current
 logic. It shows `pending (check)` because there is nothing to compare yet.
 
-## Apply it
+## Deploy it
 
 ```bash
-labcoat apply --broadcast
+labcoat deploy
 ```
 
 ```text
-✓ Applied 5 of 6 step(s)
+✓ Executed 5 of 6 step(s)
 
-Kind      Name                           Outcome  Id       Change
-contract  auth_token                     applied  4:65517
-contract  counter_logic                  applied  2:1
-contract  counter_beacon                 applied  2:2
-setting   counter_beacon_implementation  in-sync  2:2      already 2:1
-contract  counter                        applied  2:4
-call      init_counter                   applied  2:4
+Kind      Name                           Outcome   Id       Change
+contract  auth_token                     executed  4:65517
+contract  counter_logic                  executed  2:1
+contract  counter_beacon                 executed  2:2
+setting   counter_beacon_implementation  in-sync   2:2      already 2:1
+contract  counter                        executed  2:4
+call      init_counter                   executed  2:4
 ```
 
 Five transactions went out. The setting needed none: Labcoat read the beacon,
@@ -170,7 +163,7 @@ found it already pointing at `2:1`, and recorded that.
 The beacon is `2:2` and the proxy is `2:4`. The id in between, `2:3`, is the
 beacon's auth token, minted to your wallet when the beacon initialized.
 
-Run `labcoat plan` again and every step is `complete`. Applying an unchanged
+Run `labcoat plan` again and every step is `complete`. Deploying an unchanged
 script does nothing.
 
 ## Use the contract
@@ -238,17 +231,17 @@ plan deploys a new instance and repoints the beacon. The beacon and the proxy
 are untouched.
 
 ```bash
-labcoat apply --broadcast
+labcoat deploy
 ```
 
 ```text
-✓ Applied 2 of 6 step(s)
+✓ Executed 2 of 6 step(s)
 
 Kind      Name                           Outcome           Id       Change
 contract  auth_token                     skipped-complete  4:65517
-contract  counter_logic                  applied           2:5
+contract  counter_logic                  executed          2:5      2:1 → 2:5
 contract  counter_beacon                 skipped-complete  2:2
-setting   counter_beacon_implementation  applied           2:2      2:1 → 2:5
+setting   counter_beacon_implementation  executed          2:2      2:1 → 2:5
 contract  counter                        skipped-complete  2:4
 call      init_counter                   skipped-complete  2:4
 ```
@@ -271,8 +264,8 @@ at it any more.
 
 ## See what Labcoat will not change
 
-The beacon is deployed once. Try to edit it: in `deploy.rs`, mint two auth
-tokens instead of one.
+The beacon is deployed once. Edit it in `deploy.rs` to mint two auth tokens
+instead of one:
 
 ```rust
         let beacon = d.beacon("counter_beacon", "beacon", &logic).auth_units(2);
@@ -282,36 +275,15 @@ tokens instead of one.
 labcoat plan
 ```
 
-```text
-! Plan for deploy.rs — 0 pending, 1 in conflict
-
-Kind      Name                           Status    Id/Target
-contract  auth_token                     complete  4:65517
-contract  counter_logic                  complete  2:5
-contract  counter_beacon                 conflict  2:2
-setting   counter_beacon_implementation  complete  2:2
-contract  counter                        complete  2:4
-call      init_counter                   complete  2:4
-
-Step            Arguments
-counter_beacon  implementation=2:5, auth_token_units=2
-
-counter_beacon: its definition changed since it ran — restore it, or pass
-`--replace counter_beacon` to deploy a new instance
-
-Apply refuses while a step is in conflict: restore the step, or name it in
---replace.
-```
-
 A beacon that already initialized cannot mint a different number of tokens, so
-there is nothing Labcoat could do to make the chain match. It says so instead
-of pretending, and `labcoat apply --broadcast` stops with
-`DEPLOYMENT_CONFLICT` before sending anything.
+the only way to get there is a second beacon. On Labcoat Network the plan
+offers exactly that: `counter_beacon` and `counter`, the proxy that points at
+it, are both `pending (replace)`, and `init_counter` runs again. The new proxy
+would have a new id and a count of `0`.
 
-`--replace counter_beacon` would deploy a second beacon with a new id. The
-proxy points at the first one, so the plan would then list `counter` as a
-conflict too. That is the real cost of replacing a pinned contract, shown
-before you pay it. Here, undo the edit instead:
+On any other network Labcoat reports `counter_beacon` as a `conflict` instead,
+and `labcoat deploy` stops with `DEPLOYMENT_CONFLICT` before sending anything,
+until you name each step in `--replace`. Here, undo the edit:
 
 ```rust
         let beacon = d.beacon("counter_beacon", "beacon", &logic);
@@ -321,7 +293,7 @@ and the plan is clean again.
 
 ## Test the deployment
 
-`labcoat test --e2e` resets Labcoat Network, applies `deploy.rs` from scratch,
+`labcoat test --e2e` resets Labcoat Network, deploys `deploy.rs` from scratch,
 and runs `tests/e2e.rs`. Replace that file:
 
 ```rust
@@ -373,10 +345,10 @@ labcoat test --e2e
 - **A contract with its own pointer.** `labcoat new proxy --template
   upgradeable` and `d.proxy("vault", "proxy", &logic)` declare a standalone
   upgradeable proxy with no beacon.
-- **Shared networks.** Pass `--network signet` to `plan` and `apply`, and
+- **Shared networks.** Pass `--network signet` to `plan` and `deploy`, and
   commit `deployments/signet.json`: it is the record that keeps a second
-  apply, by you or a teammate, from deploying everything again. The wallet
-  that applies an upgrade has to hold the auth token. If the auth token
+  deploy, by you or a teammate, from running every step again. The wallet
+  that deploys an upgrade has to hold the auth token. If the auth token
   template already exists at `4:65517`, the plan adopts it instead of
   deploying it.
 - **Storage compatibility is yours to check.** Labcoat cannot tell whether new

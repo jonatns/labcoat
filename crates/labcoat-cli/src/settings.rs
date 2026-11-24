@@ -5,7 +5,6 @@ use std::str::FromStr;
 
 const DEFAULT_NETWORK: &str = "labcoat";
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:18443";
-const DEFAULT_WALLET_FILE: &str = ".labcoat/wallet.json";
 const DEFAULT_ENVIRONMENT: &str = "default";
 
 #[derive(Debug, Default, Deserialize)]
@@ -61,16 +60,34 @@ fn resolve_in_with(
     let network_value = choose_string(
         overrides.network,
         env("LABCOAT_NETWORK"),
-        config.network,
+        config.network.clone(),
         DEFAULT_NETWORK,
     );
     let network = NetworkTarget::from_str(&network_value)?;
+    // labcoat.toml describes one network. Its endpoint must not follow a
+    // `--network` override to a different chain.
+    let file_network = config
+        .network
+        .as_deref()
+        .map_or(Ok(NetworkTarget::Labcoat), NetworkTarget::from_str)?;
     let rpc_url = choose_string(
         overrides.rpc_url,
         env("LABCOAT_RPC_URL"),
-        config.rpc_url,
-        DEFAULT_RPC_URL,
+        config.rpc_url.filter(|_| file_network == network),
+        default_rpc_url(network),
     );
+    let rpc_url = if rpc_url == "subfrost" {
+        subfrost_rpc_url(network)
+            .ok_or_else(|| {
+                format!(
+                    "Subfrost has no endpoint for network '{}'; use signet, mainnet, or regtest",
+                    network.id()
+                )
+            })?
+            .to_string()
+    } else {
+        rpc_url
+    };
     if network == NetworkTarget::Regtest && rpc_url == DEFAULT_RPC_URL {
         return Err(
             "network 'regtest' is reserved for custom regtest RPCs; use network = \"labcoat\" for Labcoat Network or configure a non-default rpc_url"
@@ -82,7 +99,14 @@ fn resolve_in_with(
         .map(PathBuf::from)
         .or_else(|| env("LABCOAT_WALLET_FILE").map(PathBuf::from))
         .or(config.wallet_file)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_WALLET_FILE));
+        .unwrap_or_else(|| crate::local_wallet::default_path(network));
+    if network != NetworkTarget::Labcoat && crate::local_wallet::is_built_in(&wallet_file) {
+        return Err(format!(
+            "the built-in Labcoat Network wallet cannot be used on {}; its passphrase is public. Create a wallet for this network with `labcoat --network {} wallet init`",
+            network.id(),
+            network.id()
+        ));
+    }
     let env_fee_rate = env("LABCOAT_FEE_RATE")
         .filter(|value| !value.is_empty())
         .map(|value| {
@@ -121,11 +145,31 @@ fn resolve_in_with(
     })
 }
 
+/// Subfrost's hosted Alkanes JSON-RPC for `network`.
+fn subfrost_rpc_url(network: NetworkTarget) -> Option<&'static str> {
+    match network {
+        NetworkTarget::Signet => Some("https://signet.subfrost.io/v4/jsonrpc"),
+        NetworkTarget::Mainnet => Some("https://mainnet.subfrost.io/v4/jsonrpc"),
+        NetworkTarget::Regtest => Some("https://regtest.subfrost.io/v4/jsonrpc"),
+        _ => None,
+    }
+}
+
+/// Public networks default to Subfrost; everything else is a local node.
+fn default_rpc_url(network: NetworkTarget) -> &'static str {
+    match network {
+        NetworkTarget::Signet | NetworkTarget::Mainnet => {
+            subfrost_rpc_url(network).expect("Subfrost serves signet and mainnet")
+        }
+        _ => DEFAULT_RPC_URL,
+    }
+}
+
 pub fn labcoat_network() -> ResolvedSettings {
     ResolvedSettings {
         network: NetworkTarget::Labcoat,
         rpc_url: DEFAULT_RPC_URL.to_string(),
-        wallet_file: PathBuf::from(DEFAULT_WALLET_FILE),
+        wallet_file: crate::local_wallet::default_path(NetworkTarget::Labcoat),
         fee_rate: Some(2.0),
         signer: "keystore".to_string(),
         environment: DEFAULT_ENVIRONMENT.to_string(),
@@ -263,6 +307,79 @@ mod tests {
         let resolved = resolve_in_with(&root, Overrides::default(), |_| None).unwrap();
         assert_eq!(resolved.network, NetworkTarget::Labcoat);
         assert_eq!(resolved.rpc_url, DEFAULT_RPC_URL);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn keystores_default_outside_the_project_and_the_built_in_one_stays_local() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-settings-wallets-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let on = |network, wallet_file: Option<&str>| {
+            resolve_in_with(
+                &root,
+                Overrides {
+                    network: Some(network),
+                    wallet_file,
+                    ..Overrides::default()
+                },
+                |_| None,
+            )
+        };
+        let local = on("labcoat", None).unwrap().wallet_file;
+        let signet = on("signet", None).unwrap().wallet_file;
+        assert_ne!(local, signet);
+        assert!(!local.starts_with(&root) && !signet.starts_with(&root));
+        assert!(on("signet", local.to_str())
+            .unwrap_err()
+            .contains("built-in"));
+        assert_eq!(
+            on("signet", Some("mine.json")).unwrap().wallet_file,
+            PathBuf::from("mine.json")
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn public_networks_default_to_subfrost_and_never_inherit_the_local_endpoint() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-settings-subfrost-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("labcoat.toml"),
+            "network = \"labcoat\"\nrpc_url = \"http://127.0.0.1:18443\"\n",
+        )
+        .unwrap();
+        let rpc = |network: Option<&str>, rpc_url: Option<&str>| {
+            resolve_in_with(
+                &root,
+                Overrides {
+                    network,
+                    rpc_url,
+                    ..Overrides::default()
+                },
+                |_| None,
+            )
+            .map(|settings| settings.rpc_url)
+        };
+        assert_eq!(rpc(None, None).unwrap(), DEFAULT_RPC_URL);
+        assert_eq!(
+            rpc(Some("signet"), None).unwrap(),
+            "https://signet.subfrost.io/v4/jsonrpc"
+        );
+        assert_eq!(
+            rpc(Some("mainnet"), None).unwrap(),
+            "https://mainnet.subfrost.io/v4/jsonrpc"
+        );
+        assert_eq!(
+            rpc(Some("signet"), Some("http://mine")).unwrap(),
+            "http://mine"
+        );
+        assert_eq!(
+            rpc(Some("regtest"), Some("subfrost")).unwrap(),
+            "https://regtest.subfrost.io/v4/jsonrpc"
+        );
+        assert!(rpc(Some("testnet"), Some("subfrost")).is_err());
         std::fs::remove_dir_all(root).ok();
     }
 

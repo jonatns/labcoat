@@ -88,7 +88,7 @@ fn init_in(parent: &Path, project_name: &str) -> CmdResult {
         "template": "default",
         "contract": "counter",
         "files": FILES.iter().map(|(path, _)| *path).collect::<Vec<_>>(),
-        "next": ["labcoat test", "labcoat up", "labcoat wallet init"]
+        "next": ["labcoat test", "labcoat up", "labcoat deploy"]
     }))
 }
 

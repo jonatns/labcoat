@@ -30,7 +30,7 @@ pub(crate) fn tools() -> Vec<Value> {
         "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)"
     });
     vec![
-        tool("network_up", "Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
+        tool("network_up", "Boot Labcoat Network using the exact runtime bundle for this CLI release. Creates and funds the built-in wallet, then returns service status, the endpoint manifest, and the wallet.",
             json!({"noDownload": {"type": "boolean", "description": "skip the binary check/download"}}), &[]),
         tool("network_down", "Stop all Labcoat Network services.", json!({}), &[]),
         tool("network_status", "Labcoat Network service health, block height, and mempool size.", json!({}), &[]),
@@ -41,7 +41,7 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("network_reset", "Stop services and wipe all Labcoat Network chain data.", json!({}), &[]),
         tool("network_logs", "Recent Labcoat Network service logs.",
             json!({"service": {"type": "string", "enum": ["qubitcoind"]}, "limit": {"type": "integer"}}), &[]),
-        tool("wallet_init", "Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
+        tool("wallet_init", "Create or load the selected network's wallet keystore. Not needed on Labcoat Network, which comes with a funded wallet. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
             json!({"mnemonic": {"type": "string"}, "showMnemonic": {"type": "boolean"}}), &[]),
         tool("wallet_addresses", "Wallet receive addresses per script type.",
             json!({"count": {"type": "integer", "minimum": 1}}), &[]),
@@ -54,8 +54,6 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"contract": {"type": "string"}, "out": {"type": "string"}}), &["contract"]),
         tool("abi_verify", "Compare a deployed ABI with a locally built contract package.",
             json!({"contract": {"type": "string"}, "package": {"type": "string"}}), &["contract"]),
-        tool("deploy", "Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm.",
-            json!({"package": {"type": "string", "description": "exact Cargo contract package name"}, "wasm": {"type": "string", "description": "explicit path to raw .wasm; skips compilation"}, "name": {"type": "string", "description": "optional name for wasm deployments"}, "args": arg_array.clone(), "reserve": {"type": "string", "description": "reserved number N for a [3,N] deploy target (default: next free id via [1,0])"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &[]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
             json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone(), "abi": {"type": "string", "description": "resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id); for a proxy, name the implementation"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &["contract", "opcode"]),
         tool("exchange_plan", "Build an owner-partitioned atomic exchange plan and return its base64 PSBT.",
@@ -70,8 +68,8 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"address": {"type": "string"}}), &["address"]),
         tool("plan", "Run the project's deploy.rs deployment script and reconcile its steps against the network's run file and chain state; shows pending, complete, and conflicting steps without loading a signer.",
             json!({"replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again"}}), &[]),
-        tool("apply", "Execute the pending deployment steps deploy.rs declares. Requires broadcast: true to transact; otherwise returns the plan. Refuses while any step is in conflict.",
-            json!({"replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again"}, "broadcast": {"type": "boolean", "description": "actually broadcast transactions"}}), &[]),
+        tool("deploy", "Execute the pending deployment steps deploy.rs declares, or only the step named in step. dryRun: true returns the plan without signing. On Labcoat Network a changed contract, and whatever references it, redeploys with empty storage; on other networks deploy refuses while a step is in conflict. Public networks refuse to sign unless the server was started with --yes. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.",
+            json!({"dryRun": {"type": "boolean", "description": "preview without signing"}, "step": {"type": "string", "description": "step name from deploy.rs; every pending step when omitted"}, "replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again; runs the whole deployment, so it takes no step"}, "wasm": {"type": "string", "description": "path to a raw .wasm to deploy outside deploy.rs instead of a step"}, "name": {"type": "string", "description": "wasm only: contract name (default: file stem)"}, "args": {"type": "array", "items": {"type": "string"}, "description": "wasm only: constructor args, one per ABI constructor parameter (decimal u128 or 0x-hex cellpack values when the artifact exposes no ABI constructor)"}, "reserve": {"type": "string", "description": "wasm only: reserved number N for a [3,N] deploy target (default: next free id via [1,0])"}, "inputs": {"type": "string", "description": "wasm only: comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "wasm only: recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "wasm only: protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "wasm only: protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "wasm only: edicts block:tx:amount:target appended to the protostone"}}), &[]),
         tool("import", "Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.",
             json!({"name": {"type": "string", "description": "contract step name from deploy.rs"}, "id": {"type": "string", "description": "the deployed contract's block:tx id"}, "txid": {"type": "string", "description": "deployment or reveal transaction id for recovering other created IDs, including auth tokens"}}), &["name", "id"]),
         tool("state_list", "List resources and active instances in this environment's durable deployment state.",
@@ -158,10 +156,11 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             network
                 .start()
                 .map_err(|e| (e, "see network_logs for the failing service".into()))?;
+            let wallet = crate::local_wallet::prepare(&mut network).await;
             let status = network.status().await;
             let endpoints = network.endpoints();
             std::mem::forget(network); // services must outlive this process
-            Ok(json!({ "status": status, "endpoints": endpoints }))
+            Ok(json!({ "status": status, "endpoints": endpoints, "wallet": wallet }))
         }
         "network_down" => {
             let mut network = LabcoatNetwork::new();
@@ -246,6 +245,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             let res: Result<labcoat_core::wallet::WalletInitResult, labcoat_core::LabcoatError> =
                 async {
                     ctx.config.require_passphrase_policy(&passphrase)?;
+                    ctx.refuse_imported_mnemonic(&mnemonic)?;
                     let mut provider =
                         labcoat_core::system::connect(&ctx.config, passphrase.clone(), false)
                             .await?;
@@ -256,6 +256,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                         passphrase,
                     )
                     .await?;
+                    ctx.hide_built_in_mnemonic(&mut result);
                     // MCP transcripts are logs; never capture a generated
                     // mnemonic in one unless the caller asked for it.
                     if !show_mnemonic && result.mnemonic.is_some() {
@@ -333,23 +334,6 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                     contract: contract_ref,
                     package,
                 },
-            )
-            .await;
-            res.map_err(fail)
-        }
-        "deploy" => {
-            let package = args.get("package").and_then(|v| v.as_str());
-            let wasm = args.get("wasm").and_then(|v| v.as_str());
-            let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
-            let reserve = parse_reserve(args)?;
-            let (_, res) = contract::deploy(
-                ctx,
-                package,
-                wasm,
-                name,
-                &str_args(args.get("args")),
-                reserve,
-                &tx_flags(args),
             )
             .await;
             res.map_err(fail)
@@ -519,12 +503,24 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             let (_, res) = contract::plan(ctx, &str_args(args.get("replace"))).await;
             res.map_err(fail)
         }
-        "apply" => {
-            let broadcast = args
-                .get("broadcast")
+        "deploy" => {
+            let dry_run = args
+                .get("dryRun")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let (_, res) = contract::apply(ctx, &str_args(args.get("replace")), broadcast).await;
+            let string = |key: &str| args.get(key).and_then(|v| v.as_str()).map(String::from);
+            let request = contract::DeployFlags {
+                step: string("step"),
+                replace: str_args(args.get("replace")),
+                wasm: string("wasm"),
+                name: string("name"),
+                args: str_args(args.get("args")),
+                reserve: parse_reserve(args)?,
+                tx: tx_flags(args),
+            }
+            .request()
+            .map_err(fail)?;
+            let (_, res) = contract::deploy(ctx, request, dry_run).await;
             res.map_err(fail)
         }
         "import" => {
@@ -674,7 +670,8 @@ mod tests {
         );
         assert!(named("abi_verify")["inputSchema"]["properties"]["package"].is_object());
         assert_eq!(named("deploy")["inputSchema"]["required"], json!([]));
-        assert!(named("deploy")["inputSchema"]["properties"]["package"].is_object());
+        assert!(named("deploy")["inputSchema"]["properties"]["step"].is_object());
+        assert!(named("deploy")["inputSchema"]["properties"]["replace"].is_object());
         assert!(named("deploy")["inputSchema"]["properties"]["wasm"].is_object());
         assert_eq!(
             named("call")["inputSchema"]["properties"]["opcode"]["description"],

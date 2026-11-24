@@ -43,15 +43,15 @@ labcoat test
       <span class="path-label">Deploy</span>
       <strong>Deployment scripts</strong>
       Declare several contracts and their upgrades in one script; each step runs once.
-      <code>labcoat apply --broadcast</code>
+      <code>labcoat deploy</code>
     </a>
   </li>
   <li>
-    <a href="/docs/tutorials/token-exchange/">
+    <a href="/docs/tutorials/first-contract/">
       <span class="path-label">Tutorial</span>
-      <strong>Tokens and exchanges</strong>
-      Build a token, deploy it from two wallets, and swap them atomically.
-      <code>labcoat exchange</code>
+      <strong>Your first contract</strong>
+      Read the starter Counter, deploy and call it, then add a method.
+      <code>labcoat deploy</code>
     </a>
   </li>
   <li>
@@ -89,7 +89,7 @@ each contract name maps to its `block:tx` ID, so later commands can use the
 name. Commit it when deployments are shared project state.
 
 **`deploy.rs`.** A deployment script declaring every contract, reference,
-and upgrade in a deployment, which `labcoat plan` reviews and `labcoat apply`
+and upgrade in a deployment, which `labcoat plan` reviews and `labcoat deploy`
 runs once per network.
 See [Deployment scripts](/docs/deployments/).
 
@@ -102,7 +102,7 @@ After upgrading the CLI, run `labcoat upgrade` in each project. See
 
 These docs track the `main` branch, which adds:
 
-- [Deployment scripts](/docs/deployments/) with `deploy.rs`, `plan`, `apply`,
+- [Deployment scripts](/docs/deployments/) with `deploy.rs`, `plan`, `deploy`,
   and `import`, upgradeable proxies and beacons, and network e2e tests through
   `labcoat test --e2e`. The [upgradeable contract tutorial](/docs/tutorials/upgradeable-contract/)
   walks through a full deploy and upgrade.

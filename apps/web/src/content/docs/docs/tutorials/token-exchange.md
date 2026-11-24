@@ -1,10 +1,10 @@
 ---
 title: Tokens and exchanges
-description: Write a fixed-supply token, deploy it from two wallets, and swap the two tokens atomically.
+description: Write a fixed-supply token, deploy two copies with deploy.rs, and swap them atomically between two wallets.
 ---
 
-This tutorial builds a minimal fixed-supply token, deploys two copies of it
-from two different wallets on Labcoat Network, and swaps them in one
+This tutorial builds a minimal fixed-supply token, declares two copies of it
+in `deploy.rs`, gives one to a second wallet, and swaps them in one
 transaction: first with the local one-command exchange, then with the PSBT
 ceremony that public networks use.
 
@@ -110,7 +110,8 @@ declare_alkane! {
 ```
 
 Initialization mints the whole supply as an Alkane transfer of the contract's
-own ID, which lands on the deploying wallet's output.
+own ID. It lands on the deploying wallet's output unless the deployment
+sends it elsewhere.
 
 Opcodes `99` and `100` follow the Alkanes metadata convention. Balance views
 ask every held token for its name and symbol, so a token that answers those
@@ -145,37 +146,57 @@ fn mints_the_supply_to_the_deployer() -> Result<(), Box<dyn std::error::Error>> 
 labcoat test token
 ```
 
-## Start the network and create two wallets
+## Start the network and create a second wallet
 
-The project wallet plays the buyer. A second keystore file plays the seller.
+The network's built-in wallet plays the buyer. A second keystore file plays the seller.
 
 ```bash
 labcoat up
-labcoat wallet init
 labcoat --wallet-file seller.json wallet init
 ```
 
-Each `wallet init` prints its primary P2TR address. Fund both and mine a block:
-
-```bash
-labcoat fund <buyer-address> 2
-labcoat fund <seller-address> 2
-labcoat mine 1
-```
+`labcoat up` prints the buyer's address, already funded. `wallet init` prints
+the seller's. The seller needs no bitcoin: the buyer pays every fee in this
+tutorial.
 
 ## Deploy two tokens
 
-Build once, then deploy the same Wasm twice under different names: the seller
-deploys `alpha` and the buyer deploys `beta`.
+Declare both tokens in `deploy.rs`. They are two instances of the same
+package, and `alpha` sends its supply to the seller. Replace the file, with
+the seller's address in place of the placeholder:
 
-```bash
-labcoat build token
-labcoat --wallet-file seller.json deploy --wasm build/token.wasm --name alpha --args 1000
-labcoat deploy --wasm build/token.wasm --name beta --args 5000
+```rust
+use labcoat::{run, Deployment};
+
+fn main() {
+    run(|d: &Deployment| {
+        // The seller receives alpha's whole supply.
+        d.contract("alpha", "token")
+            .arg("supply", 1000)
+            .to("<seller-address>");
+
+        // The buyer deploys beta and keeps its supply.
+        d.contract("beta", "token").arg("supply", 5000);
+    });
+}
 ```
 
-`--args` fills the constructor's `supply` parameter. Both names are now in
-`labcoat.lock`; check the balances:
+Review the plan, then deploy:
+
+```bash
+labcoat plan
+labcoat deploy
+```
+
+```text
+Kind      Name   Outcome   Id   Change
+contract  alpha  executed  2:1
+contract  beta   executed  2:2
+```
+
+`arg("supply", …)` fills the constructor's `supply` parameter, and `to(…)`
+names the address that receives what the deploy transaction mints. Both names
+are now in `labcoat.lock`; check the balances:
 
 ```bash
 labcoat balance <seller-address>
@@ -248,7 +269,7 @@ labcoat down
   signers.
 - [Web apps](/docs/web-apps/) generates a browser client that can read these
   balances and prepare exchange requests.
-- [Deployment scripts](/docs/deployments/) deploys tokens like these from
-  `deploy.rs`, with `reserve` IDs you know in advance.
+- [Deployment scripts](/docs/deployments/) covers the rest of `deploy.rs`:
+  `reserve` IDs you know in advance, references between contracts, and calls.
 - [An upgradeable contract](/docs/tutorials/upgradeable-contract/) puts a
   contract behind a proxy and replaces its code without changing its id.

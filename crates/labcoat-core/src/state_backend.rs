@@ -57,11 +57,18 @@ fn load_at(path: &Path, environment: &str) -> Result<Option<State>> {
 /// so a dead process can never wedge the environment.
 #[derive(Debug)]
 pub struct StateLease {
-    // Held for its open file description; the forgotten write guard in
-    // `acquire` keeps the OS lock alive until this closes.
-    _lock: fd_lock::RwLock<std::fs::File>,
+    // Holds the OS lock through its open file description.
+    lock: std::fs::File,
     dir: PathBuf,
     environment: String,
+}
+
+impl Drop for StateLease {
+    /// Unlock explicitly: closing the handle is not enough while a child
+    /// process that is still between fork and exec holds a duplicate.
+    fn drop(&mut self) {
+        let _ = self.lock.unlock();
+    }
 }
 
 impl StateLease {
@@ -82,15 +89,9 @@ impl StateLease {
             .write(true)
             .open(dir.join(LOCK_FILE))
             .map_err(io_err)?;
-        let mut lock = fd_lock::RwLock::new(file);
-        match lock.try_write() {
-            Ok(guard) => {
-                // The guard only borrows the RwLock; forgetting it keeps
-                // the OS lock held by the open file description until this
-                // lease drops. Never unlocked early, never self-referential.
-                std::mem::forget(guard);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => {
                 return Err(LabcoatError::new(
                     "STATE_LOCKED",
                     format!(
@@ -99,10 +100,10 @@ impl StateLease {
                     "wait for the other process; a crashed holder releases the lease automatically",
                 ))
             }
-            Err(e) => return Err(io_err(e)),
+            Err(std::fs::TryLockError::Error(e)) => return Err(io_err(e)),
         }
         Ok(StateLease {
-            _lock: lock,
+            lock: file,
             dir,
             environment: environment.to_string(),
         })

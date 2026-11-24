@@ -8,6 +8,7 @@ mod contract;
 mod deploy_script;
 mod docs;
 mod doctor;
+mod local_wallet;
 mod mcp;
 mod output;
 mod project;
@@ -42,11 +43,12 @@ struct Cli {
     #[arg(long, global = true)]
     network: Option<String>,
 
-    /// Unified JSON-RPC endpoint (defaults to Labcoat Network)
+    /// JSON-RPC endpoint, or `subfrost` (defaults to Labcoat Network
+    /// locally and to Subfrost on signet and mainnet)
     #[arg(long, global = true)]
     rpc_url: Option<String>,
 
-    /// Wallet keystore path (project-local by default)
+    /// Wallet keystore path (defaults to one per network, outside the project)
     #[arg(long, global = true)]
     wallet_file: Option<String>,
 
@@ -99,8 +101,8 @@ enum Commands {
         /// Optional Cargo contract package whose host test should run
         /// (with --e2e: a test-name filter instead)
         package: Option<String>,
-        /// Run tests/e2e.rs against Labcoat Network: reset the chain, apply
-        /// deploy.rs, then execute the ignored e2e tests
+        /// Run tests/e2e.rs against Labcoat Network: reset the chain, run the
+        /// deploy.rs deployment, then execute the ignored e2e tests
         #[arg(long)]
         e2e: bool,
         /// With --e2e: keep the current chain state instead of resetting
@@ -168,7 +170,7 @@ enum Commands {
         download: bool,
     },
 
-    /// Wallet management (keystore at --wallet-file)
+    /// Wallet management
     #[command(subcommand)]
     Wallet(contract::WalletCmd),
     /// Build Cargo contract packages into build/<package>.{wasm,wasm.gz,abi.json}
@@ -182,30 +184,54 @@ enum Commands {
     /// Fetch or verify Wasm-exported contract ABI metadata
     #[command(subcommand)]
     Abi(contract::AbiCmd),
-    /// Build and deploy a contract package, or deploy an explicit raw Wasm
+    /// Run deploy.rs and show which deployment steps are pending, complete, or in conflict
+    Plan {
+        /// Run a step that already ran again: a contract deploys a new
+        /// instance, a call executes again (repeatable)
+        #[arg(long, value_name = "STEP")]
+        replace: Vec<String>,
+    },
+    /// Execute the pending deployment steps deploy.rs declares, or one of
+    /// them by name
     Deploy {
-        /// Exact Cargo contract package name
-        #[arg(required_unless_present = "wasm", conflicts_with = "wasm")]
-        package: Option<String>,
-        /// Explicit path to a raw .wasm artifact (skips compilation)
-        #[arg(long, required_unless_present = "package", conflicts_with = "package")]
+        /// Step name from deploy.rs (every pending step when omitted)
+        step: Option<String>,
+        /// Show what would happen without signing or broadcasting
+        #[arg(long)]
+        dry_run: bool,
+        /// Run a step that already ran again: a contract deploys a new
+        /// instance, a call executes again (repeatable; runs the whole
+        /// deployment, so it takes no step name)
+        #[arg(long, value_name = "STEP")]
+        replace: Vec<String>,
+        /// Deploy this raw .wasm artifact outside deploy.rs instead of a
+        /// step; it is recorded in labcoat.lock only
+        #[arg(long)]
         wasm: Option<String>,
         /// Contract name for --wasm deployments (defaults to file stem)
-        #[arg(long, requires = "wasm", conflicts_with = "package")]
+        #[arg(long)]
         name: Option<String>,
-        /// Constructor args, one per ABI constructor parameter (raw u128 /
-        /// 0x-hex cellpack values when the artifact exposes no ABI constructor)
+        /// Constructor args for --wasm deployments, one per ABI constructor
+        /// parameter (raw u128 / 0x-hex cellpack values when the artifact
+        /// exposes no ABI constructor)
         #[arg(long, num_args = 0.., value_delimiter = ',')]
         args: Vec<String>,
-        /// Deploy to reserved number N (cellpack target [3,N]) instead of
-        /// the next free id ([1,0])
+        /// Deploy a --wasm artifact to reserved number N (cellpack target
+        /// [3,N]) instead of the next free id ([1,0])
         #[arg(long)]
         reserve: Option<u128>,
         #[command(flatten)]
         tx: contract::TxFlags,
-        /// Validate inputs and show what would happen without broadcasting
+    },
+    /// Record a contract that already exists on chain as a deployment step, without deploying
+    Import {
+        /// Contract step name from deploy.rs
+        name: String,
+        /// The deployed contract's block:tx id
+        id: String,
+        /// Deployment or reveal transaction ID, used to recover auth tokens and other created IDs
         #[arg(long)]
-        dry_run: bool,
+        txid: Option<String>,
     },
     /// Execute a state-changing call on a deployed contract
     Call {
@@ -278,34 +304,6 @@ enum Commands {
         seller_wallet_file: String,
         #[arg(long)]
         broadcast: bool,
-    },
-    /// Run deploy.rs and show which deployment steps are pending, complete, or in conflict
-    Plan {
-        /// Run a step that already ran again: a contract deploys a new
-        /// instance, a call executes again (repeatable)
-        #[arg(long, value_name = "STEP")]
-        replace: Vec<String>,
-    },
-    /// Execute the pending deployment steps deploy.rs declares
-    Apply {
-        /// Run a step that already ran again: a contract deploys a new
-        /// instance, a call executes again (repeatable)
-        #[arg(long, value_name = "STEP")]
-        replace: Vec<String>,
-        /// Broadcast the pending transactions (without this flag apply only
-        /// shows the plan)
-        #[arg(long)]
-        broadcast: bool,
-    },
-    /// Record a contract that already exists on chain as a deployment step, without deploying
-    Import {
-        /// Contract step name from deploy.rs
-        name: String,
-        /// The deployed contract's block:tx id
-        id: String,
-        /// Deployment or reveal transaction ID, used to recover auth tokens and other created IDs
-        #[arg(long)]
-        txid: Option<String>,
     },
     /// Simulate a deployed contract against live indexed chain state
     Simulate {
@@ -507,7 +505,7 @@ async fn run(cli: Cli) -> i32 {
         } => {
             let progress = output::Progress::new(
                 if e2e {
-                    "Resetting the network, applying deploy.rs, and running e2e tests…"
+                    "Resetting the network, deploying, and running e2e tests…"
                 } else {
                     "Building contracts and running tests…"
                 },
@@ -535,45 +533,52 @@ async fn run(cli: Cli) -> i32 {
             let (cmd_name, res) = contract::abi(&ctx, cmd).await;
             output::finish_contract(json, cmd_name, res, output_options)
         }
+        Commands::Plan { replace } => {
+            let progress = output::Progress::new("Planning the deployment…", !json);
+            let (cmd_name, res) = contract::plan(&ctx, &replace).await;
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
         Commands::Deploy {
-            package,
+            step,
+            dry_run,
+            replace,
             wasm,
             name,
             args,
             reserve,
             tx,
-            dry_run,
         } => {
+            let flags = contract::DeployFlags {
+                step,
+                replace,
+                wasm,
+                name,
+                args,
+                reserve,
+                tx,
+            };
+            let request = match flags.request() {
+                Ok(request) => request,
+                Err(error) => {
+                    return output::finish_contract(json, "deploy", Err(error), output_options)
+                }
+            };
             let progress = output::Progress::new(
                 if dry_run {
-                    "Validating deployment…"
+                    "Planning the deployment…"
                 } else {
-                    "Deploying contract…"
+                    "Deploying…"
                 },
                 !json,
             );
-            let (cmd_name, res) = if dry_run {
-                contract::deploy_dry_run(
-                    &ctx,
-                    package.as_deref(),
-                    wasm.as_deref(),
-                    name,
-                    &args,
-                    reserve,
-                    &tx,
-                )
-            } else {
-                contract::deploy(
-                    &ctx,
-                    package.as_deref(),
-                    wasm.as_deref(),
-                    name,
-                    &args,
-                    reserve,
-                    &tx,
-                )
-                .await
-            };
+            let (cmd_name, res) = contract::deploy(&ctx, request, dry_run).await;
+            progress.finish();
+            output::finish_contract(json, cmd_name, res, output_options)
+        }
+        Commands::Import { name, id, txid } => {
+            let progress = output::Progress::new("Verifying the deployed contract…", !json);
+            let (cmd_name, res) = contract::import(&ctx, &name, &id, txid.as_deref()).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
@@ -666,31 +671,6 @@ async fn run(cli: Cli) -> i32 {
             );
             let (cmd_name, res) =
                 contract::exchange_settle(&ctx, &plan, &psbt, &seller_wallet_file, broadcast).await;
-            progress.finish();
-            output::finish_contract(json, cmd_name, res, output_options)
-        }
-        Commands::Plan { replace } => {
-            let progress = output::Progress::new("Planning the deployment…", !json);
-            let (cmd_name, res) = contract::plan(&ctx, &replace).await;
-            progress.finish();
-            output::finish_contract(json, cmd_name, res, output_options)
-        }
-        Commands::Apply { replace, broadcast } => {
-            let progress = output::Progress::new(
-                if broadcast {
-                    "Applying the deployment…"
-                } else {
-                    "Planning the deployment…"
-                },
-                !json,
-            );
-            let (cmd_name, res) = contract::apply(&ctx, &replace, broadcast).await;
-            progress.finish();
-            output::finish_contract(json, cmd_name, res, output_options)
-        }
-        Commands::Import { name, id, txid } => {
-            let progress = output::Progress::new("Verifying the deployed contract…", !json);
-            let (cmd_name, res) = contract::import(&ctx, &name, &id, txid.as_deref()).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
@@ -805,6 +785,8 @@ async fn run(cli: Cli) -> i32 {
                     );
                 }
             }
+            let wallet = local_wallet::prepare(&mut network).await;
+            status = network.status().await;
             let endpoints = network.endpoints();
             // The stack must outlive this process: dropping the handle
             // would stop the children it spawned.
@@ -813,6 +795,7 @@ async fn run(cli: Cli) -> i32 {
             let payload = serde_json::json!({
                 "status": status,
                 "endpoints": endpoints,
+                "wallet": wallet,
             });
             if json || ci {
                 output::finish(true, "up", Ok(payload), output_options)
@@ -1080,28 +1063,25 @@ mod envelope_tests {
     }
 
     #[test]
-    fn deploy_cli_requires_exactly_one_source() {
-        assert!(Cli::try_parse_from(["labcoat", "deploy", "counter"]).is_ok());
-        assert!(Cli::try_parse_from(["labcoat", "deploy", "--wasm", "/tmp/counter.wasm"]).is_ok());
-        assert!(Cli::try_parse_from([
-            "labcoat",
-            "deploy",
-            "--wasm",
-            "/tmp/counter.wasm",
-            "--name",
-            "custom"
-        ])
-        .is_ok());
-        assert!(Cli::try_parse_from(["labcoat", "deploy"]).is_err());
-        assert!(Cli::try_parse_from([
-            "labcoat",
-            "deploy",
-            "counter",
-            "--wasm",
-            "/tmp/counter.wasm"
-        ])
-        .is_err());
-        assert!(Cli::try_parse_from(["labcoat", "deploy", "counter", "--name", "custom"]).is_err());
+    fn deploy_cli_leaves_flag_combinations_to_typed_errors() {
+        // Whether the flags fit together is checked after parsing, so a
+        // mismatch reaches --json callers as an envelope error instead of
+        // clap usage text.
+        for args in [
+            vec!["labcoat", "deploy"],
+            vec!["labcoat", "deploy", "counter"],
+            vec!["labcoat", "deploy", "--wasm", "/tmp/counter.wasm"],
+            vec![
+                "labcoat",
+                "deploy",
+                "counter",
+                "--wasm",
+                "/tmp/counter.wasm",
+            ],
+            vec!["labcoat", "deploy", "counter", "--name", "custom"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok());
+        }
     }
 
     #[test]
@@ -1123,19 +1103,32 @@ mod envelope_tests {
     fn deployment_commands_have_the_expected_shape() {
         let cli = Cli::try_parse_from([
             "labcoat",
-            "apply",
+            "deploy",
             "--replace",
             "token",
             "--replace",
             "market",
-            "--broadcast",
         ])
         .unwrap();
-        let Commands::Apply { replace, broadcast } = cli.command else {
-            panic!("expected apply");
+        let Commands::Deploy {
+            step,
+            replace,
+            dry_run,
+            ..
+        } = cli.command
+        else {
+            panic!("expected deploy");
         };
+        assert_eq!(step, None);
         assert_eq!(replace, ["token", "market"]);
-        assert!(broadcast);
+        assert!(!dry_run);
+
+        // A bare name is a deploy.rs step, not a Cargo package.
+        let cli = Cli::try_parse_from(["labcoat", "deploy", "counter", "--dry-run"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Deploy { step: Some(step), dry_run: true, .. } if step == "counter"
+        ));
 
         let cli = Cli::try_parse_from(["labcoat", "plan", "--replace", "token"]).unwrap();
         assert!(matches!(cli.command, Commands::Plan { replace } if replace == ["token"]));
@@ -1197,7 +1190,8 @@ mod envelope_tests {
         let cli = Cli::try_parse_from([
             "labcoat",
             "deploy",
-            "token",
+            "--wasm",
+            "build/token.wasm",
             "--reserve",
             "65011",
             "--args",
@@ -1206,9 +1200,18 @@ mod envelope_tests {
             "bcrt1qexample",
         ])
         .unwrap();
-        let Commands::Deploy { reserve, tx, .. } = cli.command else {
+        let Commands::Deploy {
+            wasm,
+            args,
+            reserve,
+            tx,
+            ..
+        } = cli.command
+        else {
             panic!("expected deploy");
         };
+        assert_eq!(wasm.as_deref(), Some("build/token.wasm"));
+        assert_eq!(args, ["1", "100"]);
         assert_eq!(reserve, Some(65_011));
         assert_eq!(tx.to.as_deref(), Some("bcrt1qexample"));
 

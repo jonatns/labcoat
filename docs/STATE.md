@@ -53,7 +53,7 @@ refusing to run onto existing state. It records the chain identity it can
 observe: the hash of block 1, and — on the managed Labcoat Network — the
 persistent instance UUID that `labcoat status` shows.
 
-Once state exists, every `labcoat deploy` (and apply reserve adoption)
+Once state exists, every `labcoat deploy` (including a reserve adoption)
 appends the new instance to the resource's history under the environment
 lease, alongside the unchanged `labcoat.lock` write. Projects that never
 run `state migrate` are unaffected — without state the recording is

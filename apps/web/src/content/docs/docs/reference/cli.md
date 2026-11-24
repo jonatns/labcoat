@@ -20,10 +20,8 @@ curl -fsSL https://labcoat.sh/install | sh
 labcoat init my-project
 cd my-project && labcoat test
 labcoat up
-labcoat wallet init
-labcoat fund <address> && labcoat mine 1
-labcoat build counter
-labcoat deploy counter
+labcoat plan
+labcoat deploy
 labcoat abi verify counter
 labcoat simulate counter get_count
 labcoat call counter increment
@@ -94,7 +92,7 @@ test [OPTIONS] [PACKAGE]
 Arguments and options:
 
 - `package` (optional): Optional Cargo contract package whose host test should run (with --e2e: a test-name filter instead)
-- `e2e` (optional): Run tests/e2e.rs against Labcoat Network: reset the chain, apply deploy.rs, then execute the ignored e2e tests Values: `true`, `false`.
+- `e2e` (optional): Run tests/e2e.rs against Labcoat Network: reset the chain, run the deploy.rs deployment, then execute the ignored e2e tests Values: `true`, `false`.
 - `no_reset` (optional): With --e2e: keep the current chain state instead of resetting Values: `true`, `false`.
 
 ### `labcoat up`
@@ -216,7 +214,7 @@ Arguments and options:
 
 ### `labcoat wallet`
 
-Wallet management (keystore at --wallet-file)
+Wallet management
 
 ```text
 wallet <COMMAND>
@@ -224,7 +222,7 @@ wallet <COMMAND>
 
 #### `labcoat wallet init`
 
-Create (or load) the project wallet. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv
+Create (or load) the selected network's wallet; Labcoat Network already has one after `labcoat up`. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv
 
 ```text
 init [OPTIONS]
@@ -328,27 +326,54 @@ Arguments and options:
 - `contract` (required): Contract name from labcoat.lock, or a raw block:tx id
 - `package` (optional): Local Cargo contract package (required for raw ids or renamed deployments)
 
-### `labcoat deploy`
+### `labcoat plan`
 
-Build and deploy a contract package, or deploy an explicit raw Wasm
+Run deploy.rs and show which deployment steps are pending, complete, or in conflict
 
 ```text
-deploy [OPTIONS] [PACKAGE]
+plan [OPTIONS]
 ```
 
 Arguments and options:
 
-- `package` (optional): Exact Cargo contract package name
-- `wasm` (optional): Explicit path to a raw .wasm artifact (skips compilation)
+- `replace` (optional): Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)
+
+### `labcoat deploy`
+
+Execute the pending deployment steps deploy.rs declares, or one of them by name
+
+```text
+deploy [OPTIONS] [STEP]
+```
+
+Arguments and options:
+
+- `step` (optional): Step name from deploy.rs (every pending step when omitted)
+- `dry_run` (optional): Show what would happen without signing or broadcasting Values: `true`, `false`.
+- `replace` (optional): Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable; runs the whole deployment, so it takes no step name)
+- `wasm` (optional): Deploy this raw .wasm artifact outside deploy.rs instead of a step; it is recorded in labcoat.lock only
 - `name` (optional): Contract name for --wasm deployments (defaults to file stem)
-- `args` (optional): Constructor args, one per ABI constructor parameter (raw u128 / 0x-hex cellpack values when the artifact exposes no ABI constructor)
-- `reserve` (optional): Deploy to reserved number N (cellpack target [3,N]) instead of the next free id ([1,0])
+- `args` (optional): Constructor args for --wasm deployments, one per ABI constructor parameter (raw u128 / 0x-hex cellpack values when the artifact exposes no ABI constructor)
+- `reserve` (optional): Deploy a --wasm artifact to reserved number N (cellpack target [3,N]) instead of the next free id ([1,0])
 - `inputs` (optional): Extra transaction inputs: comma-separated alkanes `block:tx:amount` (amount 0 means all) or bitcoin `B:sats`
 - `to` (optional): Recipient address for the protostone outputs (defaults to the wallet's primary address)
 - `pointer` (optional): Protostone pointer target: vN (physical output) or pN (protostone)
 - `refund` (optional): Protostone refund target (defaults to the pointer target)
 - `edicts` (optional): Edict `block:tx:amount:target` appended to the protostone (repeatable)
-- `dry_run` (optional): Validate inputs and show what would happen without broadcasting Values: `true`, `false`.
+
+### `labcoat import`
+
+Record a contract that already exists on chain as a deployment step, without deploying
+
+```text
+import [OPTIONS] <NAME> <ID>
+```
+
+Arguments and options:
+
+- `name` (required): Contract step name from deploy.rs
+- `id` (required): The deployed contract's block:tx id
+- `txid` (optional): Deployment or reveal transaction ID, used to recover auth tokens and other created IDs
 
 ### `labcoat call`
 
@@ -421,45 +446,6 @@ Arguments and options:
 - `psbt` (required)
 - `seller_wallet_file` (required)
 - `broadcast` (optional): Values: `true`, `false`.
-
-### `labcoat plan`
-
-Run deploy.rs and show which deployment steps are pending, complete, or in conflict
-
-```text
-plan [OPTIONS]
-```
-
-Arguments and options:
-
-- `replace` (optional): Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)
-
-### `labcoat apply`
-
-Execute the pending deployment steps deploy.rs declares
-
-```text
-apply [OPTIONS]
-```
-
-Arguments and options:
-
-- `replace` (optional): Run a step that already ran again: a contract deploys a new instance, a call executes again (repeatable)
-- `broadcast` (optional): Broadcast the pending transactions (without this flag apply only shows the plan) Values: `true`, `false`.
-
-### `labcoat import`
-
-Record a contract that already exists on chain as a deployment step, without deploying
-
-```text
-import [OPTIONS] <NAME> <ID>
-```
-
-Arguments and options:
-
-- `name` (required): Contract step name from deploy.rs
-- `id` (required): The deployed contract's block:tx id
-- `txid` (optional): Deployment or reveal transaction ID, used to recover auth tokens and other created IDs
 
 ### `labcoat simulate`
 
@@ -617,21 +603,20 @@ doctor
 
 | Tool | Description |
 |---|---|
-| `network_up` | Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest. |
+| `network_up` | Boot Labcoat Network using the exact runtime bundle for this CLI release. Creates and funds the built-in wallet, then returns service status, the endpoint manifest, and the wallet. |
 | `network_down` | Stop all Labcoat Network services. |
 | `network_status` | Labcoat Network service health, block height, and mempool size. |
 | `network_mine` | Mine blocks on Labcoat Network. |
 | `network_fund` | Send BTC from the Labcoat Network faucet wallet to an address. |
 | `network_reset` | Stop services and wipe all Labcoat Network chain data. |
 | `network_logs` | Recent Labcoat Network service logs. |
-| `wallet_init` | Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true. |
+| `wallet_init` | Create or load the selected network's wallet keystore. Not needed on Labcoat Network, which comes with a funded wallet. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true. |
 | `wallet_addresses` | Wallet receive addresses per script type. |
 | `wallet_utxos` | Spendable wallet UTXOs. |
 | `build` | Build Cargo contract packages and extract their Wasm-exported ABIs. |
 | `test` | Build every contract for WASIp1 and run host integration tests; the first build may take several minutes. |
 | `abi_fetch` | Fetch ABI metadata from the in-process Alkanes indexer. |
 | `abi_verify` | Compare a deployed ABI with a locally built contract package. |
-| `deploy` | Build and deploy an exact Cargo contract package, or deploy an explicit raw Wasm. Provide exactly one of package or wasm. |
 | `call` | Execute a state-changing contract call and wait for its trace. |
 | `exchange_plan` | Build an owner-partitioned atomic exchange plan and return its base64 PSBT. |
 | `exchange_settle` | Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact. |
@@ -639,7 +624,7 @@ doctor
 | `trace` | Decoded protostone traces for a transaction. |
 | `balance` | Alkanes token balances held by an address. |
 | `plan` | Run the project's deploy.rs deployment script and reconcile its steps against the network's run file and chain state; shows pending, complete, and conflicting steps without loading a signer. |
-| `apply` | Execute the pending deployment steps deploy.rs declares. Requires broadcast: true to transact; otherwise returns the plan. Refuses while any step is in conflict. |
+| `deploy` | Execute the pending deployment steps deploy.rs declares, or only the step named in step. dryRun: true returns the plan without signing. On Labcoat Network a changed contract, and whatever references it, redeploys with empty storage; on other networks deploy refuses while a step is in conflict. Public networks refuse to sign unless the server was started with --yes. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only. |
 | `import` | Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing. |
 | `state_list` | List resources and active instances in this environment's durable deployment state. |
 | `state_show` | Show one resource's active instance from durable state; history: true includes every earlier instance. |
@@ -652,7 +637,7 @@ doctor
 |---|---|---|
 | `LABCOAT_NETWORK_ERROR` | a Labcoat Network operation failed | run `labcoat status` and inspect `labcoat logs` |
 | `CONFIG_INVALID` | configuration is invalid | run `labcoat doctor` |
-| `WALLET_MISSING` | the project wallet does not exist | run `labcoat wallet init` |
+| `WALLET_MISSING` | the project wallet does not exist | run `labcoat up` on Labcoat Network, or `labcoat wallet init` for another network |
 | `WALLET_LOCKED` | the keystore could not be unlocked | set `LABCOAT_WALLET_PASSPHRASE` |
 | `WALLET_ERROR` | wallet metadata, ownership, or signing failed | inspect the wallet, PSBT prevouts, and expected derivation path |
 | `SIGNER_UNSUPPORTED` | the selected signer lacks a required capability | use the keystore signer or a compatible PSBT signer |
@@ -681,8 +666,8 @@ doctor
 | `CONTRACT_NOT_FOUND` | a contract name or ID could not be resolved | run `labcoat lock show` |
 | `LOCKFILE_INVALID` | labcoat.lock exists but cannot be read or parsed | repair the JSON, or delete labcoat.lock to start a fresh ledger |
 | `DEPLOY_SCRIPT_INVALID` | the deploy.rs deployment script is missing, failed to build or run, or declared an invalid graph | fix deploy.rs; `cargo run --example deploy` reproduces a build or runtime failure outside labcoat |
-| `DEPLOYMENT_CONFLICT` | a deployment step that already ran no longer matches deploy.rs, or references an instance that was replaced | restore the step, or name it in `labcoat apply --replace <name>` to deploy a new instance (or run a call again) |
-| `DEPLOYMENT_LOCKED` | another process is updating the project's deployments | retry after the other apply or import finishes |
+| `DEPLOYMENT_CONFLICT` | a deployment step that already ran no longer matches deploy.rs, or references an instance that was replaced | restore the step, or name it in `labcoat deploy --replace <name>` to deploy a new instance (or run a call again) |
+| `DEPLOYMENT_LOCKED` | another process is updating the project's deployments | retry after the other deploy or import finishes |
 | `RUN_FILE_INVALID` | deployments/<network>.json, the record of the steps that ran, cannot be read, parsed, or written | restore the file from version control or repair the JSON; deleting it makes every step run again |
 | `STATE_INVALID` | the durable environment state under .labcoat/state cannot be read or parsed | restore backups/state.json.prev |
 | `STATE_MISSING` | no version-2 durable state exists for this environment | run `labcoat state migrate` |
@@ -690,7 +675,8 @@ doctor
 | `STATE_LOCKED` | another labcoat process holds this environment's lease | wait for the other process; a crashed holder releases the lease automatically |
 | `STATE_CHAIN_MISMATCH` | durable state belongs to a different chain instance (e.g. before a `labcoat reset`) | archive .labcoat/state/<environment> or use a different --environment |
 | `STATE_CONFLICT` | durable state changed underneath the command, or already exists where none may | re-run against current state (`labcoat state list`) |
-| `APPLY_BLOCKED` | a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting) | read the step's detail in `labcoat plan` |
+| `DEPLOYMENT_BLOCKED` | a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting, a step deployed on its own before the steps it references) | read the step's detail in `labcoat plan` |
+| `RPC_REJECTED` | the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit | set `SUBFROST_API_KEY` for Subfrost, or wait and retry |
 | `TOOLKIT_ERROR` | the underlying contract toolkit failed | read the error hint |
 | `BINARY_CRASH` | a Labcoat Network service exited | inspect `labcoat logs` |
 
@@ -698,8 +684,8 @@ doctor
 
 - **Cellpack**: [block, tx, opcode, ...args] as u128 values; strings up to 16 bytes are packed little-endian.
 - **Deploy**: Targets [1, 0] for the next free id 2:n, or [3, N] for the reserved id 4:N; raw Wasm is compressed inside a taproot commit/reveal envelope. A template clone targets [5, n] (a 2:n template) or [6, n] (a 4:n template) and carries no envelope.
-- **Deployment script**: deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.
-- **Step lifecycles**: Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that apply refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: apply reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.
+- **Deployment script**: deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat deploy` signs. `labcoat deploy <step>` runs one step, once everything it references is deployed. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.
+- **Step lifecycles**: Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that deploy refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. On Labcoat Network deploy replaces changed steps, and whatever references them, without being asked: new id, empty storage. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: deploy reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.
 - **Run file**: deployments/<network>.json records every step that ran: its definition hash, Alkane id, every Alkane its transaction created, the ids it referenced, the arguments as executed, the transaction id, and earlier instances. It is what makes a step run once; commit it for shared networks. The Labcoat Network file is disposable: `labcoat reset` starts a new chain, and records from an earlier chain instance are ignored.
 - **Standard upgradeable contracts**: `labcoat new <name> --template auth-token|upgradeable|upgradeable-beacon|beacon-proxy` vendors the alkanes-rs standard contracts into the project. A proxy or beacon initializes with opcode 0x7fff, which clones the auth token template at 4:65517 and sends one unit to the deployer; upgrading (0x7ffe) spends that token as an input and returns it. A beacon answers 0x7ffd with its current implementation. A fresh chain has no auth token template: deploy the auth-token package at reserve 65517 with `.init(100)` first.
 - **Protostone outputs**: Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.

@@ -18,7 +18,7 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     (
         "WALLET_MISSING",
         "the project wallet does not exist",
-        "run `labcoat wallet init`",
+        "run `labcoat up` on Labcoat Network, or `labcoat wallet init` for another network",
     ),
     (
         "WALLET_LOCKED",
@@ -163,12 +163,12 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     (
         "DEPLOYMENT_CONFLICT",
         "a deployment step that already ran no longer matches deploy.rs, or references an instance that was replaced",
-        "restore the step, or name it in `labcoat apply --replace <name>` to deploy a new instance (or run a call again)",
+        "restore the step, or name it in `labcoat deploy --replace <name>` to deploy a new instance (or run a call again)",
     ),
     (
         "DEPLOYMENT_LOCKED",
         "another process is updating the project's deployments",
-        "retry after the other apply or import finishes",
+        "retry after the other deploy or import finishes",
     ),
     (
         "RUN_FILE_INVALID",
@@ -206,9 +206,14 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
         "re-run against current state (`labcoat state list`)",
     ),
     (
-        "APPLY_BLOCKED",
-        "a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting)",
+        "DEPLOYMENT_BLOCKED",
+        "a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting, a step deployed on its own before the steps it references)",
         "read the step's detail in `labcoat plan`",
+    ),
+    (
+        "RPC_REJECTED",
+        "the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit",
+        "set `SUBFROST_API_KEY` for Subfrost, or wait and retry",
     ),
     (
         "TOOLKIT_ERROR",
@@ -287,10 +292,8 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             "labcoat init my-project".into(),
             "cd my-project && labcoat test".into(),
             "labcoat up".into(),
-            "labcoat wallet init".into(),
-            "labcoat fund <address> && labcoat mine 1".into(),
-            "labcoat build counter".into(),
-            "labcoat deploy counter".into(),
+            "labcoat plan".into(),
+            "labcoat deploy".into(),
             "labcoat abi verify counter".into(),
             "labcoat simulate counter get_count".into(),
             "labcoat call counter increment".into(),
@@ -325,11 +328,11 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             },
             ProtocolReference {
                 name: "Deployment script".into(),
-                detail: "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.".into(),
+                detail: "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat deploy` signs. `labcoat deploy <step>` runs one step, once everything it references is deployed. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.".into(),
             },
             ProtocolReference {
                 name: "Step lifecycles".into(),
-                detail: "Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that apply refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: apply reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.".into(),
+                detail: "Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that deploy refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. On Labcoat Network deploy replaces changed steps, and whatever references them, without being asked: new id, empty storage. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: deploy reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.".into(),
             },
             ProtocolReference {
                 name: "Run file".into(),
