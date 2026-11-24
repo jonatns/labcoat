@@ -4,6 +4,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/jonatns/labcoat/compare/cli-v0.2.0...cli-v0.3.0) - 2026-11-24
+
 ### Breaking changes
 
 - move default keystores out of the project into Labcoat's data directory, one per network. `labcoat.toml` no longer sets `wallet_file` in new projects; existing projects that set it are unaffected
