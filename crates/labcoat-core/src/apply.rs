@@ -12,15 +12,17 @@
 
 use crate::abi::CallArgs;
 use crate::deployment::{
-    self, definition_hash, reference_identity, reference_key, Args, Contract, Graph, Lifecycle,
-    Resolved, Setting, Source, Step, TxShape, ValueType,
+    self, definition_hash, reference_identity, reference_key, Args, Contract, Field, Graph,
+    Lifecycle, Resolved, Setting, Source, Step, TxShape, Value, ValueType,
 };
 use crate::error::{LabcoatError, Result};
-use crate::execute::TxOptions;
+use crate::execute::{self, Broadcast, ExecuteOutcome, TxOptions};
 use crate::runfile::{self, RecordStatus, RunFile, StepRecord};
 use crate::system::ToolkitConfig;
 use crate::toolkit::{self, DeployTarget};
-use crate::{abi, compile, lockfile, workspace};
+use crate::{abi, compile, lockfile, state, trace, workspace};
+use alkanes_cli_common::provider::ConcreteProvider;
+use alkanes_cli_common::traits::BitcoinRpcProvider;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -109,6 +111,7 @@ pub struct PlanOutcome {
     artifacts: BTreeMap<String, Artifact>,
     resolved: Resolved,
     run: RunFile,
+    recovered: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,7 +145,8 @@ struct Facts {
     reserve_abis: BTreeMap<u128, Vec<u8>>,
     /// Setting name → current value, for settings with a read whose target
     /// is known before apply.
-    readings: BTreeMap<String, Reading>,
+    readings: BTreeMap<String, (String, Reading)>,
+    ready_reveals: BTreeSet<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -253,17 +257,21 @@ fn unresolved(kind: &str, name: &str) -> LabcoatError {
 /// Evaluate args to the form the ABI encoder takes, or None while any
 /// reference is unresolved.
 fn resolve_args(args: &Args, resolved: &Resolved, height: u64) -> Option<CallArgs> {
+    resolve_args_with(args, |value| resolved.eval(value, height))
+}
+
+fn resolve_args_with(args: &Args, eval: impl Fn(&Value) -> Option<String>) -> Option<CallArgs> {
     if let Some(named) = &args.named {
         return named
             .iter()
-            .map(|(name, value)| Some((name.clone(), resolved.eval(value, height)?)))
+            .map(|(name, value)| Some((name.clone(), eval(value)?)))
             .collect::<Option<Vec<_>>>()
             .map(CallArgs::Named);
     }
     args.positional
         .iter()
         .flatten()
-        .map(|value| resolved.eval(value, height))
+        .map(eval)
         .collect::<Option<Vec<_>>>()
         .map(CallArgs::Positional)
 }
@@ -433,35 +441,99 @@ fn success_record<'a>(run: &'a RunFile, name: &str, kind: &str) -> Option<&'a St
     record_of(run, name, kind).filter(|record| record.status == RecordStatus::Success)
 }
 
-/// A read-less setting's current value: what Labcoat last recorded for
-/// this target instance, or — the first time — what the target's
-/// initializer was given, evaluated from the ids the target consumed when
-/// it was created.
-fn recorded_setting_value(
-    setting: &Setting,
-    target_id: &str,
-    run: &RunFile,
-    height: u64,
-) -> Option<String> {
-    if let Some(record) = success_record(run, &setting.name, "setting") {
-        if record.id.as_deref() == Some(target_id) {
-            return record.value.clone();
+fn definition_changed(step: &Step, wasm_sha256: Option<&str>, record: &StepRecord) -> bool {
+    if record.definition.starts_with("v2:") {
+        return record.definition != definition_hash(step, wasm_sha256);
+    }
+    if record.definition != deployment::legacy_definition_hash(step, wasm_sha256) {
+        return true;
+    }
+    // Legacy definitions could hash different string arguments identically.
+    // Compare with the concrete arguments at execution when they were recorded.
+    let Some(height) = record.height else {
+        return false;
+    };
+    let args = match step {
+        Step::Contract(contract) if record.origin.as_deref() != Some("adopted") => {
+            &contract.init.args
+        }
+        Step::Call(call) => &call.call.args,
+        _ => return false,
+    };
+    let historical = resolve_args_with(args, |value| {
+        value.eval_with(height, &|reference| {
+            let id = record.refs.get(&reference_key(reference))?;
+            match reference.field {
+                Field::Id | Field::Created => Some(id.clone()),
+                Field::Block => id.split_once(':').map(|(block, _)| block.to_string()),
+                Field::Tx => id.split_once(':').map(|(_, tx)| tx.to_string()),
+            }
+        })
+    });
+    historical.is_some_and(|args| {
+        let is_named = matches!(args, CallArgs::Named(_));
+        let mut current = display_args(&args);
+        if is_named {
+            current.sort_unstable();
+            let mut previous = record.args.clone();
+            previous.sort_unstable();
+            return current != previous;
+        }
+        current != record.args
+    })
+}
+
+fn needs_confirmation(record: &StepRecord) -> bool {
+    matches!(record.status, RecordStatus::Started)
+        || (record.status == RecordStatus::Revert && !record.confirmed_revert)
+}
+
+fn interrupted_detail(name: &str, record: &StepRecord) -> String {
+    if let Some(txid) = &record.txid {
+        let replacement = if record.kind == "setting" {
+            ""
+        } else {
+            " If it was dropped, pass `--replace` for this step only after verifying that."
+        };
+        return format!("transaction {txid} is awaiting an execution trace — re-run apply after it is indexed.{replacement}");
+    }
+    if let Some(commit) = &record.commit_txid {
+        return format!(
+            "commit {commit} was prepared without a recorded reveal — check the wallet and import `{name}` if the deployment landed"
+        );
+    }
+    format!(
+        "an earlier apply did not record a transaction id — check the wallet before retrying `{name}`"
+    )
+}
+
+/// A write-only setting starts with the value last recorded for this
+/// instance, or an explicitly identified argument from its initializer.
+fn recorded_setting_value(setting: &Setting, target_id: &str, run: &RunFile) -> Option<String> {
+    if let Some(record) = record_of(run, &setting.name, "setting") {
+        if let Some(previous) = std::iter::once(record)
+            .chain(record.history.iter().rev())
+            .find(|entry| {
+                entry.status == RecordStatus::Success && entry.id.as_deref() == Some(target_id)
+            })
+        {
+            return previous.value.clone();
         }
     }
-    let mut references = Vec::new();
-    setting.contract.references(&mut references);
-    let target_step = &references.first()?.step;
-    let target_record = success_record(run, target_step, "contract")?;
+    let arg = setting.initializer_arg.as_deref()?;
+    let Value::Ref(target) = &setting.contract else {
+        return None;
+    };
+    let target_record = success_record(run, &target.step, "contract")?;
     if target_record.id.as_deref() != Some(target_id) {
         return None;
     }
-    let mut at_creation = Resolved::default();
-    for (key, id) in &target_record.refs {
-        if !key.contains('#') {
-            at_creation.insert(key, id, &[]).ok()?;
-        }
-    }
-    at_creation.eval(&setting.value, height)
+    let value = target_record.args.iter().find_map(|entry| {
+        entry
+            .split_once('=')
+            .and_then(|(name, value)| (name == arg).then_some(value))
+    })?;
+    normalize_setting_value(setting.value_type, value).ok()
 }
 
 struct Reconciled {
@@ -522,6 +594,21 @@ fn reconcile(
             detail: None,
             wasm_sha256: None,
         };
+        if let Some(record) = run
+            .steps
+            .get(name)
+            .filter(|record| record.kind != step.kind())
+        {
+            if !replace {
+                action.status = ActionStatus::Conflict;
+                action.detail = Some(format!(
+                    "`{name}` was recorded as a {} and is now a {} — use a new name or explicitly replace a contract or call",
+                    record.kind, step.kind(),
+                ));
+                actions.push(action);
+                continue;
+            }
+        }
 
         match step {
             Step::External(external) => {
@@ -544,7 +631,6 @@ fn reconcile(
             Step::Contract(contract) => {
                 let artifact = artifacts.get(name);
                 let wasm_sha256 = artifact.map(|artifact| artifact.wasm_sha256.as_str());
-                let definition = definition_hash(step, wasm_sha256);
                 let target = deploy_target(contract, &resolved, height)?;
                 let is_clone = matches!(contract.source, Source::Clone { .. });
                 action.target = target.map(DeployTarget::label);
@@ -573,15 +659,25 @@ fn reconcile(
                     };
 
                 match record {
-                    Some(record) if record.status == RecordStatus::Started && !replace => {
-                        action.status = ActionStatus::Interrupted;
-                        action.detail = Some(format!(
-                            "a previous apply stopped mid-broadcast — check the wallet's recent transactions, then `labcoat import {name} <block:tx>` if the deploy landed, or pass `--replace {name}` to broadcast it again"
-                        ));
-                        resolved.remove(name);
+                    Some(record) if needs_confirmation(record) && !replace => {
+                        if facts.ready_reveals.contains(name)
+                            && !definition_changed(step, wasm_sha256, record)
+                            && stale_refs(step, record, &resolved, &lifecycles).is_empty()
+                        {
+                            action.action = "resume";
+                            action.detail = record.commit_txid.as_ref().map(|commit| {
+                                format!("broadcasts the prepared reveal for commit {commit}")
+                            });
+                            action.args = record.args.clone();
+                            pending_new(&mut action, &mut resolved)?;
+                        } else {
+                            action.status = ActionStatus::Interrupted;
+                            action.detail = Some(interrupted_detail(name, record));
+                            resolved.remove(name);
+                        }
                     }
                     Some(record) if record.status == RecordStatus::Success => {
-                        let changed = record.definition != definition;
+                        let changed = definition_changed(step, wasm_sha256, record);
                         let stale = stale_refs(step, record, &resolved, &lifecycles);
                         let recorded_id = record.id.clone().unwrap_or_default();
                         let reserve_taken =
@@ -658,19 +754,15 @@ fn reconcile(
             }
 
             Step::Call(call) => {
-                let definition = definition_hash(step, None);
                 action.args = preview_args(&call.call.args, &resolved, height);
                 action.id = resolved.eval(&call.contract, height);
                 match record_of(run, name, "call") {
-                    Some(record) if record.status == RecordStatus::Started && !replace => {
+                    Some(record) if needs_confirmation(record) && !replace => {
                         action.status = ActionStatus::Interrupted;
-                        action.detail = Some(format!(
-                            "a previous apply stopped mid-broadcast — check whether the call landed; if it did, set its status to `success` in {}/{network}.json, otherwise pass `--replace {name}` to broadcast it again",
-                            runfile::RUN_DIR
-                        ));
+                        action.detail = Some(interrupted_detail(name, record));
                     }
                     Some(record) if record.status == RecordStatus::Success => {
-                        let changed = record.definition != definition;
+                        let changed = definition_changed(step, None, record);
                         let stale = stale_refs(step, record, &resolved, &lifecycles);
                         if replace {
                             action.action = "rerun";
@@ -690,6 +782,15 @@ fn reconcile(
             }
 
             Step::Setting(setting) => {
+                if let Some(record) =
+                    record_of(run, name, "setting").filter(|record| needs_confirmation(record))
+                {
+                    action.status = ActionStatus::Interrupted;
+                    action.id = record.id.clone();
+                    action.detail = Some(interrupted_detail(name, record));
+                    actions.push(action);
+                    continue;
+                }
                 let target = resolved.eval(&setting.contract, height);
                 let desired = resolved.eval(&setting.value, height);
                 action.id = target.clone();
@@ -704,10 +805,13 @@ fn reconcile(
                     }
                     (Some(target_id), desired) => {
                         let current = if setting.read.is_some() {
-                            facts.readings.get(name).cloned()
+                            facts
+                                .readings
+                                .get(name)
+                                .filter(|(read_id, _)| read_id == target_id)
+                                .map(|(_, reading)| reading.clone())
                         } else {
-                            recorded_setting_value(setting, target_id, run, height)
-                                .map(Reading::Value)
+                            recorded_setting_value(setting, target_id, run).map(Reading::Value)
                         };
                         match (current, desired) {
                             (Some(Reading::Failed(reason)), _) => {
@@ -716,7 +820,10 @@ fn reconcile(
                                     Some(format!("cannot read the current value: {reason}"));
                             }
                             (Some(Reading::Value(current)), Some(desired))
-                                if &current == desired =>
+                                if normalize_setting_value(setting.value_type, desired)
+                                    .as_ref()
+                                    .is_ok_and(|desired| &current == desired)
+                                    && !step.uses_height() =>
                             {
                                 action.status = ActionStatus::Complete;
                             }
@@ -822,20 +929,31 @@ async fn read_setting(
     )
 }
 
-async fn gather_facts(config: &ToolkitConfig, graph: &Graph, known: &Resolved) -> Result<Facts> {
-    use alkanes_cli_common::traits::BitcoinRpcProvider;
-
-    let provider = crate::system::connect(config, None, false).await?;
-    let chain_id = BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok();
-    let height = BitcoinRpcProvider::get_block_count(&provider)
-        .await
-        .map_err(|e| LabcoatError::classify(e.into()))?;
-
+async fn gather_facts(
+    config: &ToolkitConfig,
+    graph: &Graph,
+    run: &RunFile,
+    chain_id: Option<String>,
+    height: u64,
+) -> Result<Facts> {
+    let known = known_ids(graph, config.network_id(), run);
     let mut facts = Facts {
         chain_id,
         height,
         ..Facts::default()
     };
+    for (name, record) in &run.steps {
+        if record.kind == "contract"
+            && record.status == RecordStatus::Started
+            && record.txid.is_none()
+            && record
+                .commit_txid
+                .as_deref()
+                .is_some_and(|commit| execute::load_pending_reveal(config, commit).is_some())
+        {
+            facts.ready_reveals.insert(name.clone());
+        }
+    }
     for step in &graph.steps {
         match step {
             Step::Contract(contract) => {
@@ -848,7 +966,9 @@ async fn gather_facts(config: &ToolkitConfig, graph: &Graph, known: &Resolved) -
             Step::Setting(setting) if setting.read.is_some() => {
                 if let Some(target) = known.eval(&setting.contract, height) {
                     let reading = read_setting(config, setting, &target).await?;
-                    facts.readings.insert(setting.name.clone(), reading);
+                    facts
+                        .readings
+                        .insert(setting.name.clone(), (target, reading));
                 }
             }
             _ => {}
@@ -877,6 +997,97 @@ fn refuse_foreign_chain(config: &ToolkitConfig, network: &str, stale: bool) -> R
     Ok(())
 }
 
+fn current_run(
+    config: &ToolkitConfig,
+    loaded: RunFile,
+    observed: Option<&str>,
+) -> Result<(RunFile, usize)> {
+    let Some(recorded) = loaded.chain_id.as_deref() else {
+        return Ok((loaded, 0));
+    };
+    let observed = observed.ok_or_else(|| {
+        LabcoatError::new(
+            "RUN_FILE_INVALID",
+            format!(
+                "cannot verify the chain for the `{}` deployment records",
+                loaded.network
+            ),
+            "check the node and retry once its block 1 hash is available",
+        )
+    })?;
+    let stale = recorded != observed;
+    refuse_foreign_chain(config, &loaded.network, stale)?;
+    if stale {
+        let run = RunFile::empty(&loaded.network, Some(observed.to_string()));
+        return Ok((run, loaded.steps.len()));
+    }
+    Ok((loaded, 0))
+}
+
+// An unknown trace, or a successful deploy trace without a creation ID,
+// is still pending. Only an explicit execution outcome can settle it.
+fn apply_trace(record: &mut StepRecord, status: &str, created: Vec<String>) -> bool {
+    match status {
+        "revert" => {
+            record.status = RecordStatus::Revert;
+            record.confirmed_revert = true;
+        }
+        "success" => {
+            if record.kind == "contract" {
+                let Some(id) = created.first() else {
+                    return false;
+                };
+                record.id = Some(id.clone());
+                record.created = created;
+                if record.origin.is_none() {
+                    record.origin = Some(
+                        if record.wasm_sha256.is_some() {
+                            "deployed"
+                        } else {
+                            "cloned"
+                        }
+                        .into(),
+                    );
+                }
+            }
+            record.status = RecordStatus::Success;
+            record.confirmed_revert = false;
+        }
+        _ => return false,
+    }
+    record.updated_at = runfile::now_millis();
+    true
+}
+
+async fn recover_broadcasts(provider: &ConcreteProvider, run: &mut RunFile) -> Vec<String> {
+    let mut recovered = Vec::new();
+    for (name, record) in &mut run.steps {
+        if !needs_confirmation(record) {
+            continue;
+        }
+        let Some(txid) = record.txid.as_deref() else {
+            continue;
+        };
+        let traces = match trace::trace(provider, txid).await {
+            Ok(traces) => traces,
+            Err(error) => {
+                tracing::debug!("execution trace for {txid} is unavailable: {error}");
+                continue;
+            }
+        };
+        let (status, _) = execute::find_return_status(&traces);
+        let created = if record.kind == "contract" {
+            execute::find_created_alkanes(&traces)
+        } else {
+            Vec::new()
+        };
+        if apply_trace(record, &status, created) {
+            recovered.push(name.clone());
+        }
+    }
+    recovered
+}
+
 /// Build the plan: reconcile the graph against the run file and chain
 /// facts. Never loads a signer.
 pub async fn plan(
@@ -888,24 +1099,14 @@ pub async fn plan(
     let network = config.network_id().to_string();
     let artifacts = resolve_artifacts(root, graph)?;
     let loaded = runfile::load(root, &network)?;
-    let facts = gather_facts(config, graph, &known_ids(graph, &network, &loaded)).await?;
-
-    // Records from a previous chain instance (before a reset) describe
-    // contracts that no longer exist.
-    let stale = loaded.chain_id.is_some() && loaded.chain_id != facts.chain_id;
-    refuse_foreign_chain(config, &network, stale)?;
-    let stale_records = if stale { loaded.steps.len() } else { 0 };
-    let run = if stale {
-        RunFile::empty(&network, facts.chain_id.clone())
-    } else {
-        loaded
-    };
-    // A stale run file invalidated the ids the reads were gathered with.
-    let facts = if stale {
-        gather_facts(config, graph, &known_ids(graph, &network, &run)).await?
-    } else {
-        facts
-    };
+    let provider = crate::system::connect(config, None, false).await?;
+    let chain_id = BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok();
+    let height = BitcoinRpcProvider::get_block_count(&provider)
+        .await
+        .map_err(|error| LabcoatError::classify(error.into()))?;
+    let (mut run, stale_records) = current_run(config, loaded, chain_id.as_deref())?;
+    let recovered = recover_broadcasts(&provider, &mut run).await;
+    let facts = gather_facts(config, graph, &run, chain_id, height).await?;
 
     let Reconciled { actions, resolved } =
         reconcile(graph, &network, &artifacts, &facts, &run, options)?;
@@ -941,6 +1142,7 @@ pub async fn plan(
         artifacts,
         resolved,
         run,
+        recovered,
     })
 }
 
@@ -977,7 +1179,7 @@ fn stop(kind: &str, name: &str, error: LabcoatError) -> LabcoatError {
     LabcoatError::new(
         error.code,
         format!("apply stopped at {kind} `{name}`: {}", error.message),
-        "completed steps are recorded; fix the cause and re-run apply to resume",
+        error.hint,
     )
 }
 
@@ -987,6 +1189,118 @@ fn reverted(what: &str, reason: Option<&str>) -> LabcoatError {
         format!("{what} reverted: {}", reason.unwrap_or("unknown reason")),
         "inspect the trace with `labcoat trace <txid>`",
     )
+}
+
+fn journal_broadcast<'a>(
+    root: &'a Path,
+    run: &'a mut RunFile,
+    name: &'a str,
+    record: &'a mut StepRecord,
+) -> impl FnMut(Broadcast<'_>) -> Result<()> + 'a {
+    |transaction| {
+        match transaction {
+            Broadcast::Commit(txid) => record.commit_txid = Some(txid.to_owned()),
+            Broadcast::Execute(txid) => record.txid = Some(txid.to_owned()),
+        }
+        record.updated_at = runfile::now_millis();
+        run.steps.insert(name.to_string(), record.clone());
+        runfile::save(root, run)
+    }
+}
+
+fn record_contract_address(
+    config: &ToolkitConfig,
+    root: &Path,
+    run: &RunFile,
+    name: &str,
+    record: &StepRecord,
+) -> Result<()> {
+    let Some(id) = record.id.as_ref() else {
+        return Err(unresolved("contract", name));
+    };
+    let origin = match record.origin.as_deref() {
+        Some("adopted") => state::InstanceOrigin::Adopted,
+        Some("imported") => state::InstanceOrigin::Imported,
+        _ => state::InstanceOrigin::Deployed,
+    };
+    let deployment = lockfile::Deployment {
+        alkanes_id: id.clone(),
+        wasm_sha256: record.wasm_sha256.clone(),
+        txid: record
+            .txid
+            .clone()
+            .unwrap_or_else(|| record.origin.clone().unwrap_or_default()),
+        block: None,
+        status: "success".into(),
+        deployed_at: record.updated_at,
+        chain_id: run.chain_id.clone(),
+    };
+    let state_guard = state::deploy_guard(
+        root,
+        &config.environment,
+        &state::observed_chain(config, run.chain_id.clone()),
+    )?;
+    lockfile::record(root, &run.network, name, deployment.clone())?;
+    if let Some((mut lease, v2_state)) = state_guard {
+        let same_instance = v2_state
+            .resources
+            .get(&state::resource_address(name))
+            .and_then(|resource| resource.instances.last())
+            .is_some_and(|instance| {
+                instance.txid == deployment.txid
+                    && instance.alkanes_id == deployment.alkanes_id
+                    && instance.chain_id == deployment.chain_id
+                    && instance.status == deployment.status
+            });
+        if !same_instance {
+            state::record_instance(
+                &mut lease,
+                v2_state,
+                name,
+                &deployment,
+                origin,
+                state::InstanceExtras {
+                    commit_txid: record.commit_txid.clone(),
+                    labcoat_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    revert_reason: None,
+                },
+            )?;
+        }
+    }
+    Ok(())
+}
+
+// The execution outcome is evidence only once the indexer sees a return or
+// a revert. Pending attempts already have their IDs persisted by the observer.
+fn finish_attempt(
+    config: &ToolkitConfig,
+    root: &Path,
+    run: &mut RunFile,
+    name: &str,
+    mut record: StepRecord,
+    outcome: &ExecuteOutcome,
+) -> Result<()> {
+    record.txid = Some(outcome.txid.clone());
+    record.commit_txid = outcome.commit_txid.clone().or(record.commit_txid);
+    let settled = apply_trace(&mut record, &outcome.status, outcome.created.clone());
+    if record.kind == "contract" && record.status == RecordStatus::Success {
+        record_contract_address(config, root, run, name, &record)?;
+    }
+    let kind = record.kind.clone();
+    let status = record.status;
+    run.steps.insert(name.to_string(), record);
+    runfile::save(root, run)?;
+    if !settled {
+        return Err(LabcoatError::new(
+            "APPLY_BLOCKED",
+            format!("waiting for an execution trace for {}", outcome.txid),
+            "re-run apply after the transaction is indexed",
+        ));
+    }
+    if status == RecordStatus::Revert {
+        return Err(reverted(&kind, outcome.revert_reason.as_deref()));
+    }
+    Ok(())
 }
 
 /// The ABI a contract step's code exposes: its local artifact, or — for a
@@ -1021,12 +1335,24 @@ pub async fn apply(
     graph: &Graph,
     options: &Options,
 ) -> Result<ApplyReport> {
+    let _deployment_lock = runfile::lock(root)?;
     let PlanOutcome {
         plan,
         artifacts,
         mut resolved,
         mut run,
+        recovered,
     } = plan(config, root, graph, options).await?;
+
+    run.chain_id = plan.chain_id.clone();
+    if !recovered.is_empty() {
+        for name in &recovered {
+            if let Some(record) = success_record(&run, name, "contract") {
+                record_contract_address(config, root, &run, name, record)?;
+            }
+        }
+        runfile::save(root, &run)?;
+    }
 
     // Fail fast on states that need a human, before any broadcast.
     let conflicts: Vec<String> = plan
@@ -1073,8 +1399,6 @@ pub async fn apply(
     }
 
     let network = plan.network.clone();
-    let height = plan.height;
-    run.chain_id = plan.chain_id.clone();
     let mut report = ApplyReport {
         network: network.clone(),
         chain_id: plan.chain_id.clone(),
@@ -1092,6 +1416,15 @@ pub async fn apply(
 
     for (step, action) in graph.steps.iter().zip(&plan.actions) {
         let name = step.name();
+        // A preview uses the planning tip. Execution resolves height at the
+        // step that consumes it, after earlier transactions may have mined.
+        let height = if action.status == ActionStatus::Pending && step.uses_height() {
+            toolkit::chain_height(config)
+                .await
+                .map_err(|error| stop(step.kind(), name, error))?
+        } else {
+            plan.height
+        };
         match step {
             Step::External(_) => {
                 // Keep the run file a complete address book.
@@ -1116,7 +1449,7 @@ pub async fn apply(
                 let artifact = artifacts.get(name);
                 let wasm_sha256 = artifact.map(|artifact| artifact.wasm_sha256.clone());
                 let definition = definition_hash(step, wasm_sha256.as_deref());
-                let previous = record_of(&run, name, "contract").cloned();
+                let previous = run.steps.get(name).cloned();
                 let mut record = StepRecord::new("contract", RecordStatus::Started, definition)
                     .replacing(previous.as_ref());
                 record.wasm_sha256 = wasm_sha256.clone();
@@ -1126,51 +1459,14 @@ pub async fn apply(
 
                 if action.status == ActionStatus::Adopt {
                     let id = action.id.clone().expect("adopted reserves have an id");
-                    // Durable-state guard before the adoption is recorded:
-                    // a reset or foreign chain aborts this step, and the
-                    // lease covers both ledger writes.
-                    let mut state_guard = crate::state::deploy_guard(
-                        root,
-                        &config.environment,
-                        &crate::state::observed_chain(config, plan.chain_id.clone()),
-                    )
-                    .map_err(|e| stop("contract", name, e))?;
-                    let deployment = lockfile::Deployment {
-                        alkanes_id: id.clone(),
-                        wasm_sha256,
-                        txid: "adopted".into(),
-                        block: None,
-                        status: "success".into(),
-                        deployed_at: runfile::now_millis(),
-                        chain_id: plan.chain_id.clone(),
-                    };
-                    lockfile::record(root, &network, name, deployment.clone())
-                        .map_err(|e| stop("contract", name, e))?;
-                    if let Some((mut lease, v2_state)) = state_guard.take() {
-                        if let Err(e) = crate::state::record_instance(
-                            &mut lease,
-                            v2_state,
-                            name,
-                            &deployment,
-                            crate::state::InstanceOrigin::Adopted,
-                            crate::state::InstanceExtras {
-                                commit_txid: None,
-                                labcoat_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-                                revert_reason: None,
-                            },
-                        ) {
-                            tracing::warn!("durable state not updated: {e}");
-                        }
-                    }
                     record.status = RecordStatus::Success;
                     record.id = Some(id.clone());
                     record.created = vec![id.clone()];
                     record.origin = Some("adopted".into());
+                    record_contract_address(config, root, &run, name, &record)?;
                     run.steps.insert(name.to_string(), record);
                     runfile::save(root, &run)?;
-                    resolved
-                        .insert(name, &id, std::slice::from_ref(&id))
-                        .map_err(|e| stop("contract", name, e))?;
+                    resolved.insert(name, &id, std::slice::from_ref(&id))?;
                     report.actions.push(AppliedAction {
                         kind: "contract",
                         name: name.to_string(),
@@ -1184,118 +1480,113 @@ pub async fn apply(
                 }
 
                 let fail = |e: LabcoatError| stop("contract", name, e);
-                let target = deploy_target(contract, &resolved, height)
+                let outcome = if action.action == "resume" {
+                    record = previous.expect("resume has a recorded commit");
+                    let reveal = record
+                        .commit_txid
+                        .as_deref()
+                        .and_then(|id| execute::load_pending_reveal(config, id))
+                        .ok_or_else(|| {
+                            fail(LabcoatError::new(
+                                "APPLY_BLOCKED",
+                                "the prepared reveal is unavailable",
+                                "restore the pending reveal file or inspect the recorded commit",
+                            ))
+                        })?;
+                    toolkit::resume_deploy(
+                        config,
+                        signer,
+                        root,
+                        reveal,
+                        &mut journal_broadcast(root, &mut run, name, &mut record),
+                    )
+                    .await
                     .map_err(fail)?
-                    .ok_or_else(|| fail(unresolved("contract", name)))?;
-                let args = resolve_args(&contract.init.args, &resolved, height)
-                    .ok_or_else(|| fail(unresolved("contract", name)))?;
-                let tx_options = resolve_tx(&contract.tx, &resolved, height)
-                    .ok_or_else(|| fail(unresolved("contract", name)))?;
-                let is_clone = matches!(target, DeployTarget::Clone { .. });
-                let (initializer, cellpack_args) = match contract.init.method.as_deref() {
-                    Some(method) => {
-                        let abi_bytes =
-                            contract_abi(config, contract, &artifacts, &resolved, height)
-                                .await
-                                .map_err(fail)?;
-                        let method = abi::encode_invocation(abi_bytes.as_deref(), method, &args)
-                            .map_err(fail)?;
-                        (Some(method.opcode), method.cellpack_args)
-                    }
-                    None if is_clone && args.is_empty() => (None, Vec::new()),
-                    None if is_clone => {
-                        let abi_bytes =
-                            contract_abi(config, contract, &artifacts, &resolved, height)
-                                .await
-                                .map_err(fail)?;
-                        let method = abi_bytes
-                            .as_deref()
-                            .map(|bytes| abi::resolve_constructor(bytes, &args))
-                            .transpose()
-                            .map_err(fail)?
-                            .flatten()
-                            .ok_or_else(|| {
-                                fail(LabcoatError::new(
+                } else {
+                    let target = deploy_target(contract, &resolved, height)
+                        .map_err(fail)?
+                        .ok_or_else(|| fail(unresolved("contract", name)))?;
+                    let args = resolve_args(&contract.init.args, &resolved, height)
+                        .ok_or_else(|| fail(unresolved("contract", name)))?;
+                    let tx_options = resolve_tx(&contract.tx, &resolved, height)
+                        .ok_or_else(|| fail(unresolved("contract", name)))?;
+                    let is_clone = matches!(target, DeployTarget::Clone { .. });
+                    let (initializer, cellpack_args) = match contract.init.method.as_deref() {
+                        Some(method) => {
+                            let abi_bytes =
+                                contract_abi(config, contract, &artifacts, &resolved, height)
+                                    .await
+                                    .map_err(fail)?;
+                            let method =
+                                abi::encode_invocation(abi_bytes.as_deref(), method, &args)
+                                    .map_err(fail)?;
+                            (Some(method.opcode), method.cellpack_args)
+                        }
+                        None if is_clone && args.is_empty() => (None, Vec::new()),
+                        None if is_clone => {
+                            let abi_bytes =
+                                contract_abi(config, contract, &artifacts, &resolved, height)
+                                    .await
+                                    .map_err(fail)?;
+                            let method = abi_bytes
+                                .as_deref()
+                                .map(|bytes| abi::resolve_constructor(bytes, &args))
+                                .transpose()
+                                .map_err(fail)?
+                                .flatten()
+                                .ok_or_else(|| {
+                                    fail(LabcoatError::new(
                                     "CONFIG_INVALID",
                                     "the template exposes no opcode-0 constructor for these args",
                                     "name the initializer with `.init(method)`",
                                 ))
-                            })?;
-                        (Some(0), method.cellpack_args)
-                    }
-                    None => {
-                        let wasm_path = &artifact
-                            .expect("non-clone contracts have an artifact")
-                            .wasm_path;
-                        let constructor =
-                            abi::encode_constructor(wasm_path, &args).map_err(fail)?;
-                        (None, constructor.cellpack)
-                    }
-                };
+                                })?;
+                            (Some(0), method.cellpack_args)
+                        }
+                        None => {
+                            let wasm_path = &artifact
+                                .expect("non-clone contracts have an artifact")
+                                .wasm_path;
+                            let constructor =
+                                abi::encode_constructor(wasm_path, &args).map_err(fail)?;
+                            (None, constructor.cellpack)
+                        }
+                    };
 
-                record.args = display_args(&args);
-                run.steps.insert(name.to_string(), record.clone());
-                runfile::save(root, &run)?;
-
-                let no_wasm = PathBuf::new();
-                let outcome = toolkit::deploy_in(
-                    config,
-                    signer,
-                    root,
-                    toolkit::DeployRequest {
-                        wasm_path: artifact
-                            .map(|artifact| artifact.wasm_path.as_path())
-                            .unwrap_or(&no_wasm),
-                        contract_name: Some(name.to_string()),
-                        initializer,
-                        cellpack_args: &cellpack_args,
-                        fee_rate: config.fee_rate,
-                        target,
-                        options: &tx_options,
-                    },
-                )
-                .await
-                // The `started` record stays: the broadcast may have landed.
-                .map_err(fail)?;
-
-                record.txid = Some(outcome.txid.clone());
-                record.updated_at = runfile::now_millis();
-                let id = match (&outcome.alkanes_id, outcome.status == "success") {
-                    (Some(id), true) => id.clone(),
-                    _ => {
-                        record.status = RecordStatus::Revert;
-                        run.steps.insert(name.to_string(), record);
-                        runfile::save(root, &run)?;
-                        return Err(fail(reverted(
-                            "deployment",
-                            outcome.revert_reason.as_deref(),
-                        )));
-                    }
+                    record.args = display_args(&args);
+                    record.origin = Some(if is_clone { "cloned" } else { "deployed" }.into());
+                    toolkit::deploy_with_broadcast(
+                        config,
+                        signer,
+                        root,
+                        toolkit::DeployRequest {
+                            wasm_path: artifact
+                                .map(|artifact| artifact.wasm_path.as_path())
+                                .unwrap_or(Path::new("")),
+                            contract_name: None,
+                            initializer,
+                            cellpack_args: &cellpack_args,
+                            fee_rate: config.fee_rate,
+                            target,
+                            options: &tx_options,
+                        },
+                        Some(&mut journal_broadcast(root, &mut run, name, &mut record)),
+                    )
+                    .await
+                    .map_err(fail)?
                 };
-                record.status = RecordStatus::Success;
-                record.id = Some(id.clone());
-                record.created = if outcome.created.first() == Some(&id) {
-                    outcome.created.clone()
-                } else {
-                    std::iter::once(id.clone())
-                        .chain(
-                            outcome
-                                .created
-                                .iter()
-                                .filter(|other| **other != id)
-                                .cloned(),
-                        )
-                        .collect()
-                };
-                record.origin = Some(if is_clone { "cloned" } else { "deployed" }.into());
-                resolved.insert(name, &id, &record.created).map_err(fail)?;
-                run.steps.insert(name.to_string(), record);
-                runfile::save(root, &run)?;
+                finish_attempt(config, root, &mut run, name, record, &outcome).map_err(fail)?;
+                let recorded = &run.steps[name];
+                let id = recorded
+                    .id
+                    .as_deref()
+                    .expect("confirmed contract has an id");
+                resolved.insert(name, id, &recorded.created).map_err(fail)?;
                 report.actions.push(AppliedAction {
                     kind: "contract",
                     name: name.to_string(),
                     outcome: "applied".into(),
-                    id: Some(id),
+                    id: Some(id.to_string()),
                     txid: Some(outcome.txid.clone()),
                     fee: Some(outcome.fee),
                     detail: action.detail.clone(),
@@ -1345,21 +1636,15 @@ pub async fn apply(
                 let method = abi::encode_invocation(abi_bytes.as_deref(), method_name, &args)
                     .map_err(fail)?;
 
-                // Record the attempt before broadcasting, so a crash
-                // between broadcast and confirmation shows as `started`
-                // instead of silently running again.
-                let previous = record_of(&run, name, "call").cloned();
                 let mut record =
                     StepRecord::new("call", RecordStatus::Started, definition_hash(step, None))
-                        .replacing(previous.as_ref());
+                        .replacing(run.steps.get(name));
                 record.id = Some(target_id.clone());
                 record.refs = current_refs(step, &resolved);
                 record.args = display_args(&args);
                 record.height = Some(height);
-                run.steps.insert(name.to_string(), record.clone());
-                runfile::save(root, &run)?;
 
-                let outcome = toolkit::call(
+                let outcome = toolkit::call_with_broadcast(
                     config,
                     signer,
                     toolkit::CallRequest {
@@ -1370,23 +1655,11 @@ pub async fn apply(
                         fee_rate: config.fee_rate,
                         options: &tx_options,
                     },
+                    Some(&mut journal_broadcast(root, &mut run, name, &mut record)),
                 )
                 .await
                 .map_err(fail)?;
-
-                let succeeded = outcome.status == "success";
-                record.status = if succeeded {
-                    RecordStatus::Success
-                } else {
-                    RecordStatus::Revert
-                };
-                record.txid = Some(outcome.txid.clone());
-                record.updated_at = runfile::now_millis();
-                run.steps.insert(name.to_string(), record);
-                runfile::save(root, &run)?;
-                if !succeeded {
-                    return Err(fail(reverted("call", outcome.revert_reason.as_deref())));
-                }
+                finish_attempt(config, root, &mut run, name, record, &outcome).map_err(fail)?;
                 report.actions.push(AppliedAction {
                     kind: "call",
                     name: name.to_string(),
@@ -1433,7 +1706,7 @@ pub async fn apply(
                         }
                     }
                 } else {
-                    recorded_setting_value(setting, &target_id, &run, height)
+                    recorded_setting_value(setting, &target_id, &run)
                 };
 
                 let previous = record_of(&run, name, "setting").cloned();
@@ -1493,12 +1766,9 @@ pub async fn apply(
                     .map_err(fail)?
                 };
 
-                let mut started = record.clone().replacing(previous.as_ref());
+                let mut started = record.replacing(previous.as_ref());
                 started.status = RecordStatus::Started;
-                run.steps.insert(name.to_string(), started.clone());
-                runfile::save(root, &run)?;
-
-                let outcome = toolkit::call(
+                let outcome = toolkit::call_with_broadcast(
                     config,
                     signer,
                     toolkit::CallRequest {
@@ -1509,19 +1779,11 @@ pub async fn apply(
                         fee_rate: config.fee_rate,
                         options: &tx_options,
                     },
+                    Some(&mut journal_broadcast(root, &mut run, name, &mut started)),
                 )
                 .await
                 .map_err(fail)?;
-
-                started.txid = Some(outcome.txid.clone());
-                started.updated_at = runfile::now_millis();
-                if outcome.status != "success" {
-                    started.status = RecordStatus::Revert;
-                    started.value = current.clone();
-                    run.steps.insert(name.to_string(), started);
-                    runfile::save(root, &run)?;
-                    return Err(fail(reverted("update", outcome.revert_reason.as_deref())));
-                }
+                finish_attempt(config, root, &mut run, name, started, &outcome).map_err(fail)?;
                 // Read the value back: a write that succeeds without
                 // taking effect must not be recorded as applied.
                 if setting.read.is_some() {
@@ -1543,9 +1805,6 @@ pub async fn apply(
                         )));
                     }
                 }
-                started.status = RecordStatus::Success;
-                run.steps.insert(name.to_string(), started);
-                runfile::save(root, &run)?;
                 report.actions.push(AppliedAction {
                     kind: "setting",
                     name: name.to_string(),
@@ -1578,16 +1837,16 @@ pub struct ImportReport {
     pub abi_verified: bool,
 }
 
-/// Record a contract that already exists on chain as a step's instance,
-/// without deploying: for deployments made before the script existed, or
-/// to resolve an interrupted deploy that did land.
+/// Record a contract that already exists on chain as a step's instance.
 pub async fn import(
     config: &ToolkitConfig,
     root: &Path,
     graph: &Graph,
     name: &str,
     id: &str,
+    deployment_txid: Option<&str>,
 ) -> Result<ImportReport> {
+    let _deployment_lock = runfile::lock(root)?;
     let network = config.network_id().to_string();
     let Some(step) = graph.steps.iter().find(|step| step.name() == name) else {
         return Err(LabcoatError::new(
@@ -1618,23 +1877,22 @@ pub async fn import(
     let artifacts = resolve_artifacts(root, graph)?;
     let loaded = runfile::load(root, &network)?;
     let chain_id = toolkit::chain_instance_id(config).await;
-    let stale = loaded.chain_id.is_some() && loaded.chain_id != chain_id;
-    refuse_foreign_chain(config, &network, stale)?;
-    let mut run = if stale {
-        RunFile::empty(&network, chain_id.clone())
-    } else {
-        loaded
-    };
-    run.chain_id = chain_id.clone();
-    if let Some(existing) = success_record(&run, name, "contract") {
-        return Err(LabcoatError::new(
-            "CONFIG_INVALID",
-            format!(
-                "`{name}` is already recorded as {} on {network}",
-                existing.id.as_deref().unwrap_or("an unknown id")
-            ),
-            "to deploy a new instance instead, run `labcoat apply --replace <name> --broadcast`",
-        ));
+    let (mut run, _) = current_run(config, loaded, chain_id.as_deref())?;
+    run.chain_id = chain_id;
+    let previous = run.steps.get(name);
+    if let Some(existing) = previous {
+        if existing.kind != "contract"
+            || (existing.status == RecordStatus::Success && existing.id.as_deref() != Some(&id))
+        {
+            return Err(LabcoatError::new(
+                "DEPLOYMENT_CONFLICT",
+                format!(
+                    "`{name}` already has a {} record for another step or instance",
+                    existing.kind
+                ),
+                "use a different step name or explicitly replace the recorded step with apply",
+            ));
+        }
     }
 
     let onchain = abi::fetch_deployed(config, block, tx).await.map_err(|e| {
@@ -1661,43 +1919,104 @@ pub async fn import(
         None => false,
     };
 
+    let txid = match deployment_txid {
+        Some(txid) => Some(txid.parse::<bitcoin::Txid>().map_err(|error| {
+            LabcoatError::new(
+                "CONFIG_INVALID",
+                format!("invalid deployment transaction id: {error}"),
+                "pass the Bitcoin transaction id of the deploy or reveal",
+            )
+        })?),
+        None => {
+            let ledger = lockfile::load(root)?;
+            previous
+                .and_then(|record| record.txid.as_deref())
+                .and_then(|txid| txid.parse().ok())
+                .or_else(|| {
+                    ledger.networks.get(&network)?.values().find_map(|record| {
+                        (record.alkanes_id == id && record.status == "success")
+                            .then(|| record.txid.parse().ok())
+                            .flatten()
+                    })
+                })
+        }
+    };
+    let existing = success_record(&run, name, "contract");
+    let required_index = graph
+        .steps
+        .iter()
+        .flat_map(Step::references)
+        .filter(|reference| reference.step == name && reference.field == Field::Created)
+        .filter_map(|reference| reference.index)
+        .max();
+
+    let created = if let Some(txid) = txid {
+        let traces = toolkit::trace(config, &txid.to_string(), false).await?;
+        imported_creations(&id, traces).ok_or_else(|| {
+            LabcoatError::new(
+                "APPLY_BLOCKED",
+                format!("transaction {txid} has no successful deployment trace for {id}"),
+                "check the reveal transaction id and wait for it to be indexed",
+            )
+        })?
+    } else {
+        existing
+            .filter(|record| !record.created.is_empty())
+            .map(|record| record.created.clone())
+            .unwrap_or_else(|| vec![id.clone()])
+    };
+    if required_index.is_some_and(|index| index >= created.len()) {
+        return Err(LabcoatError::new(
+            "APPLY_BLOCKED",
+            format!(
+                "`{name}` needs additional Alkane IDs from its deployment, such as its auth token"
+            ),
+            "pass `labcoat import <name> <id> --txid <reveal-txid>` to recover the created IDs",
+        ));
+    }
+
     let resolved = known_ids(graph, &network, &run);
-    let wasm_sha256 = artifact.map(|artifact| artifact.wasm_sha256.clone());
-    let previous = record_of(&run, name, "contract").cloned();
-    let mut record = StepRecord::new(
-        "contract",
-        RecordStatus::Success,
-        definition_hash(step, wasm_sha256.as_deref()),
-    )
-    .replacing(previous.as_ref());
-    record.id = Some(id.clone());
-    record.created = vec![id.clone()];
-    record.refs = current_refs(step, &resolved);
-    record.wasm_sha256 = wasm_sha256.clone();
-    record.artifact = artifact.and_then(Artifact::stem);
-    record.origin = Some("imported".into());
+    let mut record = existing.cloned().unwrap_or_else(|| {
+        let wasm_sha256 = artifact.map(|artifact| artifact.wasm_sha256.clone());
+        let mut record = StepRecord::new(
+            "contract",
+            RecordStatus::Success,
+            definition_hash(step, wasm_sha256.as_deref()),
+        )
+        .replacing(previous);
+        record.id = Some(id.clone());
+        record.refs = current_refs(step, &resolved);
+        record.wasm_sha256 = wasm_sha256;
+        record.artifact = artifact.and_then(Artifact::stem);
+        record.commit_txid = previous.and_then(|prev| prev.commit_txid.clone());
+        record.origin = Some("imported".into());
+        record
+    });
+    record.created = created;
+    if let Some(txid) = txid {
+        record.txid = Some(txid.to_string());
+    }
+    record_contract_address(config, root, &run, name, &record)?;
     run.steps.insert(name.to_string(), record);
     runfile::save(root, &run)?;
-    lockfile::record(
-        root,
-        &network,
-        name,
-        lockfile::Deployment {
-            alkanes_id: id.clone(),
-            wasm_sha256,
-            txid: "imported".into(),
-            block: None,
-            status: "success".into(),
-            deployed_at: runfile::now_millis(),
-            chain_id,
-        },
-    )?;
 
     Ok(ImportReport {
         network,
         name: name.to_string(),
         id,
         abi_verified,
+    })
+}
+
+fn imported_creations(id: &str, traces: Option<Vec<serde_json::Value>>) -> Option<Vec<String>> {
+    traces?.into_iter().find_map(|trace| {
+        let trace = Some(vec![trace]);
+        let (status, _) = execute::find_return_status(&trace);
+        if status != "success" {
+            return None;
+        }
+        let created = execute::find_created_alkanes(&trace);
+        (created.first().is_some_and(|created_id| created_id == id)).then_some(created)
     })
 }
 
@@ -1764,6 +2083,11 @@ mod tests {
             mut resolved,
         } = reconcile(graph, "labcoat", artifacts, &facts(), run, options).unwrap();
         for (step, action) in graph.steps.iter().zip(&actions) {
+            let args = match step {
+                Step::Contract(contract) => &contract.init.args,
+                Step::Call(call) => &call.call.args,
+                _ => continue,
+            };
             if action.status != ActionStatus::Pending {
                 continue;
             }
@@ -1776,6 +2100,8 @@ mod tests {
             )
             .replacing(previous.as_ref());
             record.refs = current_refs(step, &resolved);
+            record.height = Some(facts().height);
+            record.args = display_args(&resolve_args(args, &resolved, facts().height).unwrap());
             if let Step::Contract(_) = step {
                 let id = action.id.clone().unwrap_or_else(|| {
                     *next += 1;
@@ -2141,9 +2467,10 @@ mod tests {
         settle(&graph, &v1, &mut run, &Options::default(), &mut next);
         let read = |value: &str| {
             let mut facts = facts();
-            facts
-                .readings
-                .insert("beacon_implementation".into(), Reading::Value(value.into()));
+            facts.readings.insert(
+                "beacon_implementation".into(),
+                ("2:6".into(), Reading::Value(value.into())),
+            );
             facts
         };
         let status = |facts: &Facts, artifacts: &BTreeMap<String, Artifact>, run: &RunFile| {
@@ -2176,7 +2503,7 @@ mod tests {
         let mut failed = facts();
         failed.readings.insert(
             "beacon_implementation".into(),
-            Reading::Failed("boom".into()),
+            ("2:6".into(), Reading::Failed("boom".into())),
         );
         assert_eq!(status(&failed, &v1, &run).0, ActionStatus::Blocked);
     }
@@ -2184,7 +2511,7 @@ mod tests {
     #[test]
     fn a_read_less_setting_starts_from_what_the_initializer_was_given() {
         let graph = graph(&format!(
-            r#"{},{},{{"kind":"setting","name":"proxy_implementation","contract":{},"value":{},"valueType":"alkane-id","write":"upgrade","tx":{{}}}}"#,
+            r#"{},{},{{"kind":"setting","name":"proxy_implementation","contract":{},"value":{},"valueType":"alkane-id","write":"upgrade","initializerArg":"implementation","tx":{{}}}}"#,
             contract("logic", "replaceable", "", ""),
             contract(
                 "proxy",
@@ -2241,6 +2568,155 @@ mod tests {
             statuses(&graph, &artifacts, &run, &replace(&["seed"]))[1],
             ("seed".to_string(), ActionStatus::Pending, "rerun")
         );
+    }
+
+    #[test]
+    fn first_write_only_setting_is_pending() {
+        let market = contract("market", "pinned", "", "");
+        let deployed = graph(&market);
+        let graph = graph(&format!(
+            r#"{market},{{"kind":"setting","name":"fee","contract":{},"value":{{"lit":"30"}},"valueType":"u128","write":"set_fee","tx":{{}}}}"#,
+            id_ref("market"),
+        ));
+        let artifacts = artifacts(&[("market", "v1")]);
+        let mut run = RunFile::empty("labcoat", None);
+        settle(&deployed, &artifacts, &mut run, &Options::default(), &mut 4);
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &Options::default())[1].1,
+            ActionStatus::Pending
+        );
+    }
+
+    #[test]
+    fn step_kind_changes_require_replacement_and_keep_history() {
+        let token = contract("token", "pinned", "", "");
+        let original = graph(&format!(
+            r#"{token},{{"kind":"call","name":"seed","contract":{},"call":{{"method":"fund","args":{{}}}},"tx":{{}}}}"#,
+            id_ref("token"),
+        ));
+        let artifacts = artifacts(&[("token", "v1"), ("seed", "v1")]);
+        let mut run = RunFile::empty("labcoat", None);
+        let mut next = 4;
+        settle(
+            &original,
+            &artifacts,
+            &mut run,
+            &Options::default(),
+            &mut next,
+        );
+        let edited = graph(&format!("{token},{}", contract("seed", "pinned", "", "")));
+        assert_eq!(
+            statuses(&edited, &artifacts, &run, &Options::default())[1].1,
+            ActionStatus::Conflict
+        );
+        settle(
+            &edited,
+            &artifacts,
+            &mut run,
+            &replace(&["seed"]),
+            &mut next,
+        );
+        assert_eq!(run.steps["seed"].kind, "contract");
+        assert_eq!(run.steps["seed"].history[0].kind, "call");
+    }
+
+    #[test]
+    fn definitions_distinguish_argument_boundaries_and_accept_matching_legacy_records() {
+        let version = |first: &str, second: &str| {
+            graph(&format!(
+                r#"{{"kind":"external","name":"registry","ids":{{"*":[2,9]}}}},{{"kind":"call","name":"configure","contract":{},"call":{{"method":"set_labels","args":{{"positional":[{{"lit":"{first}"}},{{"lit":"{second}"}}]}}}},"tx":{{}}}}"#,
+                id_ref("registry"),
+            ))
+        };
+        let first = version("a,b", "c");
+        let second = version("a", "b,c");
+        assert_ne!(
+            definition_hash(&first.steps[1], None),
+            definition_hash(&second.steps[1], None)
+        );
+        let mut run = RunFile::empty("labcoat", None);
+        let artifacts = BTreeMap::new();
+        settle(&first, &artifacts, &mut run, &Options::default(), &mut 4);
+        run.steps.get_mut("configure").unwrap().definition =
+            deployment::legacy_definition_hash(&first.steps[1], None);
+        assert_eq!(
+            statuses(&first, &artifacts, &run, &Options::default())[1].1,
+            ActionStatus::Complete
+        );
+        assert_eq!(
+            statuses(&second, &artifacts, &run, &Options::default())[1].1,
+            ActionStatus::Conflict
+        );
+    }
+
+    #[test]
+    fn unknown_broadcasts_stay_interrupted_until_the_trace_is_definitive() {
+        let graph = token_and_market();
+        let artifacts = artifacts(&[("token", "aa"), ("market", "bb")]);
+        let mut run = RunFile::empty("labcoat", None);
+        let mut record = StepRecord::new(
+            "contract",
+            RecordStatus::Started,
+            definition_hash(&graph.steps[0], Some("aa")),
+        );
+        record.txid = Some("f0".repeat(32));
+        assert!(!apply_trace(&mut record, "unknown", Vec::new()));
+        assert!(!apply_trace(&mut record, "success", Vec::new()));
+        run.steps.insert("token".into(), record.clone());
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &Options::default())[0].1,
+            ActionStatus::Interrupted
+        );
+
+        // An older unknown result was saved as a revert and still needs a trace.
+        record.status = RecordStatus::Revert;
+        run.steps.insert("token".into(), record.clone());
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &Options::default())[0].1,
+            ActionStatus::Interrupted
+        );
+        let mut reverted = record.clone();
+        assert!(apply_trace(&mut reverted, "revert", Vec::new()));
+        run.steps.insert("token".into(), reverted);
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &Options::default())[0].1,
+            ActionStatus::Pending
+        );
+
+        assert!(apply_trace(
+            &mut record,
+            "success",
+            vec!["2:5".into(), "2:6".into()]
+        ));
+        assert_eq!(record.created, ["2:5", "2:6"]);
+        run.steps.insert("token".into(), record);
+        assert_eq!(
+            statuses(&graph, &artifacts, &run, &Options::default())[0].1,
+            ActionStatus::Complete
+        );
+    }
+
+    #[test]
+    fn import_uses_the_successful_trace_for_the_requested_contract() {
+        let traces = Some(vec![
+            serde_json::json!({"trace": [
+                {"type": "create_alkane", "alkane_id": {"block": 4, "tx": 1}},
+                {"type": "return"}
+            ]}),
+            serde_json::json!({"trace": [
+                {"type": "create_alkane", "alkane_id": {"block": 2, "tx": 7}},
+                {"type": "call"},
+                {"type": "create_alkane", "alkane_id": {"block": 2, "tx": 8}},
+                {"type": "call"},
+                {"type": "return"},
+                {"type": "return"}
+            ]}),
+        ]);
+        assert_eq!(
+            imported_creations("2:7", traces.clone()).unwrap(),
+            ["2:7", "2:8"]
+        );
+        assert!(imported_creations("2:8", traces).is_none());
     }
 
     #[test]

@@ -21,7 +21,7 @@ Named methods accept one shell argument per ABI parameter. Labcoat encodes
 when a method uses an unsupported complex type. Simulation always targets the
 deployed contract and live indexed state; use `labcoat test <package>` for an
 undeployed local build. Declare multi-step deployments in `deploy.rs` with
-`labcoat_test::deploy` (`d.contract(name, package)` deploys once, with
+`labcoat_deploy` (`d.contract(name, package)` deploys once, with
 `.reserve(n)` and `.arg(name, value)` named after ABI parameters;
 `d.external(name).on(network, block, tx)` names an existing Alkane;
 reference another step with `step.id()`) and run `labcoat plan` /

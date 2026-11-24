@@ -1404,11 +1404,17 @@ pub async fn apply(ctx: &Ctx, replace: &[String], broadcast: bool) -> (&'static 
 
 /// `labcoat import <name> <id>` — record an existing on-chain contract as
 /// a deployment step's instance. Broadcasts nothing.
-pub async fn import(ctx: &Ctx, name: &str, id: &str) -> (&'static str, CmdResult) {
+pub async fn import(
+    ctx: &Ctx,
+    name: &str,
+    id: &str,
+    txid: Option<&str>,
+) -> (&'static str, CmdResult) {
     let res = async {
         let root = project_root()?;
         let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
-        let report = labcoat_core::apply::import(&ctx.config, &root, &graph, name, id).await?;
+        let report =
+            labcoat_core::apply::import(&ctx.config, &root, &graph, name, id, txid).await?;
         Ok(serde_json::to_value(report).expect("serializable import report"))
     }
     .await;

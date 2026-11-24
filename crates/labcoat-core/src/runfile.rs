@@ -40,7 +40,7 @@ impl RunFile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RecordStatus {
-    /// A broadcast was attempted and its result was never recorded.
+    /// A transaction was prepared or submitted and has no recorded result.
     Started,
     Success,
     Revert,
@@ -71,6 +71,12 @@ pub struct StepRecord {
     pub value: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub txid: Option<String>,
+    /// Funding transaction for a commit/reveal deployment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_txid: Option<String>,
+    /// Old run files could record an unknown trace as a revert.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmed_revert: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wasm_sha256: Option<String>,
     /// File stem of the contract's build artifact under `build/`. A
@@ -102,6 +108,8 @@ impl StepRecord {
             args: Vec::new(),
             value: None,
             txid: None,
+            commit_txid: None,
+            confirmed_revert: false,
             wasm_sha256: None,
             artifact: None,
             origin: None,
@@ -115,11 +123,9 @@ impl StepRecord {
     pub fn replacing(mut self, previous: Option<&StepRecord>) -> Self {
         if let Some(previous) = previous {
             let mut history = previous.history.clone();
-            if previous.status == RecordStatus::Success {
-                let mut earlier = previous.clone();
-                earlier.history.clear();
-                history.push(earlier);
-            }
+            let mut earlier = previous.clone();
+            earlier.history.clear();
+            history.push(earlier);
             self.history = history;
         }
         self
@@ -135,6 +141,37 @@ pub fn now_millis() -> u64 {
 
 pub fn path(root: &Path, network: &str) -> PathBuf {
     root.join(RUN_DIR).join(format!("{network}.json"))
+}
+
+/// Hold this file open for the full read/execute/write cycle. The OS releases
+/// the advisory lock on exit, including after a crash.
+pub(crate) fn lock(root: &Path) -> Result<std::fs::File> {
+    let dir = root.join(".labcoat");
+    let path = dir.join("deployment.lock");
+    let io_err = |error: std::io::Error| {
+        LabcoatError::new(
+            "RUN_FILE_INVALID",
+            format!("cannot lock {}: {error}", path.display()),
+            "check permissions on .labcoat",
+        )
+    };
+    std::fs::create_dir_all(&dir).map_err(io_err)?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(io_err)?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => Err(LabcoatError::new(
+            "DEPLOYMENT_LOCKED",
+            "another process is updating this project's deployments",
+            "retry after the other apply or import finishes",
+        )),
+        Err(std::fs::TryLockError::Error(error)) => Err(io_err(error)),
+    }
 }
 
 /// Load a network's run file. A missing file is an empty run; an
@@ -173,6 +210,17 @@ pub fn load(root: &Path, network: &str) -> Result<RunFile> {
             "use the labcoat release that wrote the file",
         ));
     }
+    if run.network != network {
+        return Err(LabcoatError::new(
+            "RUN_FILE_INVALID",
+            format!(
+                "{} records network `{}`, expected `{network}`",
+                path.display(),
+                run.network
+            ),
+            "restore the run file for the selected network",
+        ));
+    }
     Ok(run)
 }
 
@@ -196,7 +244,11 @@ pub fn save(root: &Path, run: &RunFile) -> Result<()> {
         text.push('\n');
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
-        std::fs::rename(&tmp, &path)
+        std::fs::rename(&tmp, &path)?;
+        // Make the new directory entry durable before a broadcast.
+        #[cfg(unix)]
+        std::fs::File::open(dir)?.sync_all()?;
+        Ok(())
     })();
     if write.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -213,6 +265,17 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    #[test]
+    fn deployment_lock_excludes_another_writer_until_released() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-deployment-lock-{}", std::process::id()));
+        let lease = lock(&root).unwrap();
+        assert_eq!(lock(&root).unwrap_err().code, "DEPLOYMENT_LOCKED");
+        drop(lease);
+        assert!(lock(&root).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

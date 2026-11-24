@@ -27,7 +27,7 @@ A `cli-vX.Y.Z` release is one tested compatibility unit containing:
 
 - native CLI executables and checksums;
 - the exact managed Qubitcoin and indexer runtime;
-- the matching `labcoat-test` source tag used by generated projects.
+- the matching `labcoat-deploy` and `labcoat-test` source tag used by generated projects.
 
 Labcoat does not independently update the runtime. An installed CLI requests
 only the manifest for its own release tag and uses a versioned local cache after
@@ -41,7 +41,7 @@ the first verified download. Updating the CLI is the explicit runtime upgrade.
 | JSON envelopes | Use versioned `labcoat/v1/*` schemas; consumers should handle typed errors and unknown additive fields. |
 | MCP tools | Generated from the installed CLI capability set; pin Labcoat in automation. |
 | Runtime | Exactly tied to the CLI release; never selected from an independent latest channel. |
-| `labcoat-test` | Generated projects pin the same immutable `cli-vX.Y.Z` Git tag. |
+| `labcoat-deploy` and `labcoat-test` | Generated projects pin the same immutable `cli-vX.Y.Z` Git tag. |
 | Web documentation | Tracks `main`; it may describe unreleased changes. |
 | Project files | Commit `Cargo.lock`, `rust-toolchain.toml`, `labcoat.toml`, `deploy.rs`, the `deployments/` run files of shared networks, and relevant `labcoat.lock` state; run `labcoat upgrade` after a CLI upgrade. |
 
@@ -64,7 +64,7 @@ Planned, not available:
 
 - production-ready mainnet deployment controls;
 - shared, remote, or mainnet-ready durable state and hosted operation;
-- automatic recovery of an apply interrupted mid-broadcast, and checks that
+- automatic recovery of a funding commit without a saved reveal, and checks that
   an upgrade's storage layout is compatible;
 - team access controls.
 

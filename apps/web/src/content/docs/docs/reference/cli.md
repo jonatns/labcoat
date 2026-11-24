@@ -452,13 +452,14 @@ Arguments and options:
 Record a contract that already exists on chain as a deployment step, without deploying
 
 ```text
-import <NAME> <ID>
+import [OPTIONS] <NAME> <ID>
 ```
 
 Arguments and options:
 
 - `name` (required): Contract step name from deploy.rs
 - `id` (required): The deployed contract's block:tx id
+- `txid` (optional): Deployment or reveal transaction ID, used to recover auth tokens and other created IDs
 
 ### `labcoat simulate`
 
@@ -681,6 +682,7 @@ doctor
 | `LOCKFILE_INVALID` | labcoat.lock exists but cannot be read or parsed | repair the JSON, or delete labcoat.lock to start a fresh ledger |
 | `DEPLOY_SCRIPT_INVALID` | the deploy.rs deployment script is missing, failed to build or run, or declared an invalid graph | fix deploy.rs; `cargo run --example deploy` reproduces a build or runtime failure outside labcoat |
 | `DEPLOYMENT_CONFLICT` | a deployment step that already ran no longer matches deploy.rs, or references an instance that was replaced | restore the step, or name it in `labcoat apply --replace <name>` to deploy a new instance (or run a call again) |
+| `DEPLOYMENT_LOCKED` | another process is updating the project's deployments | retry after the other apply or import finishes |
 | `RUN_FILE_INVALID` | deployments/<network>.json, the record of the steps that ran, cannot be read, parsed, or written | restore the file from version control or repair the JSON; deleting it makes every step run again |
 | `STATE_INVALID` | the durable environment state under .labcoat/state cannot be read or parsed | restore backups/state.json.prev |
 | `STATE_MISSING` | no version-2 durable state exists for this environment | run `labcoat state migrate` |
@@ -696,7 +698,7 @@ doctor
 
 - **Cellpack**: [block, tx, opcode, ...args] as u128 values; strings up to 16 bytes are packed little-endian.
 - **Deploy**: Targets [1, 0] for the next free id 2:n, or [3, N] for the reserved id 4:N; raw Wasm is compressed inside a taproot commit/reveal envelope. A template clone targets [5, n] (a 2:n template) or [6, n] (a 4:n template) and carries no envelope.
-- **Deployment script**: deploy.rs, the project's `deploy` Cargo example target, declares the deployment with labcoat_test::deploy and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.
+- **Deployment script**: deploy.rs, the project's `deploy` Cargo example target, declares the deployment with labcoat_deploy and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.
 - **Step lifecycles**: Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that apply refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: apply reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.
 - **Run file**: deployments/<network>.json records every step that ran: its definition hash, Alkane id, every Alkane its transaction created, the ids it referenced, the arguments as executed, the transaction id, and earlier instances. It is what makes a step run once; commit it for shared networks. The Labcoat Network file is disposable: `labcoat reset` starts a new chain, and records from an earlier chain instance are ignored.
 - **Standard upgradeable contracts**: `labcoat new <name> --template auth-token|upgradeable|upgradeable-beacon|beacon-proxy` vendors the alkanes-rs standard contracts into the project. A proxy or beacon initializes with opcode 0x7fff, which clones the auth token template at 4:65517 and sends one unit to the deployer; upgrading (0x7ffe) spends that token as an input and returns it. A beacon answers 0x7ffd with its current implementation. A fresh chain has no auth token template: deploy the auth-token package at reserve 65517 with `.init(100)` first.

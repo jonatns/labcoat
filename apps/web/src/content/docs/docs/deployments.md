@@ -30,7 +30,7 @@ Each step in the plan has one status:
 | `complete` | Already ran with this definition; skipped. |
 | `conflict` | Ran with a different definition, or references a contract that was since replaced. Apply refuses until you resolve it. See [Steps run once](#steps-run-once). |
 | `adopt` | A reserved id already holds matching code with no record; apply records it without redeploying. |
-| `interrupted` | A previous apply stopped mid-broadcast; verify that transaction before continuing. |
+| `interrupted` | A transaction is awaiting an execution trace, or the previous apply stopped before it could prepare the reveal. |
 | `blocked` | Cannot proceed, for example because a reserved id holds different code. |
 
 Applying an unchanged script a second time is a no-op. Every new project
@@ -38,10 +38,10 @@ includes a `deploy.rs` that deploys its Counter contract.
 
 ## Write the script
 
-`deploy.rs` is ordinary Rust, built on the `labcoat_test::deploy` module:
+`deploy.rs` is ordinary Rust, built on the `labcoat-deploy` crate:
 
 ```rust
-use labcoat_test::deploy::{run, Deployment};
+use labcoat_deploy::{run, Deployment};
 
 fn main() {
     run(|d: &Deployment| {
@@ -225,8 +225,17 @@ labcoat import market 2:118
 ```
 
 Import compares the deployed contract's ABI with the step's local build,
-records the id as that step's instance, and broadcasts nothing. The next plan
-shows the step as `complete`.
+records the id as that step's instance, and broadcasts nothing. For a proxy or
+beacon, include the reveal transaction ID so Labcoat can recover its auth
+token. Labcoat also looks for that transaction ID in a previous attempt or
+in `labcoat.lock`.
+
+```bash
+labcoat import counter_beacon 2:2 --txid <reveal-txid>
+```
+
+You can reimport the same ID with its reveal transaction to recover missing
+auth-token IDs from an earlier import.
 
 **A reserved id that already holds matching code** needs no command: the plan
 shows `adopt`, and apply records it without redeploying. This is how a
@@ -329,15 +338,16 @@ d.setting("market_fee", &market, 30)
 On every plan Labcoat reads the current value and compares it with the
 declared one. They match: `complete`. They differ, whether because you changed
 the script or because someone changed the chain: `pending (update)`, and apply
-sends the write call, then reads the value back before recording it.
+sends the write call and verifies the value before reporting success.
 
 A setting declared for a contract that does not exist yet shows
 `pending (check)`. Apply checks it once the contract is deployed and sends
 nothing when the initializer already set the value.
 
-Without `.read(…)`, Labcoat compares against the value it last recorded. The
-standard upgradeable proxy has no view of its implementation, so `d.proxy`
-works this way; a beacon's setting reads the chain.
+Without `.read(…)`, Labcoat compares against the last successful write and
+sends the first write when the current value is unknown. The standard
+`d.proxy` uses the implementation argument recorded at deployment until it
+has a successful write. A beacon's setting reads the chain.
 
 Labcoat cannot check that a new implementation's storage layout is compatible
 with the old one. Test an upgrade on Labcoat Network before applying it to a
@@ -361,10 +371,18 @@ instances it replaced. It is what makes a step run once.
 [generated web clients](/docs/web-apps/). Apply updates it as contracts
 deploy.
 
-If an apply is interrupted mid-broadcast, the step's record stays `started`
-and the next plan shows it as `interrupted`. Check whether the transaction
-landed, then either `labcoat import <name> <id>` to record the result, or pass
-`--replace <name>` to broadcast again.
+Labcoat records the commit and execution transaction IDs before submission.
+Run `labcoat apply --broadcast` again after the indexer catches up. It checks
+the recorded transaction and continues once its result is known. If the
+funding commit was sent and Labcoat saved a prepared reveal, apply can
+continue from that reveal.
+
+If apply stopped before saving the reveal, check the recorded commit and the
+wallet. Use `labcoat import <name> <id> --txid <reveal-txid>` if the
+deployment landed. Use `--replace <name>` for a contract or call only after
+verifying its previous execution cannot still land. Run one apply or import
+at a time per checkout. When deploying from different checkouts, share the
+latest run file and coordinate who applies it.
 
 ## Keep usage out of the script
 

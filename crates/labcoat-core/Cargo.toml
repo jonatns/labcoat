@@ -32,5 +32,5 @@ alkanes-cli-common.workspace = true
 ordinals.workspace = true
 
 [dev-dependencies]
-labcoat-test = { path = "../labcoat-test" }
+labcoat-deploy = { path = "../labcoat-deploy" }
 wat = "1"

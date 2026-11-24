@@ -1,7 +1,7 @@
 # Releasing Labcoat
 
 Labcoat has one product release track. A `cli-vX.Y.Z` release contains the CLI,
-its exact managed runtime, and the matching `labcoat-test` source. Generic `v*`
+its exact managed runtime, and the matching `labcoat-deploy` and `labcoat-test` source. Generic `v*`
 and `runtime-v*` tags are historical and must not be moved or reused.
 
 ## One-time repository setup
@@ -46,7 +46,7 @@ The **Release Labcoat** workflow runs only for a merged, labeled
 7. creates a draft, uploads and attests all thirteen assets, then publishes the
    immutable `cli-vX.Y.Z` release;
 8. installs the published CLI and verifies that generated projects pin
-   `labcoat-test` to the same Git tag.
+   `labcoat-deploy` and `labcoat-test` to the same Git tag.
 
 Run **Release Labcoat** manually with `dry_run=true` to build and validate the
 complete product without creating a tag or GitHub release.
@@ -58,7 +58,7 @@ complete product without creating a tag or GitHub release.
 - `labcoat up` downloads `runtime-manifest.json` and assets from that same tag.
 - A second `labcoat up` uses the cached versioned bundle without a release
   lookup.
-- `labcoat init` writes the matching `labcoat-test` Git tag.
+- `labcoat init` writes the matching `labcoat-deploy` and `labcoat-test` Git tag.
 - All thirteen assets have GitHub build-provenance attestations.
 - Release notes match the version section in `CHANGELOG.md`.
 

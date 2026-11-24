@@ -39,15 +39,7 @@ pub fn load_graph(root: &Path, network: &str) -> Result<Graph, LabcoatError> {
     let _ = std::fs::remove_file(&graph_path);
 
     let mut command = std::process::Command::new("cargo");
-    if let Some(path) = crate::test_command::local_labcoat_test_path() {
-        let escaped = path
-            .to_string_lossy()
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"");
-        command.arg("--config").arg(format!(
-            "patch.'https://github.com/jonatns/labcoat'.labcoat-test.path=\"{escaped}\""
-        ));
-    }
+    labcoat_core::compile::patch_local_labcoat_crates(&mut command);
     let output = command
         .args(["run", "--quiet", "--example", deployment::SCRIPT_TARGET])
         .current_dir(root)
@@ -78,7 +70,7 @@ pub fn load_graph(root: &Path, network: &str) -> Result<Graph, LabcoatError> {
     let text = std::fs::read_to_string(&graph_path).map_err(|e| {
         script_error(
             format!("deploy.rs ran but wrote no deployment graph: {e}"),
-            "call `labcoat_test::deploy::run(|d| { ... })` from deploy.rs's `main`",
+            "call `labcoat_deploy::run(|d| { ... })` from deploy.rs's `main`",
         )
     })?;
     let _ = std::fs::remove_file(&graph_path);

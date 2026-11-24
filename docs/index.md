@@ -25,6 +25,7 @@ labcoat docs --llm
 crates/isomer-core   headless Labcoat Network process and chain control
 crates/labcoat-core  contract toolkit on pinned alkanes-rs
 crates/labcoat-cli   CLI, JSON envelopes, and MCP server
+crates/labcoat-deploy deployment script API
 crates/labcoat-test  native WebAssembly contract test harness
 ```
 

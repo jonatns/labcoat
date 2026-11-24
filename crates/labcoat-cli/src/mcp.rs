@@ -73,7 +73,7 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("apply", "Execute the pending deployment steps deploy.rs declares. Requires broadcast: true to transact; otherwise returns the plan. Refuses while any step is in conflict.",
             json!({"replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again"}, "broadcast": {"type": "boolean", "description": "actually broadcast transactions"}}), &[]),
         tool("import", "Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.",
-            json!({"name": {"type": "string", "description": "contract step name from deploy.rs"}, "id": {"type": "string", "description": "the deployed contract's block:tx id"}}), &["name", "id"]),
+            json!({"name": {"type": "string", "description": "contract step name from deploy.rs"}, "id": {"type": "string", "description": "the deployed contract's block:tx id"}, "txid": {"type": "string", "description": "deployment or reveal transaction id for recovering other created IDs, including auth tokens"}}), &["name", "id"]),
         tool("state_list", "List resources and active instances in this environment's durable deployment state.",
             json!({}), &[]),
         tool("state_show", "Show one resource's active instance from durable state; history: true includes every earlier instance.",
@@ -529,7 +529,8 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
         }
         "import" => {
             let text = |key: &str| args.get(key).and_then(|v| v.as_str()).unwrap_or_default();
-            let (_, res) = contract::import(ctx, text("name"), text("id")).await;
+            let txid = args.get("txid").and_then(|value| value.as_str());
+            let (_, res) = contract::import(ctx, text("name"), text("id"), txid).await;
             res.map_err(fail)
         }
         "state_list" | "state_show" | "state_migrate" => {

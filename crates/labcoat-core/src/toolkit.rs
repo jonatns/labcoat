@@ -4,11 +4,14 @@
 use crate::error::{LabcoatError, Result};
 use crate::execute::{
     find_created_alkane, find_created_alkanes, find_return_status, spec_with_options,
-    ExecuteOutcome, TxOptions,
+    BroadcastObserver, ExecuteOutcome, TxOptions,
 };
 use crate::signer::SignerSpec;
 use crate::system::ToolkitConfig;
 use crate::{lockfile, simulate as sim, sync, system, trace as trace_mod, wallet};
+use alkanes_cli_common::alkanes::types::{EnhancedExecuteResult, ReadyToSignRevealTx};
+use alkanes_cli_common::provider::ConcreteProvider;
+use alkanes_cli_common::traits::BitcoinRpcProvider;
 use std::path::Path;
 
 const INDEXER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -126,6 +129,16 @@ pub async fn deploy_in(
     deployment_root: &Path,
     request: DeployRequest<'_>,
 ) -> Result<ExecuteOutcome> {
+    deploy_with_broadcast(config, signer, deployment_root, request, None).await
+}
+
+pub(crate) async fn deploy_with_broadcast(
+    config: &ToolkitConfig,
+    signer: &SignerSpec,
+    deployment_root: &Path,
+    request: DeployRequest<'_>,
+    observe: Option<&mut BroadcastObserver<'_>>,
+) -> Result<ExecuteOutcome> {
     let DeployRequest {
         wasm_path,
         contract_name,
@@ -182,10 +195,7 @@ pub async fn deploy_in(
     // Chain instance identity: block 1's hash changes on every reset,
     // marking older records as stale. Best effort — a record without it
     // is still valid, just unverifiable.
-    let chain_id = {
-        use alkanes_cli_common::traits::BitcoinRpcProvider;
-        BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok()
-    };
+    let chain_id = BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok();
     // Durable-state guard: when version-2 state exists for this
     // environment, a reset or foreign chain aborts here — before any
     // broadcast — and the environment lease is held across the deploy.
@@ -197,7 +207,7 @@ pub async fn deploy_in(
 
     let spec = deploy_spec_with(target, initializer, cellpack_args, options);
 
-    let result = crate::execute::run(
+    let result = crate::execute::run_with_broadcast(
         &mut provider,
         config,
         crate::execute::ExecuteRequest {
@@ -208,22 +218,12 @@ pub async fn deploy_in(
             max_indexed_height: indexed,
             input_requirements,
         },
+        observe,
     )
     .await?;
+    let outcome = execution_outcome(&provider, result, true).await;
 
-    // Prefer the traces attached by execute_full; fall back to polling.
-    let traces = match &result.traces {
-        Some(t) if !t.is_empty() => Some(t.clone()),
-        _ => trace_mod::wait_for_trace(&provider, &result.reveal_txid, TRACE_TIMEOUT)
-            .await
-            .ok(),
-    };
-
-    let alkanes_id = find_created_alkane(&traces);
-    let created = find_created_alkanes(&traces);
-    let (status, revert_reason) = find_return_status(&traces);
-
-    if let (Some(id), Some(name)) = (&alkanes_id, &contract_name) {
+    if let (Some(id), Some(name)) = (&outcome.alkanes_id, &contract_name) {
         use sha2::Digest;
         let network = config.network_id();
         let deployment = lockfile::Deployment {
@@ -231,9 +231,9 @@ pub async fn deploy_in(
             wasm_sha256: wasm
                 .as_ref()
                 .map(|wasm| hex::encode(sha2::Sha256::digest(wasm))),
-            txid: result.reveal_txid.clone(),
+            txid: outcome.txid.clone(),
             block: None,
-            status: status.clone(),
+            status: outcome.status.clone(),
             deployed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -249,9 +249,9 @@ pub async fn deploy_in(
                 &deployment,
                 crate::state::InstanceOrigin::Deployed,
                 crate::state::InstanceExtras {
-                    commit_txid: result.commit_txid.clone(),
+                    commit_txid: outcome.commit_txid.clone(),
                     labcoat_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-                    revert_reason: revert_reason.clone(),
+                    revert_reason: outcome.revert_reason.clone(),
                 },
             ) {
                 // labcoat.lock stays canonical in Milestone 1; failing a
@@ -262,17 +262,58 @@ pub async fn deploy_in(
         }
     }
 
-    Ok(ExecuteOutcome {
+    Ok(outcome)
+}
+
+pub(crate) async fn resume_deploy(
+    config: &ToolkitConfig,
+    signer: &SignerSpec,
+    deployment_root: &Path,
+    reveal: ReadyToSignRevealTx,
+    observe: &mut BroadcastObserver<'_>,
+) -> Result<ExecuteOutcome> {
+    let mut provider = system::connect_signing(config, signer).await?.provider;
+    let chain_id = BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok();
+    let _state_guard = crate::state::deploy_guard(
+        deployment_root,
+        &config.environment,
+        &crate::state::observed_chain(config, chain_id),
+    )?;
+    let result = crate::execute::resume_reveal(&mut provider, config, reveal, observe).await?;
+    Ok(execution_outcome(&provider, result, true).await)
+}
+
+async fn execution_outcome(
+    provider: &ConcreteProvider,
+    result: EnhancedExecuteResult,
+    deploy: bool,
+) -> ExecuteOutcome {
+    let traces = match result.traces {
+        Some(traces) if !traces.is_empty() => Some(traces),
+        _ => trace_mod::wait_for_trace(provider, &result.reveal_txid, TRACE_TIMEOUT)
+            .await
+            .ok(),
+    };
+    let (status, revert_reason) = find_return_status(&traces);
+    ExecuteOutcome {
         commit_txid: result.commit_txid,
         txid: result.reveal_txid,
         commit_fee: result.commit_fee,
         fee: result.reveal_fee,
         status,
         revert_reason,
-        alkanes_id,
-        created,
+        alkanes_id: if deploy {
+            find_created_alkane(&traces)
+        } else {
+            None
+        },
+        created: if deploy {
+            find_created_alkanes(&traces)
+        } else {
+            Vec::new()
+        },
         traces,
-    })
+    }
 }
 
 /// The call cellpack spec: opcode followed by args, with routing/edicts.
@@ -304,6 +345,15 @@ pub async fn call(
     signer: &SignerSpec,
     request: CallRequest<'_>,
 ) -> Result<ExecuteOutcome> {
+    call_with_broadcast(config, signer, request, None).await
+}
+
+pub(crate) async fn call_with_broadcast(
+    config: &ToolkitConfig,
+    signer: &SignerSpec,
+    request: CallRequest<'_>,
+    observe: Option<&mut BroadcastObserver<'_>>,
+) -> Result<ExecuteOutcome> {
     let CallRequest {
         block,
         tx,
@@ -323,7 +373,7 @@ pub async fn call(
         .ok();
 
     let spec = call_spec(block, tx, opcode, args, options);
-    let result = crate::execute::run(
+    let result = crate::execute::run_with_broadcast(
         &mut provider,
         config,
         crate::execute::ExecuteRequest {
@@ -334,28 +384,10 @@ pub async fn call(
             max_indexed_height: indexed,
             input_requirements,
         },
+        observe,
     )
     .await?;
-
-    let traces = match &result.traces {
-        Some(t) if !t.is_empty() => Some(t.clone()),
-        _ => trace_mod::wait_for_trace(&provider, &result.reveal_txid, TRACE_TIMEOUT)
-            .await
-            .ok(),
-    };
-    let (status, revert_reason) = find_return_status(&traces);
-
-    Ok(ExecuteOutcome {
-        commit_txid: result.commit_txid,
-        txid: result.reveal_txid,
-        commit_fee: result.commit_fee,
-        fee: result.reveal_fee,
-        status,
-        revert_reason,
-        alkanes_id: None,
-        created: Vec::new(),
-        traces,
-    })
+    Ok(execution_outcome(&provider, result, false).await)
 }
 
 /// Read-only simulation.
@@ -402,10 +434,16 @@ pub async fn trace(
     }
 }
 
+pub(crate) async fn chain_height(config: &ToolkitConfig) -> Result<u64> {
+    let provider = system::connect(config, None, false).await?;
+    BitcoinRpcProvider::get_block_count(&provider)
+        .await
+        .map_err(|error| LabcoatError::classify(error.into()))
+}
+
 /// Chain instance identity: block 1's hash (block 0 is reset-invariant on
 /// regtest). Best-effort — `None` when the node is unreachable.
 pub async fn chain_instance_id(config: &ToolkitConfig) -> Option<String> {
-    use alkanes_cli_common::traits::BitcoinRpcProvider;
     let provider = system::connect(config, None, false).await.ok()?;
     BitcoinRpcProvider::get_block_hash(&provider, 1).await.ok()
 }

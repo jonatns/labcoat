@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+labcoat-deploy = { path = "../labcoat-deploy" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -17,17 +18,3 @@ wasmtime-wasi = "51"
 
 [dev-dependencies]
 wat = "1"
-
-# The deployment scripts shipped as documentation and as the project
-# template, built with the harness so they cannot drift from its API.
-[[example]]
-name = "starter-deploy"
-path = "../labcoat-cli/templates/default/deploy.rs"
-
-[[example]]
-name = "covered-call-deploy"
-path = "../../docs/examples/covered-call/deploy.rs"
-
-[[example]]
-name = "upgradeable-counter-deploy"
-path = "../../docs/examples/upgradeable-counter/deploy.rs"

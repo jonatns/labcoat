@@ -1,7 +1,7 @@
 //! The deployment graph — what a project's `deploy.rs` script declares and
 //! `labcoat plan` / `labcoat apply` reconcile.
 //!
-//! The script (see `labcoat_test::deploy`) never executes anything: it
+//! The script (see `labcoat_deploy`) never executes anything: it
 //! emits this graph as JSON and the CLI validates, plans, and applies it.
 //! Steps run in declaration order, and a step may reference only steps
 //! declared before it, so the declaration order is always a valid
@@ -20,7 +20,7 @@
 //!   one, writing only when a read shows a difference.
 
 use crate::error::{LabcoatError, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The deployment script, relative to the project root.
@@ -174,7 +174,7 @@ impl Args {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TxShape {
     #[serde(default)]
@@ -208,7 +208,7 @@ pub struct Call {
     pub tx: TxShape,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ValueType {
     #[serde(rename = "alkane-id")]
     AlkaneId,
@@ -227,6 +227,9 @@ pub struct Setting {
     /// is the only source of truth.
     #[serde(default)]
     pub read: Option<String>,
+    /// Named initializer argument that sets this value on a newly deployed target.
+    #[serde(default)]
+    pub initializer_arg: Option<String>,
     /// Method that sets the value.
     #[serde(default)]
     pub write: Option<String>,
@@ -234,7 +237,7 @@ pub struct Setting {
     pub tx: TxShape,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Field {
     Id,
@@ -244,7 +247,7 @@ pub enum Field {
     Created,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reference {
     pub step: String,
@@ -253,13 +256,13 @@ pub struct Reference {
     pub index: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeightOffset {
     pub offset: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Value {
     Lit(String),
@@ -279,7 +282,34 @@ impl Value {
         }
     }
 
-    /// The symbolic source form, for plan output and definition hashing.
+    pub(crate) fn uses_height(&self) -> bool {
+        match self {
+            Self::Height(_) => true,
+            Self::Concat(parts) => parts.iter().any(Self::uses_height),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn eval_with(
+        &self,
+        height: u64,
+        resolve: &impl Fn(&Reference) -> Option<String>,
+    ) -> Option<String> {
+        match self {
+            Self::Lit(text) => Some(text.clone()),
+            Self::Ref(reference) => resolve(reference),
+            Self::Height(HeightOffset { offset }) => {
+                Some((height as i128 + *offset as i128).max(0).to_string())
+            }
+            Self::Concat(parts) => parts
+                .iter()
+                .map(|part| part.eval_with(height, resolve))
+                .collect::<Option<Vec<_>>>()
+                .map(|parts| parts.concat()),
+        }
+    }
+
+    /// The symbolic source form for plan output.
     pub fn render(&self) -> String {
         match self {
             Value::Lit(text) => text.clone(),
@@ -359,18 +389,7 @@ impl Resolved {
 
     /// Evaluate to a string, or None while any reference is unresolved.
     pub fn eval(&self, value: &Value, height: u64) -> Option<String> {
-        match value {
-            Value::Lit(text) => Some(text.clone()),
-            Value::Ref(reference) => self.reference(reference),
-            Value::Height(HeightOffset { offset }) => {
-                Some((height as i128 + *offset as i128).max(0).to_string())
-            }
-            Value::Concat(parts) => parts
-                .iter()
-                .map(|part| self.eval(part, height))
-                .collect::<Option<Vec<_>>>()
-                .map(|parts| parts.concat()),
-        }
+        value.eval_with(height, &|reference| self.reference(reference))
     }
 
     /// Evaluate for display: resolved where possible, symbolic otherwise.
@@ -423,6 +442,10 @@ impl Step {
         }
     }
 
+    pub(crate) fn uses_height(&self) -> bool {
+        self.values().into_iter().any(Value::uses_height)
+    }
+
     pub fn references(&self) -> Vec<&Reference> {
         let mut references = Vec::new();
         for value in self.values() {
@@ -430,6 +453,47 @@ impl Step {
         }
         references
     }
+}
+
+/// Hash the symbolic definition with its types and argument boundaries intact.
+pub fn definition_hash(step: &Step, wasm_sha256: Option<&str>) -> String {
+    use serde_json::json;
+    use sha2::Digest;
+
+    let invocation = |invocation: &Invocation| {
+        let named: BTreeMap<_, _> = invocation
+            .args
+            .named
+            .iter()
+            .flatten()
+            .map(|(key, value)| (key, value))
+            .collect();
+        json!({
+            "method": invocation.method,
+            "abi": invocation.abi,
+            "named": named,
+            "positional": invocation.args.positional.as_deref().unwrap_or_default(),
+        })
+    };
+    let canonical = match step {
+        Step::External(step) => json!({ "ids": step.ids }),
+        Step::Contract(step) => {
+            let source = match &step.source {
+                Source::Package { .. } | Source::Wasm { .. } => json!({ "wasm": wasm_sha256 }),
+                Source::Clone { of } => json!({ "clone": of }),
+            };
+            json!({ "source": source, "reserve": step.reserve, "init": invocation(&step.init), "tx": step.tx })
+        }
+        Step::Call(step) => json!({
+            "contract": step.contract, "call": invocation(&step.call), "tx": step.tx
+        }),
+        Step::Setting(step) => json!({
+            "contract": step.contract, "read": step.read, "write": step.write,
+            "initializerArg": step.initializer_arg, "valueType": step.value_type, "tx": step.tx,
+        }),
+    };
+    let payload = serde_json::to_vec(&(step.kind(), canonical)).expect("serializable definition");
+    format!("v2:{}", hex::encode(sha2::Sha256::digest(payload)))
 }
 
 fn render_args(args: &Args) -> String {
@@ -468,11 +532,8 @@ fn render_tx(tx: &TxShape) -> String {
     )
 }
 
-/// The identity of a pinned step: a hash over its symbolic definition.
-/// References stay symbolic and `height` is not evaluated, so neither a
-/// later block nor a dependency's concrete id changes it; a replaced
-/// dependency is detected separately through the recorded references.
-pub fn definition_hash(step: &Step, wasm_sha256: Option<&str>) -> String {
+/// Compare records written before definitions used structured encoding.
+pub(crate) fn legacy_definition_hash(step: &Step, wasm_sha256: Option<&str>) -> String {
     use sha2::Digest;
     let canonical = match step {
         Step::External(step) => format!("external|{:?}", step.ids),
@@ -525,7 +586,7 @@ pub fn parse(text: &str, network: &str) -> Result<Graph> {
                 "deploy.rs emitted graph schema `{}`, but this labcoat reads `{GRAPH_SCHEMA}`",
                 graph.schema
             ),
-            "run `labcoat upgrade` so the project's labcoat-test matches the installed CLI",
+            "run `labcoat upgrade` so the project's labcoat-deploy matches the installed CLI",
         ));
     }
     if graph.network != network {
@@ -618,6 +679,28 @@ fn validate(graph: &Graph) -> Result<()> {
                     return Err(invalid(format!(
                         "{context} has no write method — set one with `.write(method)`"
                     )));
+                }
+                if let Some(arg) = &setting.initializer_arg {
+                    let valid = match &setting.contract {
+                        Value::Ref(reference) if reference.field == Field::Id => {
+                            match declared.get(reference.step.as_str()) {
+                                Some(Step::Contract(contract)) => contract
+                                    .init
+                                    .args
+                                    .named
+                                    .iter()
+                                    .flatten()
+                                    .any(|(name, _)| name == arg),
+                                _ => false,
+                            }
+                        }
+                        _ => false,
+                    };
+                    if !valid {
+                        return Err(invalid(format!(
+                            "{context} uses initializer argument `{arg}` missing from its target"
+                        )));
+                    }
                 }
             }
         }

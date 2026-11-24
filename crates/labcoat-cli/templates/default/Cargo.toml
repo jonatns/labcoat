@@ -16,6 +16,7 @@ metashrew-support = { git = "https://github.com/kungfuflex/metashrew", tag = "v9
 anyhow = "1.0"
 
 [dev-dependencies]
+labcoat-deploy = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }
 labcoat-test = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }
 
 # The deployment script `labcoat plan` and `labcoat apply` run.

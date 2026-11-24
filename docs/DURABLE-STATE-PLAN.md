@@ -10,7 +10,7 @@ proposed and is not part of the supported product.
 > one is authoritative:
 >
 > - Desired configuration is a Rust deployment script (`deploy.rs`, built on
->   `labcoat_test::deploy`), not `[resources.*]` tables in `labcoat.toml`.
+>   `labcoat_deploy`), not `[resources.*]` tables in `labcoat.toml`.
 > - Immutable work — contracts, template clones, and calls — is **pinned**:
 >   it runs once per network and is compared with its record. An edited step
 >   is a `conflict` that apply refuses; a new instance is an explicit

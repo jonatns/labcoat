@@ -98,9 +98,9 @@ labcoat upgrade
 labcoat test
 ```
 
-`labcoat upgrade` rewrites the project's alkanes-rs revisions, `labcoat-test`
-release tag, and `rust-toolchain.toml` to match the installed CLI, keeping
-everything else in `Cargo.toml` unchanged. Commit the result with the updated
+`labcoat upgrade` updates the project's alkanes-rs revisions,
+`labcoat-deploy` and `labcoat-test` release tags, and `rust-toolchain.toml`
+to match the installed CLI. Commit the result with the updated
 `Cargo.lock`. `labcoat doctor` lists any pin that still differs.
 
 ## Compilation prerequisites

@@ -786,13 +786,19 @@
             "id": "id",
             "possibleValues": [],
             "required": true
+          },
+          {
+            "description": "Deployment or reveal transaction ID, used to recover auth tokens and other created IDs",
+            "id": "txid",
+            "possibleValues": [],
+            "required": false
           }
         ],
         "description": "Record a contract that already exists on chain as a deployment step, without deploying",
         "name": "import",
         "path": "labcoat import",
         "subcommands": [],
-        "usage": "import <NAME> <ID>"
+        "usage": "import [OPTIONS] <NAME> <ID>"
       },
       {
         "arguments": [
@@ -1187,6 +1193,11 @@
         "code": "DEPLOYMENT_CONFLICT",
         "meaning": "a deployment step that already ran no longer matches deploy.rs, or references an instance that was replaced",
         "recovery": "restore the step, or name it in `labcoat apply --replace <name>` to deploy a new instance (or run a call again)"
+      },
+      {
+        "code": "DEPLOYMENT_LOCKED",
+        "meaning": "another process is updating the project's deployments",
+        "recovery": "retry after the other apply or import finishes"
       },
       {
         "code": "RUN_FILE_INVALID",
@@ -1734,6 +1745,10 @@
             "name": {
               "description": "contract step name from deploy.rs",
               "type": "string"
+            },
+            "txid": {
+              "description": "deployment or reveal transaction id for recovering other created IDs, including auth tokens",
+              "type": "string"
             }
           },
           "required": [
@@ -1810,7 +1825,7 @@
         "name": "Deploy"
       },
       {
-        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with labcoat_test::deploy and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
+        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with labcoat_deploy and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat apply --broadcast` signs. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
         "name": "Deployment script"
       },
       {

@@ -87,13 +87,13 @@ block:tx:amount` (incoming alkanes; `B:sats` for bitcoin), `--to <address>`
 `labcoat balance <address> --json` lists alkanes token balances.
 
 Declare multi-step deployments in `deploy.rs`, the project's `deploy` Cargo
-example target, with `labcoat_test::deploy`. The script only declares steps:
+example target, with `labcoat_deploy`. The script only declares steps:
 `labcoat plan` runs it to read them (no signer), and `labcoat apply
 --broadcast` executes what has not run. Steps run in declaration order and
 reference only earlier steps.
 
 ```rust
-use labcoat_test::deploy::{run, Deployment};
+use labcoat_deploy::{run, Deployment};
 
 fn main() {
     run(|d: &Deployment| {

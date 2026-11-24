@@ -2762,7 +2762,7 @@ dependencies = [
  "fd-lock",
  "flate2",
  "hex",
- "labcoat-test",
+ "labcoat-deploy",
  "ordinals",
  "prost",
  "rand 0.8.5",
@@ -2777,10 +2777,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "labcoat-deploy"
+version = "0.2.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "labcoat-test"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "labcoat-deploy",
  "serde",
  "serde_json",
  "thiserror 2.0.17",

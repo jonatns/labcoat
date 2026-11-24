@@ -10,7 +10,7 @@
 //! application.
 //!
 //! ```no_run
-//! use labcoat_test::deploy::{run, Deployment};
+//! use labcoat_deploy::{run, Deployment};
 //!
 //! fn main() {
 //!     run(|d: &Deployment| {
@@ -368,6 +368,10 @@ impl Deployment {
             .inputs(Value::concat([auth_token.clone(), Value::lit(":1")]));
         if let Some(read) = read {
             setting.read(read);
+        } else {
+            update(&setting.shared, &setting.name, |step| {
+                step["initializerArg"] = json!("implementation");
+            });
         }
         Upgradeable {
             contract,

@@ -303,6 +303,9 @@ enum Commands {
         name: String,
         /// The deployed contract's block:tx id
         id: String,
+        /// Deployment or reveal transaction ID, used to recover auth tokens and other created IDs
+        #[arg(long)]
+        txid: Option<String>,
     },
     /// Simulate a deployed contract against live indexed chain state
     Simulate {
@@ -671,9 +674,9 @@ async fn run(cli: Cli) -> i32 {
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
-        Commands::Import { name, id } => {
+        Commands::Import { name, id, txid } => {
             let progress = output::Progress::new("Verifying the deployed contract…", !json);
-            let (cmd_name, res) = contract::import(&ctx, &name, &id).await;
+            let (cmd_name, res) = contract::import(&ctx, &name, &id, txid.as_deref()).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
@@ -1107,7 +1110,7 @@ mod envelope_tests {
 
         let cli = Cli::try_parse_from(["labcoat", "import", "market", "2:118"]).unwrap();
         assert!(
-            matches!(cli.command, Commands::Import { name, id } if name == "market" && id == "2:118")
+            matches!(cli.command, Commands::Import { name, id, txid: None } if name == "market" && id == "2:118")
         );
         assert!(Cli::try_parse_from(["labcoat", "import", "market"]).is_err());
 
