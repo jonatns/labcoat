@@ -39,6 +39,8 @@ jobs:
       alkanes_ref: ${{ steps.release.outputs.alkanes_ref }}
       esplorashrew_repo: ${{ steps.release.outputs.esplorashrew_repo }}
       esplorashrew_ref: ${{ steps.release.outputs.esplorashrew_ref }}
+      esplorashrew_prebuilt_release: ${{ steps.release.outputs.esplorashrew_prebuilt_release }}
+      esplorashrew_prebuilt_sha256: ${{ steps.release.outputs.esplorashrew_prebuilt_sha256 }}
       qubitcoin_metashrew_ref: ${{ steps.release.outputs.qubitcoin_metashrew_ref }}
     steps:
       - uses: actions/checkout@v7
@@ -94,6 +96,8 @@ jobs:
             echo "alkanes_ref=$(jq -er '.sources["alkanes-wasm"].revision' "$sources")"
             echo "esplorashrew_repo=$(jq -er '.sources["esplorashrew-wasm"].repository' "$sources")"
             echo "esplorashrew_ref=$(jq -er '.sources["esplorashrew-wasm"].revision' "$sources")"
+            echo "esplorashrew_prebuilt_release=$(jq -r '.prebuilt["esplorashrew-wasm"].release // empty' "$sources")"
+            echo "esplorashrew_prebuilt_sha256=$(jq -r '.prebuilt["esplorashrew-wasm"].sha256 // empty' "$sources")"
             echo "qubitcoin_metashrew_ref=$(jq -er '.compatibility.qubitcoin_metashrew_revision' "$sources")"
           } >> "$GITHUB_OUTPUT"
 
@@ -161,7 +165,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             suffix: darwin-arm64
           - runner: ubuntu-latest
             suffix: linux-x86_64
@@ -211,21 +215,48 @@ jobs:
   build-esplorashrew-wasm:
     needs: metadata
     runs-on: ubuntu-latest
+    env:
+      PREBUILT_RELEASE: ${{ needs.metadata.outputs.esplorashrew_prebuilt_release }}
+      PREBUILT_SHA256: ${{ needs.metadata.outputs.esplorashrew_prebuilt_sha256 }}
+      SOURCE_REVISION: ${{ needs.metadata.outputs.esplorashrew_ref }}
     steps:
-      - uses: actions/checkout@v7
+      - if: env.PREBUILT_RELEASE == ''
+        uses: actions/checkout@v7
         with:
           repository: ${{ needs.metadata.outputs.esplorashrew_repo }}
           ref: ${{ needs.metadata.outputs.esplorashrew_ref }}
-      - uses: dtolnay/rust-toolchain@stable
+      - if: env.PREBUILT_RELEASE == ''
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - if: env.PREBUILT_RELEASE == ''
+        uses: Swatinem/rust-cache@v2
+      - if: env.PREBUILT_RELEASE == ''
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Build Esplorashrew WASM
+        if: env.PREBUILT_RELEASE == ''
         env:
           RUSTFLAGS: "-C link-arg=--allow-undefined"
         run: cargo build --release --target wasm32-unknown-unknown
-      - run: cp target/wasm32-unknown-unknown/release/esplorashrew.wasm esplorashrew.wasm
+      - if: env.PREBUILT_RELEASE == ''
+        run: cp target/wasm32-unknown-unknown/release/esplorashrew.wasm esplorashrew.wasm
+      - name: Reuse the Esplorashrew WASM an earlier release built from this revision
+        if: env.PREBUILT_RELEASE != ''
+        run: |
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$PREBUILT_RELEASE"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/runtime-manifest.json" "$base/runtime-manifest.json"
+          curl -fsSL --retry 3 -o esplorashrew.wasm "$base/esplorashrew.wasm"
+          built_from=$(jq -er '.sources["esplorashrew-wasm"].revision' "$RUNNER_TEMP/runtime-manifest.json")
+          if [ "$built_from" != "$SOURCE_REVISION" ]; then
+            echo "$PREBUILT_RELEASE built Esplorashrew from $built_from, not $SOURCE_REVISION" >&2
+            exit 1
+          fi
+          recorded=$(jq -er '.assets["esplorashrew.wasm"].sha256' "$RUNNER_TEMP/runtime-manifest.json")
+          if [ "$recorded" != "$PREBUILT_SHA256" ]; then
+            echo "$PREBUILT_RELEASE records esplorashrew.wasm as $recorded, not $PREBUILT_SHA256" >&2
+            exit 1
+          fi
+          echo "$PREBUILT_SHA256  esplorashrew.wasm" | sha256sum -c -
       - name: Verify Metashrew host imports
         run: |
           node <<'NODE'
