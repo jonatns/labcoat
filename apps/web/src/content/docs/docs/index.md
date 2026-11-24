@@ -47,11 +47,11 @@ labcoat test
     </a>
   </li>
   <li>
-    <a href="/docs/tutorials/token-exchange/">
+    <a href="/docs/tutorials/first-contract/">
       <span class="path-label">Tutorial</span>
-      <strong>Tokens and exchanges</strong>
-      Build a token, deploy it from two wallets, and swap them atomically.
-      <code>labcoat exchange</code>
+      <strong>Your first contract</strong>
+      Read the starter Counter, deploy and call it, then add a method.
+      <code>labcoat deploy</code>
     </a>
   </li>
   <li>

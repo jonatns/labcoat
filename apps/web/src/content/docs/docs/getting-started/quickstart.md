@@ -69,6 +69,8 @@ labcoat down
 
 ## Next steps
 
+- [Your first contract](/docs/tutorials/first-contract/) explains the
+  Counter, then adds a method and deploys the change.
 - [Tokens and exchanges](/docs/tutorials/token-exchange/) builds on this
   project: a fixed-supply token, two wallets, and an atomic swap.
 - [Deployment scripts](/docs/deployments/) covers `deploy.rs` in full:

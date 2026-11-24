@@ -48,6 +48,7 @@ export default defineConfig({
             { label: 'Overview', slug: 'docs' },
             { label: 'Installation', slug: 'docs/getting-started/installation' },
             { label: 'Quick start', slug: 'docs/getting-started/quickstart' },
+            { label: 'Tutorial: your first contract', slug: 'docs/tutorials/first-contract' },
             { label: 'Tutorial: tokens & exchanges', slug: 'docs/tutorials/token-exchange' },
             { label: 'Tutorial: an upgradeable contract', slug: 'docs/tutorials/upgradeable-contract' },
           ],
