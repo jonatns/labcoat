@@ -51,12 +51,20 @@ impl LabcoatNetwork {
     }
 
     /// Start Labcoat Network and bootstrap the persistent faucet. This
-    /// release's node, already serving this data home, is left running;
-    /// anything else on the port is stopped first.
+    /// release's node, already serving this data home, is left running. A
+    /// network serving another data home is someone else's and is left
+    /// running too: starting fails instead. Anything else on the port is
+    /// stopped first.
     pub fn start(&mut self) -> Result<(), String> {
         let config = self.config.clone();
         match crate::rpc::identify_blocking(&config, std::time::Duration::from_secs(2)) {
             crate::rpc::NodeIdentity::Own => {}
+            crate::rpc::NodeIdentity::OtherDataHome(data_dir) => {
+                return Err(format!(
+                    "port {} already serves a Labcoat Network for another data home ({data_dir}); it was left running. Stop it with `labcoat down` under that LABCOAT_DATA_HOME, or set LABCOAT_RPC_PORT to run this one on another port",
+                    config.ports.rpc
+                ));
+            }
             crate::rpc::NodeIdentity::Unresponsive => {
                 return Err(format!(
                     "a process on port {} accepted a connection but did not answer; run `labcoat down`, or stop the process using the port",

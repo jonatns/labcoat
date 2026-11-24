@@ -66,6 +66,29 @@ fn wasi_include_in(root: &Path) -> Option<PathBuf> {
         .find(|path| path.is_dir())
 }
 
+/// A failed contract build that a missing prerequisite explains, rather
+/// than the contract's own code: the Rust target, or the WASI C headers.
+fn missing_prerequisite(target: &str, stderr: &str, wasi_headers: bool) -> Option<LabcoatError> {
+    if stderr.contains("target may not be installed") {
+        return Some(LabcoatError::new(
+            "TOOLCHAIN_MISSING",
+            format!("the Rust target `{target}` is not installed"),
+            "run `rustup target add wasm32-unknown-unknown wasm32-wasip1` in the project, or `labcoat upgrade` to pin a toolchain that includes both",
+        ));
+    }
+    let header_missing = ["stdlib.h", "string.h", "stdio.h", "stdint.h", "assert.h"]
+        .iter()
+        .any(|header| stderr.contains(&format!("'{header}' file not found")));
+    if target == "wasm32-wasip1" && header_missing && !wasi_headers {
+        return Some(LabcoatError::new(
+            "TOOLCHAIN_MISSING",
+            "the WASI C headers were not found, so a C dependency could not be compiled for wasm32-wasip1",
+            "install them (`apt install wasi-libc` on Debian or Ubuntu), or point WASI_SYSROOT at a WASI sysroot",
+        ));
+    }
+    None
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileOutcome {
@@ -104,7 +127,7 @@ pub fn compile_packages(
     if target.starts_with("wasm32") {
         let compiler = wasm_c_compiler().ok_or_else(|| {
             LabcoatError::new(
-                "COMPILE_FAILED",
+                "TOOLCHAIN_MISSING",
                 "no C compiler with a wasm32 backend was found",
                 "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Linux)",
             )
@@ -125,17 +148,17 @@ pub fn compile_packages(
         packages = %packages.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(","),
         "building contract packages"
     );
-    let output = command.output().map_err(|e| {
-        LabcoatError::new(
-            "TOOLKIT_ERROR",
-            format!("failed to run cargo build: {e}"),
-            "install Cargo and run `labcoat doctor`",
-        )
-    })?;
+    let output = command
+        .output()
+        .map_err(|e| LabcoatError::cargo_unavailable(&e, "build the contracts"))?;
     if !output.stderr.is_empty() {
         eprint!("{}", String::from_utf8_lossy(&output.stderr));
     }
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(error) = missing_prerequisite(target, &stderr, wasi_include_dir().is_some()) {
+            return Err(error);
+        }
         return Err(LabcoatError::new(
             "COMPILE_FAILED",
             format!(
@@ -400,6 +423,29 @@ fn write_project_file(path: &Path, contents: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_prerequisite_is_not_reported_as_a_contract_error() {
+        let target = missing_prerequisite(
+            "wasm32-wasip1",
+            "error[E0463]: can't find crate for `core`\n  = note: the `wasm32-wasip1` target may not be installed",
+            true,
+        )
+        .unwrap();
+        assert_eq!(target.code, "TOOLCHAIN_MISSING");
+        assert!(target.message.contains("wasm32-wasip1"));
+
+        let headers = "depend/secp256k1/src/util.h:11:10: fatal error: 'stdlib.h' file not found";
+        let wasi = missing_prerequisite("wasm32-wasip1", headers, false).unwrap();
+        assert_eq!(wasi.code, "TOOLCHAIN_MISSING");
+        assert!(wasi.hint.contains("wasi-libc"));
+
+        // With the headers installed, or on another target, a missing
+        // include is the build's own problem.
+        assert!(missing_prerequisite("wasm32-wasip1", headers, true).is_none());
+        assert!(missing_prerequisite("wasm32-unknown-unknown", headers, false).is_none());
+        assert!(missing_prerequisite("wasm32-wasip1", "error: mismatched types", false).is_none());
+    }
 
     #[test]
     fn discovers_wasi_headers_below_a_sysroot() {

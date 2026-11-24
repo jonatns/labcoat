@@ -136,6 +136,11 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
         "read stderr and run `labcoat doctor`",
     ),
     (
+        "TOOLCHAIN_MISSING",
+        "Cargo, a Rust WebAssembly target, or a C toolchain for WebAssembly is not installed",
+        "install the prerequisite the message names, then run `labcoat doctor`",
+    ),
+    (
         "PACKAGE_NOT_FOUND",
         "the requested Cargo contract package was not discovered",
         "run `labcoat build` or pass a package listed in the error",
@@ -432,7 +437,7 @@ impl AgentReference {
             markdown.push_str(command);
             markdown.push('\n');
         }
-        markdown.push_str("```\n\n## Output modes\n\nHuman-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.\n\nEvery command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.\n\n```json\n{\"ok\":true,\"command\":\"status\",\"schema\":\"labcoat/v1/status\",\"result\":{}}\n{\"ok\":false,\"command\":\"deploy\",\"schema\":\"labcoat/v1/error\",\"error\":{\"code\":\"WALLET_MISSING\",\"message\":\"...\",\"hint\":\"run `labcoat wallet init` first\"}}\n```\n\n");
+        markdown.push_str("```\n\n## Output modes\n\nHuman-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.\n\nEvery command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code. `labcoat up --ci` is the exception: it exits non-zero unless Labcoat Network and its funded wallet are ready.\n\n```json\n{\"ok\":true,\"command\":\"status\",\"schema\":\"labcoat/v1/status\",\"result\":{}}\n{\"ok\":false,\"command\":\"deploy\",\"schema\":\"labcoat/v1/error\",\"error\":{\"code\":\"WALLET_MISSING\",\"message\":\"...\",\"hint\":\"run `labcoat wallet init` first\"}}\n```\n\n");
         markdown.push_str("Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `labcoat.toml` → defaults.\n\n");
         markdown.push_str("## Commands\n\n");
         render_commands(&mut markdown, &self.commands, 3);

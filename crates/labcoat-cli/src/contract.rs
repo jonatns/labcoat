@@ -133,6 +133,7 @@ impl Ctx {
                 assume_yes: false,
                 environment: "default".to_string(),
                 labcoat_instance_id: None,
+                project_root: Some(crate::project::root()),
             },
             color: crate::output::ColorMode::Auto,
             signer: "keystore".to_string(),
@@ -172,6 +173,11 @@ impl Ctx {
 
     fn warn(&self, message: &str) {
         crate::output::print_warning(message, self.color);
+    }
+
+    /// Name the resolved network and endpoint before a command writes to it.
+    pub fn announce_target(&self) {
+        crate::output::print_target(self.config.network_id(), &self.config.rpc_url, self.color);
     }
 
     /// The built-in wallet's passphrase is public, so it never holds a
@@ -488,8 +494,7 @@ fn named_deployment(
     if contract.contains(':') {
         return Ok(None);
     }
-    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    labcoat_core::lockfile::get(&cwd, config.network_id(), contract)
+    labcoat_core::lockfile::get(&config.project_root(), config.network_id(), contract)
 }
 
 /// The build artifact (file stem under `build/`) a lock name was deployed
@@ -520,7 +525,7 @@ fn local_build_status(
     let Some(expected_hash) = deployment.wasm_sha256.as_deref() else {
         return LocalBuildStatus::Unavailable;
     };
-    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let cwd = config.project_root();
     match local_artifact_stem(&cwd, config, contract) {
         Some(stem) => local_build_status_in(&cwd, &stem, expected_hash),
         None => LocalBuildStatus::Unavailable,
@@ -546,7 +551,7 @@ fn local_build_status_in(
 }
 
 fn read_local_abi(config: &ToolkitConfig, contract: &str) -> Option<Vec<u8>> {
-    let cwd = std::env::current_dir().ok()?;
+    let cwd = config.project_root();
     read_local_abi_in(&cwd, &local_artifact_stem(&cwd, config, contract)?)
 }
 
@@ -732,14 +737,7 @@ fn build_selected(
     package: Option<&str>,
     out_dir: &str,
 ) -> Result<Vec<labcoat_core::compile::CompileOutcome>, labcoat_core::LabcoatError> {
-    let cwd = std::env::current_dir().map_err(|e| {
-        labcoat_core::LabcoatError::new(
-            "CONFIG_INVALID",
-            e.to_string(),
-            "run Labcoat from a Cargo workspace",
-        )
-    })?;
-    let workspace = labcoat_core::workspace::discover(&cwd)?;
+    let workspace = labcoat_core::workspace::discover(&crate::project::root())?;
     let packages = labcoat_core::workspace::select(&workspace, package)?;
     labcoat_core::compile::compile_packages(
         &workspace,
@@ -801,14 +799,7 @@ pub async fn abi(ctx: &Ctx, cmd: AbiCmd) -> (&'static str, CmdResult) {
                         ))
                     }
                 };
-                let cwd = std::env::current_dir().map_err(|e| {
-                    labcoat_core::LabcoatError::new(
-                        "CONFIG_INVALID",
-                        e.to_string(),
-                        "run Labcoat from a Cargo workspace",
-                    )
-                })?;
-                let workspace = labcoat_core::workspace::discover(&cwd)?;
+                let workspace = labcoat_core::workspace::discover(&ctx.config.project_root())?;
                 labcoat_core::workspace::select(&workspace, Some(&package))?;
                 let wasm_path = workspace.root.join("build").join(format!("{package}.wasm"));
                 if !wasm_path.is_file() {
@@ -1116,13 +1107,7 @@ fn raw_deployment_artifact(
                 "pass an explicit name with --name",
             )
         })?;
-    let deployment_root = std::env::current_dir().map_err(|e| {
-        labcoat_core::LabcoatError::new(
-            "CONFIG_INVALID",
-            e.to_string(),
-            "run Labcoat from a writable directory",
-        )
-    })?;
+    let deployment_root = crate::project::root();
     Ok(DeploymentArtifact {
         wasm_path,
         contract_name,
@@ -1458,13 +1443,7 @@ pub async fn simulate(
 }
 
 fn project_root() -> Result<PathBuf, labcoat_core::LabcoatError> {
-    std::env::current_dir().map_err(|e| {
-        labcoat_core::LabcoatError::new(
-            "CONFIG_INVALID",
-            e.to_string(),
-            "run Labcoat from a readable directory",
-        )
-    })
+    Ok(crate::project::root())
 }
 
 fn deployment_options(only: Option<String>, replace: &[String]) -> labcoat_core::apply::Options {
@@ -1531,13 +1510,8 @@ pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
     match cmd {
         GenerateCmd::Web { out_dir, build_dir } => {
             let res: Result<serde_json::Value, labcoat_core::LabcoatError> = (|| {
-                let cwd = std::env::current_dir().map_err(|e| {
-                    labcoat_core::LabcoatError::new(
-                        "CONFIG_INVALID",
-                        e.to_string(),
-                        "run Labcoat from the project root",
-                    )
-                })?;
+                // Relative directories are the project's, like `build`'s.
+                let cwd = ctx.config.project_root();
                 let lockfile = labcoat_core::lockfile::load(&cwd)?;
                 let abis = labcoat_core::generate::load_build_abis(&cwd.join(&build_dir))?;
                 let inputs = labcoat_core::generate::WebInputs {
@@ -1569,7 +1543,7 @@ pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
 }
 
 pub fn lock(cmd: LockCmd) -> (&'static str, CmdResult) {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let cwd = crate::project::root();
     match cmd {
         LockCmd::Show => (
             "lock-show",
@@ -1595,7 +1569,7 @@ fn load_state_or_missing(
 }
 
 pub async fn state(ctx: &Ctx, environment: &str, cmd: StateCmd) -> (&'static str, CmdResult) {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let cwd = ctx.config.project_root();
     match cmd {
         StateCmd::List => {
             let res = (|| {

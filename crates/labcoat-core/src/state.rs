@@ -456,7 +456,7 @@ pub fn export_lockfile(root: &Path, state: &State) -> Result<bool> {
         lock.networks.insert(state.chain.network.clone(), records);
     }
     // Don't conjure an empty labcoat.lock where none existed.
-    if !root.join(lockfile::LOCKFILE).exists() && lock.networks.is_empty() {
+    if !lockfile::path(root).exists() && lock.networks.is_empty() {
         return Ok(false);
     }
     lockfile::save(root, &lock)?;
@@ -495,7 +495,7 @@ pub fn migrate(
         ));
     }
     let lock = lockfile::load(root)?;
-    let lock_path = root.join(lockfile::LOCKFILE);
+    let lock_path = lockfile::path(root);
     let backup = if lock_path.exists() {
         Some(lease.backup_file(&lock_path, lockfile::LOCKFILE, now_millis)?)
     } else {

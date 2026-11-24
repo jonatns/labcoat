@@ -23,7 +23,10 @@ use std::path::{Path, PathBuf};
 
 pub fn state_dir(root: &Path, environment: &str) -> Result<PathBuf> {
     state::validate_environment_name(environment)?;
-    Ok(root.join(".labcoat").join("state").join(environment))
+    Ok(crate::records::dir(root)
+        .join(".labcoat")
+        .join("state")
+        .join(environment))
 }
 
 pub fn state_path(root: &Path, environment: &str) -> Result<PathBuf> {

@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 /// and a passphrase meant for another wallet must not end up protecting it.
 pub const PASSPHRASE: &str = "labcoat-dev";
 
-const MINIMUM_SATS: u64 = 100_000_000;
+/// Below this, `up` tops the wallet up, and `up --ci` reports failure.
+pub const MINIMUM_SATS: u64 = 100_000_000;
 const FUNDING_BTC: f64 = 10.0;
 
 /// The default keystore for `network`, outside any project.
@@ -52,6 +53,9 @@ fn network_error(message: String) -> LabcoatError {
 async fn ensure(network: &LabcoatNetwork) -> Result<Value, LabcoatError> {
     let config = ToolkitConfig {
         network: NetworkTarget::Labcoat,
+        // The network this handle controls, which need not be on the
+        // default port.
+        rpc_url: isomer_core::rpc::rpc_url(&network.config),
         wallet_file: default_path(NetworkTarget::Labcoat),
         ..ToolkitConfig::default()
     };

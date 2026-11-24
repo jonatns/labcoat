@@ -220,6 +220,27 @@ fn scaffold_standard_contract(
     Ok(paths.into_iter().collect())
 }
 
+/// The project a command acts on: the nearest ancestor of the working
+/// directory that holds `labcoat.toml`, or the working directory when none
+/// does. Resolved once, so a command run from `contracts/counter/` reads
+/// the same settings, artifacts, and deployment records as one run from
+/// the project root.
+pub(crate) fn root() -> PathBuf {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        root_from(&cwd)
+    })
+    .clone()
+}
+
+pub(crate) fn root_from(cwd: &Path) -> PathBuf {
+    cwd.ancestors()
+        .find(|dir| dir.join("labcoat.toml").is_file())
+        .unwrap_or(cwd)
+        .to_path_buf()
+}
+
 pub(crate) fn find_project_root(start: &Path) -> Option<PathBuf> {
     start.ancestors().find_map(|candidate| {
         (candidate.join("labcoat.toml").is_file() && candidate.join("Cargo.toml").is_file())
@@ -314,6 +335,20 @@ fn io_error(path: &Path, error: std::io::Error) -> EnvelopeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_project_root_is_found_from_any_directory_inside_it() {
+        let root = std::env::temp_dir().join(format!("labcoat-root-{}", std::process::id()));
+        let nested = root.join("contracts/counter/src");
+        std::fs::create_dir_all(&nested).unwrap();
+        // Outside any project, the working directory is the root.
+        assert_eq!(root_from(&nested), nested);
+        std::fs::write(root.join("labcoat.toml"), "network = \"labcoat\"\n").unwrap();
+        assert_eq!(root_from(&nested), root);
+        assert_eq!(root_from(&root), root);
+        std::fs::remove_dir_all(root).ok();
+    }
+
     use std::io::Cursor;
 
     fn test_parent(label: &str) -> PathBuf {

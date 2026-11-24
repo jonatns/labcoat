@@ -8,6 +8,7 @@ mod contract;
 mod deploy_script;
 mod docs;
 mod doctor;
+mod e2e_instance;
 mod local_wallet;
 mod mcp;
 mod output;
@@ -101,11 +102,13 @@ enum Commands {
         /// Optional Cargo contract package whose host test should run
         /// (with --e2e: a test-name filter instead)
         package: Option<String>,
-        /// Run tests/e2e.rs against Labcoat Network: reset the chain, run the
-        /// deploy.rs deployment, then execute the ignored e2e tests
+        /// Run tests/e2e.rs on the project's own e2e network, apart from
+        /// the one `labcoat up` starts: start it on a fresh chain, run the
+        /// deploy.rs deployment, execute the ignored e2e tests, and stop it
         #[arg(long)]
         e2e: bool,
-        /// With --e2e: keep the current chain state instead of resetting
+        /// With --e2e: keep the chain the previous e2e run left instead of
+        /// starting a fresh one
         #[arg(long, requires = "e2e")]
         no_reset: bool,
     },
@@ -114,9 +117,9 @@ enum Commands {
         /// Skip runtime bundle verification and download
         #[arg(long)]
         no_download: bool,
-        /// CI mode: wait (bounded) for full readiness, then emit the
-        /// machine-readable endpoint manifest; non-zero exit if the stack
-        /// never becomes ready
+        /// CI mode: wait (bounded) for full readiness, then print one JSON
+        /// envelope with the endpoint manifest; exits non-zero unless the
+        /// network and its funded wallet are ready
         #[arg(long)]
         ci: bool,
     },
@@ -396,11 +399,27 @@ enum McpCmd {
     Serve,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
     init_tracing(&cli);
-    let code = run(cli).await;
+    // An e2e run targets its own network through the process environment,
+    // which is only safe to change before the runtime starts its threads.
+    let e2e_setup = match &cli.command {
+        Commands::Test { e2e: true, .. } => {
+            let root = project::root();
+            if root.join("tests/e2e.rs").is_file() {
+                e2e_instance::enter(&root)
+            } else {
+                Ok(())
+            }
+        }
+        _ => Ok(()),
+    };
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to start the async runtime");
+    let code = runtime.block_on(run(cli, e2e_setup));
     std::process::exit(code);
 }
 
@@ -425,12 +444,43 @@ fn init_tracing(cli: &Cli) {
         .init();
 }
 
-async fn run(cli: Cli) -> i32 {
+async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
     let json = cli.json;
     let output_options = output::Options {
         verbose: cli.verbose,
         color: cli.color,
     };
+    if let Err(error) = e2e_setup {
+        return output::finish_contract(json, "test", Err(error), output_options);
+    }
+    // Recovery commands answer inside a project whose settings are broken:
+    // they are how the developer finds out what is wrong.
+    if let Commands::Docs { llm } = &cli.command {
+        let reference = docs::reference(Cli::command(), mcp::tools());
+        let _ = llm;
+        return if json {
+            output::finish(
+                true,
+                "docs",
+                Ok(serde_json::to_value(reference).expect("serializable docs reference")),
+                output_options,
+            )
+        } else {
+            println!("{}", reference.render_markdown());
+            0
+        };
+    }
+    if let Commands::Doctor = &cli.command {
+        let checks = doctor::run().await;
+        let failed = checks.iter().any(|c| c.status == "fail");
+        output::finish(
+            json,
+            "doctor",
+            Ok(serde_json::json!({ "checks": checks })),
+            output_options,
+        );
+        return if failed { 1 } else { 0 };
+    }
     if let Commands::Init { name } = &cli.command {
         let name = match name {
             Some(name) => Ok(name.clone()),
@@ -551,7 +601,7 @@ async fn run(cli: Cli) -> i32 {
         } => {
             let progress = output::Progress::new(
                 if e2e {
-                    "Resetting the network, deploying, and running e2e tests…"
+                    "Starting the e2e network, deploying, and running e2e tests…"
                 } else {
                     "Building contracts and running tests…"
                 },
@@ -610,6 +660,9 @@ async fn run(cli: Cli) -> i32 {
                     return output::finish_contract(json, "deploy", Err(error), output_options)
                 }
             };
+            if !json && !dry_run {
+                ctx.announce_target();
+            }
             let progress = output::Progress::new(
                 if dry_run {
                     "Planning the deployment…"
@@ -623,6 +676,9 @@ async fn run(cli: Cli) -> i32 {
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Import { name, id, txid } => {
+            if !json {
+                ctx.announce_target();
+            }
             let progress = output::Progress::new("Verifying the deployed contract…", !json);
             let (cmd_name, res) = contract::import(&ctx, &name, &id, txid.as_deref()).await;
             progress.finish();
@@ -636,6 +692,9 @@ async fn run(cli: Cli) -> i32 {
             abi,
             dry_run,
         } => {
+            if !json && !dry_run {
+                ctx.announce_target();
+            }
             let progress = output::Progress::new(
                 if dry_run {
                     "Validating contract call…"
@@ -659,6 +718,9 @@ async fn run(cli: Cli) -> i32 {
             payment_amount,
             seller_wallet_file,
         } => {
+            if !json {
+                ctx.announce_target();
+            }
             let progress =
                 output::Progress::new("Signing and broadcasting atomic exchange…", !json);
             let (cmd_name, res) = contract::exchange(
@@ -707,6 +769,9 @@ async fn run(cli: Cli) -> i32 {
             seller_wallet_file,
             broadcast,
         } => {
+            if !json && broadcast {
+                ctx.announce_target();
+            }
             let progress = output::Progress::new(
                 if broadcast {
                     "Validating, signing, and broadcasting exchange…"
@@ -760,48 +825,33 @@ async fn run(cli: Cli) -> i32 {
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,
-        Commands::Doctor => {
-            let checks = doctor::run().await;
-            let failed = checks.iter().any(|c| c.status == "fail");
-            output::finish(
-                json,
-                "doctor",
-                Ok(serde_json::json!({ "checks": checks })),
-                output_options,
-            );
-            if failed {
-                1
-            } else {
-                0
-            }
-        }
-        Commands::Docs { llm } => {
-            let reference = docs::reference(Cli::command(), mcp::tools());
-            let _ = llm;
-            if json {
-                output::finish(
-                    true,
-                    "docs",
-                    Ok(serde_json::to_value(reference).expect("serializable docs reference")),
-                    output_options,
-                )
-            } else {
-                println!("{}", reference.render_markdown());
-                0
-            }
-        }
+        Commands::Doctor => unreachable!("doctor handled before configuration loading"),
+        Commands::Docs { .. } => unreachable!("docs handled before configuration loading"),
         Commands::Up { no_download, ci } => {
+            // `--ci` always prints one JSON envelope, and its exit code says
+            // whether the network and its funded wallet are ready, so a
+            // pipeline can gate on `labcoat up --ci` alone.
+            let json = json || ci;
+            let finish = |result: Result<serde_json::Value, String>| {
+                let failed = result.is_err();
+                let code = output::finish(json, "up", result, output_options);
+                if ci && failed {
+                    1
+                } else {
+                    code
+                }
+            };
             let mut network = LabcoatNetwork::new();
             let progress = output::Progress::new("Preparing Labcoat Network…", !json);
             if !no_download {
-                if let Err(e) = network.ensure_binaries(progress_logger(!json && !ci)).await {
+                if let Err(e) = network.ensure_binaries(progress_logger(!json)).await {
                     progress.finish();
-                    return output::finish(json, "up", Err(e), output_options);
+                    return finish(Err(e));
                 }
             }
             if let Err(e) = network.start() {
                 progress.finish();
-                return output::finish(json, "up", Err(e), output_options);
+                return finish(Err(e));
             }
             let mut status = network.status().await;
             if ci {
@@ -820,15 +870,10 @@ async fn run(cli: Cli) -> i32 {
                         .collect();
                     std::mem::forget(network);
                     progress.finish();
-                    return output::finish(
-                        json,
-                        "up",
-                        Err(format!(
-                            "Labcoat Network not ready after 120s; still down: {}",
-                            not_ready.join(", ")
-                        )),
-                        output_options,
-                    );
+                    return finish(Err(format!(
+                        "Labcoat Network not ready after 120s; still down: {}",
+                        not_ready.join(", ")
+                    )));
                 }
             }
             let wallet = local_wallet::prepare(&mut network).await;
@@ -838,16 +883,18 @@ async fn run(cli: Cli) -> i32 {
             // would stop the children it spawned.
             std::mem::forget(network);
             progress.finish();
-            let payload = serde_json::json!({
+            if ci {
+                // Interactively a wallet problem is a warning beside a
+                // running network. A pipeline's next step needs the wallet.
+                if let Some(error) = ci_wallet_error(&wallet) {
+                    return finish(Err(error));
+                }
+            }
+            finish(Ok(serde_json::json!({
                 "status": status,
                 "endpoints": endpoints,
                 "wallet": wallet,
-            });
-            if json || ci {
-                output::finish(true, "up", Ok(payload), output_options)
-            } else {
-                output::finish(false, "up", Ok(payload), output_options)
-            }
+            })))
         }
         Commands::Down => {
             let mut network = LabcoatNetwork::new();
@@ -979,6 +1026,26 @@ async fn run(cli: Cli) -> i32 {
     }
 }
 
+/// Why `up --ci` cannot report success: the built-in wallet could not be
+/// prepared, or holds less than the balance `up` tops it up to.
+fn ci_wallet_error(wallet: &serde_json::Value) -> Option<String> {
+    if let Some(error) = wallet.get("error").and_then(serde_json::Value::as_str) {
+        return Some(format!(
+            "Labcoat Network is running, but its built-in wallet is not ready: {error}"
+        ));
+    }
+    let balance = wallet
+        .get("balanceSats")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    (balance < local_wallet::MINIMUM_SATS).then(|| {
+        format!(
+            "Labcoat Network is running, but its built-in wallet holds {balance} sats, less than the {} it needs",
+            local_wallet::MINIMUM_SATS
+        )
+    })
+}
+
 fn validate_labcoat_network_overrides(cli: &Cli) -> Result<(), String> {
     let Some(command) = cli.command.labcoat_network_command_name() else {
         return Ok(());
@@ -1012,6 +1079,21 @@ fn progress_logger(enabled: bool) -> impl Fn(isomer_core::ServiceId, f32) + Send
 #[cfg(test)]
 mod envelope_tests {
     use super::*;
+
+    #[test]
+    fn up_ci_fails_unless_the_built_in_wallet_is_funded() {
+        let ready = serde_json::json!({ "address": "bcrt1p", "balanceSats": 1_000_000_000u64 });
+        assert_eq!(ci_wallet_error(&ready), None);
+
+        let failed = serde_json::json!({ "error": "the faucet is empty" });
+        assert!(ci_wallet_error(&failed)
+            .unwrap()
+            .contains("the faucet is empty"));
+
+        let unfunded = serde_json::json!({ "address": "bcrt1p", "balanceSats": 0 });
+        assert!(ci_wallet_error(&unfunded).unwrap().contains("holds 0 sats"));
+        assert!(ci_wallet_error(&serde_json::json!({})).is_some());
+    }
 
     #[test]
     fn command_tree_passes_clap_validation() {

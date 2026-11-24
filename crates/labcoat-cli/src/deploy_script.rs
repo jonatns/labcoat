@@ -46,13 +46,7 @@ pub fn load_graph(root: &Path, network: &str) -> Result<Graph, LabcoatError> {
         .env("LABCOAT_DEPLOY_NETWORK", network)
         .env("LABCOAT_DEPLOY_GRAPH", &graph_path)
         .output()
-        .map_err(|e| {
-            LabcoatError::new(
-                "TOOLKIT_ERROR",
-                format!("failed to run cargo: {e}"),
-                "install Cargo and run `labcoat doctor`",
-            )
-        })?;
+        .map_err(|e| LabcoatError::cargo_unavailable(&e, "run deploy.rs"))?;
     if !output.status.success() {
         let _ = std::fs::remove_file(&graph_path);
         let stderr = String::from_utf8_lossy(&output.stderr);

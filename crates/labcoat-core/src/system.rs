@@ -103,6 +103,9 @@ pub struct ToolkitConfig {
     /// `labcoat reset`), when the managed network is the target and the
     /// caller attached it. Used by durable state to detect a reset chain.
     pub labcoat_instance_id: Option<String>,
+    /// The project the command acts on: where `labcoat.lock`, `build/`, and
+    /// `deploy.rs` are. `None` means the working directory.
+    pub project_root: Option<PathBuf>,
 }
 
 impl Default for ToolkitConfig {
@@ -115,11 +118,20 @@ impl Default for ToolkitConfig {
             assume_yes: false,
             environment: "default".to_string(),
             labcoat_instance_id: None,
+            project_root: None,
         }
     }
 }
 
 impl ToolkitConfig {
+    /// The project root, falling back to the working directory.
+    pub fn project_root(&self) -> PathBuf {
+        self.project_root
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
     pub fn network_id(&self) -> &'static str {
         self.network.id()
     }

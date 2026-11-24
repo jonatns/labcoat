@@ -44,8 +44,18 @@ impl IsomerConfig {
         get_data_dir().join("config.json")
     }
 
-    /// Load config from disk, or create default if not exists
+    /// Load config from disk, or the default when there is none.
+    /// `LABCOAT_RPC_PORT` overrides the port, so a second data home can run
+    /// its own network beside the first.
     pub fn load() -> Self {
+        let mut config = Self::load_file();
+        if let Some(port) = port_override(std::env::var("LABCOAT_RPC_PORT").ok().as_deref()) {
+            config.ports.rpc = port;
+        }
+        config
+    }
+
+    fn load_file() -> Self {
         let path = Self::config_path();
         if path.exists() {
             match std::fs::read_to_string(&path) {
@@ -68,6 +78,21 @@ impl IsomerConfig {
         }
         let content = serde_json::to_string_pretty(self)?;
         std::fs::write(path, content)
+    }
+}
+
+/// The port `LABCOAT_RPC_PORT` names, when it names a usable one.
+fn port_override(value: Option<&str>) -> Option<u16> {
+    let value = value?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    match value.parse::<u16>() {
+        Ok(port) if port != 0 => Some(port),
+        _ => {
+            tracing::warn!("Ignoring LABCOAT_RPC_PORT={value}: not a port number");
+            None
+        }
     }
 }
 
@@ -96,7 +121,12 @@ fn labcoat_runtime_dir(data_dir: &Path, target_os: &str, release_tag: &str) -> P
 }
 
 /// Get the Labcoat-managed runtime directory for this exact product version.
+/// `LABCOAT_RUNTIME_DIR` names it directly, so a network with its own data
+/// home (an e2e run's) can share the runtime already installed.
 pub fn get_bin_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("LABCOAT_RUNTIME_DIR").filter(|dir| !dir.is_empty()) {
+        return PathBuf::from(dir);
+    }
     let data_dir = std::env::var_os("LABCOAT_DATA_HOME")
         .map(PathBuf::from)
         .or_else(dirs::data_dir)
@@ -141,6 +171,17 @@ pub fn get_compiled_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_real_port_number_overrides_the_configured_port() {
+        assert_eq!(port_override(Some("18555")), Some(18555));
+        assert_eq!(port_override(Some(" 18555 ")), Some(18555));
+        assert_eq!(port_override(None), None);
+        assert_eq!(port_override(Some("")), None);
+        assert_eq!(port_override(Some("0")), None);
+        assert_eq!(port_override(Some("70000")), None);
+        assert_eq!(port_override(Some("rpc")), None);
+    }
 
     #[test]
     fn macos_runtime_is_versioned_below_labcoat_application_support() {

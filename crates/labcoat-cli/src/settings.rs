@@ -4,8 +4,15 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const DEFAULT_NETWORK: &str = "labcoat";
+/// Labcoat Network's endpoint on its default port.
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:18443";
 const DEFAULT_ENVIRONMENT: &str = "default";
+
+/// Where this data home's Labcoat Network listens: the default port unless
+/// its configuration or `LABCOAT_RPC_PORT` names another.
+fn labcoat_network_rpc_url() -> String {
+    isomer_core::rpc::rpc_url(&isomer_core::IsomerConfig::load())
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,11 +47,17 @@ pub struct Overrides<'a> {
     pub environment: Option<&'a str>,
 }
 
+/// Resolve settings for the project the command runs in: its
+/// `labcoat.toml` is read from the project root, not the working directory.
 pub fn resolve(overrides: Overrides<'_>) -> Result<ResolvedSettings, String> {
-    resolve_in(
-        &std::env::current_dir().map_err(|e| e.to_string())?,
-        overrides,
-    )
+    resolve_in(&crate::project::root(), overrides)
+}
+
+/// Resolve the settings of the project at `root` with no command-line
+/// overrides. Lets `labcoat doctor` report a broken `labcoat.toml` instead
+/// of being stopped by it.
+pub fn resolve_at(root: &Path) -> Result<ResolvedSettings, String> {
+    resolve_in(root, Overrides::default())
 }
 
 fn resolve_in(root: &Path, overrides: Overrides<'_>) -> Result<ResolvedSettings, String> {
@@ -55,6 +68,15 @@ fn resolve_in_with(
     root: &Path,
     overrides: Overrides<'_>,
     env: impl Fn(&str) -> Option<String>,
+) -> Result<ResolvedSettings, String> {
+    resolve_with_local_url(root, overrides, env, &labcoat_network_rpc_url())
+}
+
+fn resolve_with_local_url(
+    root: &Path,
+    overrides: Overrides<'_>,
+    env: impl Fn(&str) -> Option<String>,
+    local_rpc_url: &str,
 ) -> Result<ResolvedSettings, String> {
     let config = load(root)?;
     let network_value = choose_string(
@@ -74,7 +96,7 @@ fn resolve_in_with(
         overrides.rpc_url,
         env("LABCOAT_RPC_URL"),
         config.rpc_url.filter(|_| file_network == network),
-        default_rpc_url(network),
+        default_rpc_url(network, local_rpc_url),
     );
     let rpc_url = if rpc_url == "subfrost" {
         subfrost_rpc_url(network)
@@ -88,7 +110,8 @@ fn resolve_in_with(
     } else {
         rpc_url
     };
-    if network == NetworkTarget::Regtest && rpc_url == DEFAULT_RPC_URL {
+    if network == NetworkTarget::Regtest && (rpc_url == DEFAULT_RPC_URL || rpc_url == local_rpc_url)
+    {
         return Err(
             "network 'regtest' is reserved for custom regtest RPCs; use network = \"labcoat\" for Labcoat Network or configure a non-default rpc_url"
                 .to_string(),
@@ -98,7 +121,9 @@ fn resolve_in_with(
         .wallet_file
         .map(PathBuf::from)
         .or_else(|| env("LABCOAT_WALLET_FILE").map(PathBuf::from))
-        .or(config.wallet_file)
+        // A path in labcoat.toml is relative to that file, so it names the
+        // same keystore from any directory of the project.
+        .or(config.wallet_file.map(|path| root.join(path)))
         .unwrap_or_else(|| crate::local_wallet::default_path(network));
     if network != NetworkTarget::Labcoat && crate::local_wallet::is_built_in(&wallet_file) {
         return Err(format!(
@@ -155,12 +180,14 @@ fn subfrost_rpc_url(network: NetworkTarget) -> Option<&'static str> {
     }
 }
 
-/// Public networks default to Subfrost; everything else is a local node.
-fn default_rpc_url(network: NetworkTarget) -> &'static str {
+/// Public networks default to Subfrost, Labcoat Network to wherever this
+/// data home's network listens, and everything else to the default port.
+fn default_rpc_url(network: NetworkTarget, local_rpc_url: &str) -> &str {
     match network {
         NetworkTarget::Signet | NetworkTarget::Mainnet => {
             subfrost_rpc_url(network).expect("Subfrost serves signet and mainnet")
         }
+        NetworkTarget::Labcoat => local_rpc_url,
         _ => DEFAULT_RPC_URL,
     }
 }
@@ -168,7 +195,7 @@ fn default_rpc_url(network: NetworkTarget) -> &'static str {
 pub fn labcoat_network() -> ResolvedSettings {
     ResolvedSettings {
         network: NetworkTarget::Labcoat,
-        rpc_url: DEFAULT_RPC_URL.to_string(),
+        rpc_url: labcoat_network_rpc_url(),
         wallet_file: crate::local_wallet::default_path(NetworkTarget::Labcoat),
         fee_rate: Some(2.0),
         signer: "keystore".to_string(),
@@ -261,6 +288,70 @@ mod tests {
         .unwrap();
         assert_eq!(from_file.environment, "file-env");
 
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn labcoat_network_follows_the_port_this_data_home_uses() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-settings-port-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let on = |network: Option<&str>| {
+            resolve_with_local_url(
+                &root,
+                Overrides {
+                    network,
+                    ..Overrides::default()
+                },
+                |_| None,
+                "http://127.0.0.1:18555",
+            )
+        };
+        assert_eq!(on(None).unwrap().rpc_url, "http://127.0.0.1:18555");
+        // Only Labcoat Network moves with it, and `regtest` still may not
+        // name the managed network's endpoint.
+        assert_eq!(
+            on(Some("signet")).unwrap().rpc_url,
+            "https://signet.subfrost.io/v4/jsonrpc"
+        );
+        assert!(on(Some("regtest")).unwrap_err().contains("reserved"));
+        let explicit = resolve_with_local_url(
+            &root,
+            Overrides {
+                network: Some("regtest"),
+                rpc_url: Some("http://127.0.0.1:18555"),
+                ..Overrides::default()
+            },
+            |_| None,
+            "http://127.0.0.1:18555",
+        );
+        assert!(explicit.unwrap_err().contains("reserved"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_wallet_path_in_labcoat_toml_is_relative_to_the_project() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-settings-relative-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("labcoat.toml"),
+            "network = \"signet\"\nwallet_file = \".labcoat/wallet.json\"\n",
+        )
+        .unwrap();
+        let resolved = resolve_in_with(&root, Overrides::default(), |_| None).unwrap();
+        assert_eq!(resolved.wallet_file, root.join(".labcoat/wallet.json"));
+        // A path given on the command line stays relative to where it was typed.
+        let typed = resolve_in_with(
+            &root,
+            Overrides {
+                wallet_file: Some("mine.json"),
+                ..Overrides::default()
+            },
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(typed.wallet_file, PathBuf::from("mine.json"));
         std::fs::remove_dir_all(root).ok();
     }
 

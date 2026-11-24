@@ -107,16 +107,22 @@ impl ProcessManager {
     /// Stop a network started by an earlier command: ask it to stop, then
     /// end the recorded process if it is still running. Also ends a
     /// `qubitcoind` left by a Labcoat release that used one, since it would
-    /// hold the network's port.
+    /// hold the network's port. A network serving another data home on the
+    /// same port is not this one, and is not asked to stop.
     pub fn stop_running(config: &IsomerConfig) {
         let pid_file = get_network_dir().join(PID_FILE);
-        let asked = crate::rpc::call_blocking_with_timeout(
-            config,
-            "stop",
-            serde_json::json!([]),
-            Duration::from_secs(2),
-        )
-        .is_ok();
+        let another_home = matches!(
+            crate::rpc::identify_blocking(config, Duration::from_secs(2)),
+            crate::rpc::NodeIdentity::OtherDataHome(_)
+        );
+        let asked = !another_home
+            && crate::rpc::call_blocking_with_timeout(
+                config,
+                "stop",
+                serde_json::json!([]),
+                Duration::from_secs(2),
+            )
+            .is_ok();
         // The node deletes its pid file as it exits. Its process can linger
         // as a zombie until something reaps it, so the file, not the process
         // table, says when it has stopped.
