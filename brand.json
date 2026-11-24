@@ -17,6 +17,7 @@
   "metaTitle": "Labcoat — Rust-native Alkanes development",
   "metaDescription": "Build, test, deploy, simulate, and trace Alkanes smart contracts with one CLI and Labcoat Network, a managed local Bitcoin regtest.",
   "socialHeadline": "From Rust source to decoded trace.",
+  "socialDescription": "Build, test, and deploy Alkanes smart contracts on a local Bitcoin chain.",
   "ctas": {
     "primary": "Run the quick start",
     "secondary": "View source",

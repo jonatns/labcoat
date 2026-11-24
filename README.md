@@ -1,6 +1,6 @@
 # Labcoat
 
-![Labcoat — From Rust source to decoded trace.](apps/web/public/og.svg)
+![Labcoat — From Rust source to decoded trace.](apps/web/public/og.png)
 
 **From Rust source to decoded trace.**
 
