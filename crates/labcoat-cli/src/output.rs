@@ -309,12 +309,27 @@ fn execution_document(command: &str, value: &Value, verbose: bool) -> Document {
         .and_then(Value::as_str)
         .unwrap_or("success");
     let reverted = status == "revert";
+    // No trace arrived in time: on a public network the transaction is
+    // usually still waiting for a block.
+    let unsettled = status != "revert" && status != "success";
     document.headline(
-        if reverted { Tone::Error } else { Tone::Success },
+        if reverted {
+            Tone::Error
+        } else if unsettled {
+            Tone::Warning
+        } else {
+            Tone::Success
+        },
         format!(
             "{} {}",
             title(command),
-            if reverted { "reverted" } else { "succeeded" }
+            if reverted {
+                "reverted"
+            } else if unsettled {
+                "sent, result not known yet"
+            } else {
+                "succeeded"
+            }
         ),
     );
     let mut important = fields(
@@ -364,6 +379,14 @@ fn execution_document(command: &str, value: &Value, verbose: bool) -> Document {
                 .blocks
                 .push(Block::Tree(trace_view::normalize(traces)));
         }
+    } else if unsettled {
+        document.note(
+            Tone::Warning,
+            format!(
+                "The transaction was broadcast but has no execution trace yet. Run `labcoat trace {} --wait` once it confirms.",
+                string_at(value, "txid")
+            ),
+        );
     } else if value.get("traces").is_some() {
         let txid = string_at(value, "txid");
         if !txid.is_empty() {
@@ -1786,6 +1809,15 @@ mod tests {
         });
         let output = render_plain("call", &value, true, 80);
         assert!(output.contains("return 1"));
+    }
+
+    #[test]
+    fn an_unconfirmed_call_is_not_reported_as_a_success() {
+        let value = serde_json::json!({"status": "unknown", "txid": "ab", "traces": null, "method": "increment"});
+        let output = render_plain("call", &value, false, 100);
+        assert!(output.contains("Call sent, result not known yet"));
+        assert!(output.contains("labcoat trace ab --wait"));
+        assert!(!output.contains("succeeded"));
     }
 
     #[test]
