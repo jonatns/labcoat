@@ -60,8 +60,9 @@ labcoat --network signet plan
 
 `rpc_url = "subfrost"` (or `--rpc-url subfrost`) names the same endpoints, and
 Subfrost's hosted regtest with `--network regtest`. Set `SUBFROST_API_KEY` to
-send an API key; the public endpoints answer without one, with their own
-limits. An `rpc_url` in `labcoat.toml` applies only to the network that file
+send an API key. The public endpoints answer without one but allow only 20
+requests a minute, which a deploy exceeds; past that Labcoat reports
+`RPC_REJECTED`. An `rpc_url` in `labcoat.toml` applies only to the network that file
 names, so a local endpoint never follows `--network signet`.
 
 Reads and `labcoat plan` work today. Signing on a public network needs a

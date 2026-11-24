@@ -211,6 +211,11 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
         "read the step's detail in `labcoat plan`",
     ),
     (
+        "RPC_REJECTED",
+        "the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit",
+        "set `SUBFROST_API_KEY` for Subfrost, or wait and retry",
+    ),
+    (
         "TOOLKIT_ERROR",
         "the underlying contract toolkit failed",
         "read the error hint",

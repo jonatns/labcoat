@@ -676,6 +676,7 @@ doctor
 | `STATE_CHAIN_MISMATCH` | durable state belongs to a different chain instance (e.g. before a `labcoat reset`) | archive .labcoat/state/<environment> or use a different --environment |
 | `STATE_CONFLICT` | durable state changed underneath the command, or already exists where none may | re-run against current state (`labcoat state list`) |
 | `DEPLOYMENT_BLOCKED` | a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting, a step deployed on its own before the steps it references) | read the step's detail in `labcoat plan` |
+| `RPC_REJECTED` | the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit | set `SUBFROST_API_KEY` for Subfrost, or wait and retry |
 | `TOOLKIT_ERROR` | the underlying contract toolkit failed | read the error hint |
 | `BINARY_CRASH` | a Labcoat Network service exited | inspect `labcoat logs` |
 

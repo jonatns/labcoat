@@ -52,10 +52,17 @@ impl LabcoatError {
                 "RPC_UNREACHABLE",
                 "is Labcoat Network running? try `labcoat up` / `labcoat status`",
             )
+        } else if lower.contains("unknown rpc error") {
+            // Upstream drops a response body that is not JSON-RPC, which is
+            // what a hosted endpoint's rate limiter sends.
+            (
+                "RPC_REJECTED",
+                "the endpoint refused the request; Subfrost's public endpoints allow 20 requests a minute, so set SUBFROST_API_KEY (https://api.subfrost.io) or wait and retry",
+            )
         } else if lower.contains("insufficient") || lower.contains("not enough") {
             (
                 "INSUFFICIENT_FUNDS",
-                "fund the wallet: `labcoat fund <address>` then `labcoat mine 1`",
+                "fund the wallet and wait for a confirmation; on Labcoat Network run `labcoat up`, or `labcoat fund <address>` then `labcoat mine 1`",
             )
         } else if lower.contains("revert") {
             (

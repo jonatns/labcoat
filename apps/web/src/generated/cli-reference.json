@@ -1220,6 +1220,11 @@
         "recovery": "read the step's detail in `labcoat plan`"
       },
       {
+        "code": "RPC_REJECTED",
+        "meaning": "the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit",
+        "recovery": "set `SUBFROST_API_KEY` for Subfrost, or wait and retry"
+      },
+      {
         "code": "TOOLKIT_ERROR",
         "meaning": "the underlying contract toolkit failed",
         "recovery": "read the error hint"
