@@ -256,7 +256,7 @@ fn build_document(command: &str, value: &Value, verbose: bool) -> Document {
     match command {
         "call" => execution_document(command, value, verbose),
         // Deploy reports deploy.rs steps (a plan under --dry-run, what ran
-        // under --broadcast) or, for --wasm, one execution.
+        // otherwise) or, for --wasm, one execution.
         "deploy" if value.get("actions").is_none() => execution_document(command, value, verbose),
         "deploy" if value.get("pending").is_none() => deploy_report_document(value),
         "plan" | "deploy" => plan_document(value),
@@ -1037,7 +1037,7 @@ fn plan_document(value: &Value) -> Document {
     } else if value.get("dryRun").and_then(Value::as_bool) == Some(true) && pending > 0 {
         document.note(
             Tone::Info,
-            "Re-run with --broadcast to execute the pending steps.",
+            "Re-run without --dry-run to execute the pending steps.",
         );
     }
     document
@@ -1055,7 +1055,7 @@ fn deploy_report_document(value: &Value) -> Document {
         .filter(|a| {
             matches!(
                 a.get("outcome").and_then(Value::as_str),
-                Some("executed") | Some("adopted")
+                Some("executed") | Some("redeployed") | Some("adopted")
             )
         })
         .count();
@@ -1109,6 +1109,15 @@ fn deploy_report_document(value: &Value) -> Document {
             vec!["Step".into(), "Transaction".into()],
             transactions,
         ));
+    }
+    if actions
+        .iter()
+        .any(|a| a.get("outcome").and_then(Value::as_str) == Some("redeployed"))
+    {
+        document.note(
+            Tone::Warning,
+            "A redeployed contract has a new id and empty storage; the earlier one stays on chain.",
+        );
     }
     if executed == 0 {
         document.note(
@@ -1622,9 +1631,9 @@ mod tests {
         });
         let output = render_plain("deploy", &plan, false, 100);
         assert!(output.contains("Plan for deploy.rs step `counter` — 1 pending step(s)"));
-        assert!(output.contains("Re-run with --broadcast to execute the pending steps."));
+        assert!(output.contains("Re-run without --dry-run to execute the pending steps."));
 
-        // --broadcast with nothing left to run says so.
+        // With nothing left to run says so.
         let report = serde_json::json!({
             "network": "labcoat",
             "actions": [{"kind": "contract", "name": "counter", "outcome": "skipped-complete", "id": "2:4"}],

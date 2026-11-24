@@ -12,24 +12,30 @@ contracts it upgrades. `labcoat plan` shows what deploying would do, and
 
 ```bash
 labcoat plan
-labcoat deploy --broadcast
+labcoat deploy
 ```
 
 `labcoat plan` builds every referenced package, runs `deploy.rs` to read the
 steps it declares, and compares them with the network's
 [run file](#the-run-file) and the chain. It never loads a signer or
-broadcasts. `labcoat deploy --broadcast` executes the pending steps in the
+broadcasts. `labcoat deploy` executes the pending steps in the
 order the script declares them.
 
-Deploy signs and spends, so it never guesses which you meant: pass
-`--broadcast` to execute, or `--dry-run` to print the same plan without
-signing. With neither flag it stops with `BROADCAST_REQUIRED`.
+How strict deploy is depends on the network:
+
+| Network | A step you edited | Signing |
+|---|---|---|
+| Labcoat Network | Redeploys, with whatever references it | No prompt |
+| Custom regtest | Conflict until you pass `--replace` | No prompt |
+| Signet, testnet, mainnet | Conflict until you pass `--replace` | Prompt for each transaction, or `--yes` |
+
+`labcoat deploy --dry-run` prints the plan instead, like `labcoat plan`.
 
 Each step in the plan has one status:
 
 | Status | Meaning |
 |---|---|
-| `pending` | Runs on the next `deploy --broadcast`. The plan says what it will do: `create`, `clone`, `replace`, `call`, `rerun`, `update`, or `check`. |
+| `pending` | Runs on the next `deploy`. The plan says what it will do: `create`, `clone`, `replace`, `call`, `rerun`, `update`, or `check`. |
 | `complete` | Already ran with this definition; skipped. |
 | `conflict` | Ran with a different definition, or references a contract that was since replaced. Deploy refuses until you resolve it. See [Steps run once](#steps-run-once). |
 | `adopt` | A reserved id already holds matching code with no record; deploy records it without redeploying. |
@@ -42,7 +48,7 @@ includes a `deploy.rs` that deploys its Counter contract.
 ### Deploy one step
 
 ```bash
-labcoat deploy token --broadcast
+labcoat deploy token
 ```
 
 Naming a step runs that step alone and leaves the other pending steps for
@@ -54,7 +60,7 @@ name.
 ### Deploy an artifact outside the script
 
 ```bash
-labcoat deploy --wasm build/token.wasm --name beta --args 5000 --broadcast
+labcoat deploy --wasm build/token.wasm --name beta --args 5000
 ```
 
 `--wasm` deploys a prebuilt `.wasm` that `deploy.rs` does not declare: an
@@ -188,8 +194,15 @@ definition — the code, target, initializer, and arguments. A plan compares the
 script with that record. It does not try to make the chain match a script you
 edited afterwards.
 
-If you edit a pinned step after it ran, the plan reports a `conflict` and
-`deploy --broadcast` stops with `DEPLOYMENT_CONFLICT` before sending anything:
+**On Labcoat Network**, where the chain is local and disposable, `labcoat
+deploy` redeploys an edited contract, redeploys whatever references it, and
+runs the affected calls again. Each new instance has a new id and empty
+storage. The plan shows these steps as pending before you deploy. An edited
+contract with a reserved id cannot redeploy, because the id is taken: give it
+another number or run `labcoat reset`.
+
+**On every other network**, editing a pinned step after it ran makes the plan
+report a `conflict`, and `labcoat deploy` stops with `DEPLOYMENT_CONFLICT` before sending anything:
 
 ```text
 ! Plan for deploy.rs — 0 pending, 1 in conflict
@@ -201,7 +214,7 @@ counter_beacon: its definition changed since it ran — restore it, or pass
 `--replace counter_beacon` to deploy a new instance
 ```
 
-You have three ways out:
+You have two ways out:
 
 - **Restore the step.** Undo the edit and the plan is clean again.
 - **Replace it.** `--replace <name>` deploys a new instance with a new id and
@@ -209,12 +222,10 @@ You have three ways out:
 
   ```bash
   labcoat plan --replace token
-  labcoat deploy --replace token --broadcast
+  labcoat deploy --replace token
   ```
 
   For a call, `--replace` runs it again.
-- **Start over, on Labcoat Network only.** `labcoat reset` starts a fresh
-  chain, where nothing has run. `labcoat test --e2e` does this for you.
 
 Replacing a contract changes its id, so every step that referenced the old
 instance now disagrees with what it recorded. The plan lists each one as a
@@ -319,7 +330,7 @@ d.call("init_counter", &counter, "initialize").abi_of(&logic);
   implementation. A proxy's own ABI lists only proxy methods, so a call
   through it has to say whose method it means.
 
-When the logic changes, one `labcoat deploy --broadcast` deploys the new code
+When the logic changes, one `labcoat deploy` deploys the new code
 and repoints the beacon:
 
 ```text
@@ -401,7 +412,7 @@ instances it replaced. It is what makes a step run once.
 contract deploys.
 
 Labcoat records the commit and execution transaction IDs before submission.
-Run `labcoat deploy --broadcast` again after the indexer catches up. It checks
+Run `labcoat deploy` again after the indexer catches up. It checks
 the recorded transaction and continues once its result is known. If the
 funding commit was sent and Labcoat saved a prepared reveal, deploy can
 continue from that reveal.

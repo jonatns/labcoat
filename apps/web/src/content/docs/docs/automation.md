@@ -13,7 +13,7 @@ and progress stay on stderr.
 
 ```bash
 labcoat status --json
-labcoat deploy --broadcast --json
+labcoat deploy --json
 ```
 
 ```json
@@ -41,8 +41,9 @@ labcoat mcp serve
 The stdio MCP server exposes Labcoat Network, wallet, build, test, deployment
 plan, deploy, and import, call, simulation, trace, balance, atomic exchange,
 durable state, and web generation tools, using the same typed operations as
-the CLI. The `deploy` tool takes a required `broadcast` boolean: `false`
-returns the plan without signing.
+the CLI. The `deploy` tool takes `dryRun: true` to return the plan
+without signing, and refuses public networks unless the server was started
+with `--yes`.
 
 Pin the Labcoat version used by an agent. The public website tracks current
 `main`; `labcoat docs --llm` is the installed-version authority.

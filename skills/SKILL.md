@@ -56,8 +56,8 @@ the first build.
 
 ```bash
 labcoat plan --json                          # what would run; never signs
-labcoat deploy --broadcast --json            # run every pending deploy.rs step
-labcoat deploy my-token --broadcast --json   # run one step
+labcoat deploy --json            # run every pending deploy.rs step
+labcoat deploy my-token --json   # run one step
 ```
 
 `deploy.rs` declares what the project deploys (described below); a new
@@ -67,10 +67,12 @@ records each id in `labcoat.lock` under the current network. Each step's
 `outcome`, `id` (`block:tx`), and `txid` are in `result.actions`. A step runs
 once per network, so deploying again does nothing until a step is pending.
 
-Deploy never broadcasts by default: pass `--broadcast` to sign and send, or
-`--dry-run` to get the plan. With neither it fails with `BROADCAST_REQUIRED`.
+Add `--dry-run` to get the plan instead. On Labcoat Network deploy needs no
+approval, and an edited contract redeploys (with whatever references it) to a
+new id with empty storage. Public networks prompt for each signature and fail
+with `APPROVAL_REQUIRED` without a terminal; never pass `--yes` unless asked.
 To deploy a contract `deploy.rs` does not declare, add a step for it. Use
-`labcoat deploy --wasm <raw-file.wasm> --name <name> --broadcast` only for a
+`labcoat deploy --wasm <raw-file.wasm> --name <name>` only for a
 one-off artifact outside the deployment; it is recorded in `labcoat.lock`
 alone and returns `result.alkanesId`.
 
@@ -100,8 +102,8 @@ block:tx:amount` (incoming alkanes; `B:sats` for bitcoin), `--to <address>`
 
 Declare the deployment in `deploy.rs`, the project's `deploy` Cargo
 example target, with `labcoat`. The script only declares steps:
-`labcoat plan` runs it to read them (no signer), and `labcoat deploy
---broadcast` executes what has not run. Steps run in declaration order and
+`labcoat plan` runs it to read them (no signer), and `labcoat deploy`
+executes what has not run. Steps run in declaration order and
 reference only earlier steps.
 
 ```rust
@@ -139,7 +141,8 @@ fn main() {
 A contract, clone, or call is pinned: it runs once per network and is
 recorded in `deployments/<network>.json`. Editing it afterwards, or replacing
 something it references, is a `conflict`, and deploy stops with
-`DEPLOYMENT_CONFLICT` before broadcasting. Do not work around a conflict:
+`DEPLOYMENT_CONFLICT` before broadcasting (Labcoat Network redeploys the step
+instead). Do not work around a conflict:
 restore the step, or pass `--replace <name>` (a new instance with a new id;
 every step that referenced the old one must be replaced too), or on Labcoat
 Network `labcoat reset`. `labcoat import <name> <block:tx>` records a
@@ -225,7 +228,7 @@ fallback.
 - `trace` — Decoded protostone traces for a transaction.
 - `balance` — Alkanes token balances held by an address.
 - `plan` — Run the project's deploy.rs deployment script and reconcile its steps against the network's run file and chain state; shows pending, complete, and conflicting steps without loading a signer.
-- `deploy` — Execute the pending deployment steps deploy.rs declares, or only the step named in step. broadcast is required: true signs and broadcasts, false returns the plan without signing. Refuses while a step is in conflict. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.
+- `deploy` — Execute the pending deployment steps deploy.rs declares, or only the step named in step. dryRun: true returns the plan without signing. On Labcoat Network a changed contract, and whatever references it, redeploys with empty storage; on other networks deploy refuses while a step is in conflict. Public networks refuse to sign unless the server was started with --yes. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.
 - `import` — Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.
 - `state_list` — List resources and active instances in this environment's durable deployment state.
 - `state_show` — Show one resource's active instance from durable state; history: true includes every earlier instance.

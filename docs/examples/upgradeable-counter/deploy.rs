@@ -11,7 +11,7 @@
 //!
 //! Copy this file over `deploy.rs` and the sibling `e2e.rs` over
 //! `tests/e2e.rs` (its `add` call needs the method the tutorial adds to
-//! the counter), then `labcoat plan` and `labcoat deploy --broadcast`, or
+//! the counter), then `labcoat plan` and `labcoat deploy`, or
 //! `labcoat test --e2e`.
 //!
 //! To upgrade, change `contracts/counter` and deploy again: the plan

@@ -33,13 +33,13 @@ Compilation writes:
 
 ```bash
 labcoat plan
-labcoat deploy --broadcast
+labcoat deploy
 
 # One step of deploy.rs
-labcoat deploy my-token --broadcast
+labcoat deploy my-token
 
 # Advanced: a prebuilt raw artifact that deploy.rs does not declare
-labcoat deploy --wasm /path/to/my-token.wasm --name my-token --broadcast
+labcoat deploy --wasm /path/to/my-token.wasm --name my-token
 ```
 
 A project deploys what its `deploy.rs` declares, and a new project's declares
@@ -49,8 +49,9 @@ commit/reveal envelope, waits for the create trace, and records each
 `block:tx` ID in `labcoat.lock`. A step runs once per network, so deploying
 again does nothing until a step is pending.
 
-Deploy needs `--broadcast` to sign and send, or `--dry-run` to preview;
-`labcoat plan` is the same preview. See
+On Labcoat Network, an edited contract redeploys with a new id and empty
+storage. Other networks refuse until you pass `--replace`, and public networks
+ask before every signature. See
 [Deployment scripts](/docs/deployments/) for references between contracts,
 existing Alkanes, and upgrades.
 

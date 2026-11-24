@@ -470,15 +470,6 @@
             "required": false
           },
           {
-            "description": "Sign and broadcast the pending transactions",
-            "id": "broadcast",
-            "possibleValues": [
-              "true",
-              "false"
-            ],
-            "required": false
-          },
-          {
             "description": "Show what would happen without signing or broadcasting",
             "id": "dry_run",
             "possibleValues": [
@@ -548,7 +539,7 @@
             "required": false
           }
         ],
-        "description": "Execute the pending deployment steps deploy.rs declares, or one of them by name. Requires --broadcast or --dry-run",
+        "description": "Execute the pending deployment steps deploy.rs declares, or one of them by name",
         "name": "deploy",
         "path": "labcoat deploy",
         "subcommands": [],
@@ -1016,7 +1007,7 @@
       "labcoat wallet init",
       "labcoat fund <address> && labcoat mine 1",
       "labcoat plan",
-      "labcoat deploy --broadcast",
+      "labcoat deploy",
       "labcoat abi verify counter",
       "labcoat simulate counter get_count",
       "labcoat call counter increment",
@@ -1229,11 +1220,6 @@
         "code": "DEPLOYMENT_BLOCKED",
         "meaning": "a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting, a step deployed on its own before the steps it references)",
         "recovery": "read the step's detail in `labcoat plan`"
-      },
-      {
-        "code": "BROADCAST_REQUIRED",
-        "meaning": "`labcoat deploy` was run without saying whether to broadcast",
-        "recovery": "pass `--broadcast` to sign and send, or `--dry-run` (or run `labcoat plan`) to preview without signing"
       },
       {
         "code": "TOOLKIT_ERROR",
@@ -1654,7 +1640,7 @@
         "name": "plan"
       },
       {
-        "description": "Execute the pending deployment steps deploy.rs declares, or only the step named in step. broadcast is required: true signs and broadcasts, false returns the plan without signing. Refuses while a step is in conflict. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.",
+        "description": "Execute the pending deployment steps deploy.rs declares, or only the step named in step. dryRun: true returns the plan without signing. On Labcoat Network a changed contract, and whatever references it, redeploys with empty storage; on other networks deploy refuses while a step is in conflict. Public networks refuse to sign unless the server was started with --yes. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.",
         "inputSchema": {
           "properties": {
             "args": {
@@ -1664,8 +1650,8 @@
               },
               "type": "array"
             },
-            "broadcast": {
-              "description": "true signs and broadcasts; false previews without signing",
+            "dryRun": {
+              "description": "preview without signing",
               "type": "boolean"
             },
             "edicts": {
@@ -1715,9 +1701,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "broadcast"
-          ],
+          "required": [],
           "type": "object"
         },
         "name": "deploy"
@@ -1813,11 +1797,11 @@
         "name": "Deploy"
       },
       {
-        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat deploy --broadcast` signs. `labcoat deploy <step> --broadcast` runs one step, once everything it references is deployed. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
+        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat deploy` signs. `labcoat deploy <step>` runs one step, once everything it references is deployed. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
         "name": "Deployment script"
       },
       {
-        "detail": "Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that deploy refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: deploy reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.",
+        "detail": "Contracts, clones, and calls are pinned: they run once per network, and a later edit (code, target, initializer, arguments) or a replaced dependency is a `conflict` that deploy refuses with DEPLOYMENT_CONFLICT until the step is restored or named in `--replace <name>`, which deploys a new instance and keeps the old one in the record's history. On Labcoat Network deploy replaces changed steps, and whatever references them, without being asked: new id, empty storage. An implementation is replaceable: changed code deploys a new instance without a flag. A setting converges: deploy reads the current value and sends the write call only when it differs. `d.height()` is evaluated once, when the step runs.",
         "name": "Step lifecycles"
       },
       {

@@ -43,7 +43,7 @@ labcoat test
       <span class="path-label">Deploy</span>
       <strong>Deployment scripts</strong>
       Declare several contracts and their upgrades in one script; each step runs once.
-      <code>labcoat deploy --broadcast</code>
+      <code>labcoat deploy</code>
     </a>
   </li>
   <li>

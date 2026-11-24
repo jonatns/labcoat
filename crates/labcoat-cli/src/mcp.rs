@@ -68,8 +68,8 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"address": {"type": "string"}}), &["address"]),
         tool("plan", "Run the project's deploy.rs deployment script and reconcile its steps against the network's run file and chain state; shows pending, complete, and conflicting steps without loading a signer.",
             json!({"replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again"}}), &[]),
-        tool("deploy", "Execute the pending deployment steps deploy.rs declares, or only the step named in step. broadcast is required: true signs and broadcasts, false returns the plan without signing. Refuses while a step is in conflict. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.",
-            json!({"broadcast": {"type": "boolean", "description": "true signs and broadcasts; false previews without signing"}, "step": {"type": "string", "description": "step name from deploy.rs; every pending step when omitted"}, "replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again; runs the whole deployment, so it takes no step"}, "wasm": {"type": "string", "description": "path to a raw .wasm to deploy outside deploy.rs instead of a step"}, "name": {"type": "string", "description": "wasm only: contract name (default: file stem)"}, "args": {"type": "array", "items": {"type": "string"}, "description": "wasm only: constructor args, one per ABI constructor parameter (decimal u128 or 0x-hex cellpack values when the artifact exposes no ABI constructor)"}, "reserve": {"type": "string", "description": "wasm only: reserved number N for a [3,N] deploy target (default: next free id via [1,0])"}, "inputs": {"type": "string", "description": "wasm only: comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "wasm only: recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "wasm only: protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "wasm only: protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "wasm only: edicts block:tx:amount:target appended to the protostone"}}), &["broadcast"]),
+        tool("deploy", "Execute the pending deployment steps deploy.rs declares, or only the step named in step. dryRun: true returns the plan without signing. On Labcoat Network a changed contract, and whatever references it, redeploys with empty storage; on other networks deploy refuses while a step is in conflict. Public networks refuse to sign unless the server was started with --yes. With wasm, deploys that raw Wasm artifact outside deploy.rs instead, recorded in labcoat.lock only.",
+            json!({"dryRun": {"type": "boolean", "description": "preview without signing"}, "step": {"type": "string", "description": "step name from deploy.rs; every pending step when omitted"}, "replace": {"type": "array", "items": {"type": "string"}, "description": "steps that already ran to run again: a contract deploys a new instance, a call executes again; runs the whole deployment, so it takes no step"}, "wasm": {"type": "string", "description": "path to a raw .wasm to deploy outside deploy.rs instead of a step"}, "name": {"type": "string", "description": "wasm only: contract name (default: file stem)"}, "args": {"type": "array", "items": {"type": "string"}, "description": "wasm only: constructor args, one per ABI constructor parameter (decimal u128 or 0x-hex cellpack values when the artifact exposes no ABI constructor)"}, "reserve": {"type": "string", "description": "wasm only: reserved number N for a [3,N] deploy target (default: next free id via [1,0])"}, "inputs": {"type": "string", "description": "wasm only: comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "wasm only: recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "wasm only: protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "wasm only: protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "wasm only: edicts block:tx:amount:target appended to the protostone"}}), &[]),
         tool("import", "Record a contract that already exists on chain as a deploy.rs contract step, after comparing its ABI with the local build. Broadcasts nothing.",
             json!({"name": {"type": "string", "description": "contract step name from deploy.rs"}, "id": {"type": "string", "description": "the deployed contract's block:tx id"}, "txid": {"type": "string", "description": "deployment or reveal transaction id for recovering other created IDs, including auth tokens"}}), &["name", "id"]),
         tool("state_list", "List resources and active instances in this environment's durable deployment state.",
@@ -501,12 +501,10 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map_err(fail)
         }
         "deploy" => {
-            let Some(broadcast) = args.get("broadcast").and_then(|v| v.as_bool()) else {
-                return Err((
-                    "[BROADCAST_REQUIRED] deploy signs and broadcasts transactions, so broadcast must be given".into(),
-                    "pass broadcast: true to execute, or broadcast: false to preview without signing".into(),
-                ));
-            };
+            let dry_run = args
+                .get("dryRun")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let string = |key: &str| args.get(key).and_then(|v| v.as_str()).map(String::from);
             let request = contract::DeployFlags {
                 step: string("step"),
@@ -519,7 +517,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             }
             .request()
             .map_err(fail)?;
-            let (_, res) = contract::deploy(ctx, request, broadcast).await;
+            let (_, res) = contract::deploy(ctx, request, dry_run).await;
             res.map_err(fail)
         }
         "import" => {
@@ -668,10 +666,7 @@ mod tests {
             json!(["contract"])
         );
         assert!(named("abi_verify")["inputSchema"]["properties"]["package"].is_object());
-        assert_eq!(
-            named("deploy")["inputSchema"]["required"],
-            json!(["broadcast"])
-        );
+        assert_eq!(named("deploy")["inputSchema"]["required"], json!([]));
         assert!(named("deploy")["inputSchema"]["properties"]["step"].is_object());
         assert!(named("deploy")["inputSchema"]["properties"]["replace"].is_object());
         assert!(named("deploy")["inputSchema"]["properties"]["wasm"].is_object());

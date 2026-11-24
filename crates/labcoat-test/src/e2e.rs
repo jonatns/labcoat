@@ -575,7 +575,6 @@ impl E2e {
             wasm,
             "--name".into(),
             name,
-            "--broadcast".into(),
         ];
         if let Some(reserve) = deploy.reserve {
             args.extend(["--reserve".into(), reserve.to_string()]);

@@ -12,9 +12,9 @@ Add another minimal contract and matching test with
 2. Run `labcoat up --json` and wait for `result.status.is_ready`.
 3. Initialize the keystore with `labcoat wallet init --json`.
 4. Preview the deployment with `labcoat plan --json`; it signs nothing.
-5. Deploy what `deploy.rs` declares with `labcoat deploy --broadcast --json`;
+5. Deploy what `deploy.rs` declares with `labcoat deploy --json`;
    Labcoat recompiles each package first and skips steps that already ran.
-   `labcoat deploy counter --broadcast --json` runs that one step.
+   `labcoat deploy counter --json` runs that one step.
 6. Use ABI method names such as `simulate counter get_count` and
    `call counter increment`, then `trace --wait`, for the contract loop.
 
@@ -27,10 +27,11 @@ undeployed local build. Declare every contract the project deploys in
 `.reserve(n)` and `.arg(name, value)` named after ABI parameters;
 `d.external(name).on(network, block, tx)` names an existing Alkane;
 reference another step with `step.id()`) and run `labcoat plan` /
-`labcoat deploy --broadcast`. Deploy needs `--broadcast` to sign and send or
-`--dry-run` to preview. A step runs once per network: editing it afterwards
-is a conflict that deploy refuses until you restore it or pass
-`--replace <name>`. For upgradeable contracts use `d.implementation`,
+`labcoat deploy`. Add `--dry-run` to preview. A step runs once
+per network. On Labcoat Network an edited contract redeploys with a new id
+and empty storage; on other networks editing it is a conflict that deploy
+refuses until you restore it or pass `--replace <name>`. Public networks need
+approval for each signature, or `--yes`: never pass it unless asked. For upgradeable contracts use `d.implementation`,
 `d.beacon`, `d.beacon_proxy`, and `labcoat new <name> --template`, and call
 through a proxy with `--abi <implementation>`. The script is deployment
 only — done when the contracts are deployed and inert; value-moving,

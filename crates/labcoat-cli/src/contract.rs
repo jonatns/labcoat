@@ -892,38 +892,13 @@ impl DeployFlags {
     }
 }
 
-/// Deploy signs and spends, so it never guesses: the caller says whether
-/// to broadcast or to preview. Returns true for broadcast.
-pub fn deploy_mode(broadcast: bool, dry_run: bool) -> Result<bool, EnvelopeError> {
-    match (broadcast, dry_run) {
-        (true, false) => Ok(true),
-        (false, true) => Ok(false),
-        (true, true) => Err(EnvelopeError {
-            code: "CONFIG_INVALID",
-            message: "--broadcast and --dry-run cannot be combined".into(),
-            hint: "pass --broadcast to sign and send, or --dry-run to preview",
-        }),
-        (false, false) => Err(EnvelopeError {
-            code: "BROADCAST_REQUIRED",
-            message: "deploy signs and broadcasts transactions, so it needs an explicit --broadcast"
-                .into(),
-            hint: "pass --broadcast to execute, or --dry-run (or `labcoat plan`) to preview without signing",
-        }),
-    }
-}
-
-/// `labcoat deploy` — under `broadcast`, execute deploy.rs's pending steps
-/// (or the named one) or deploy the given artifact; otherwise show what
-/// would happen without loading a signer.
-pub async fn deploy(
-    ctx: &Ctx,
-    request: DeployRequest,
-    broadcast: bool,
-) -> (&'static str, CmdResult) {
+/// `labcoat deploy` — execute deploy.rs's pending steps (or the named one)
+/// or deploy the given artifact; with `dry_run`, show what would happen
+/// without loading a signer. Signing itself asks for approval on public
+/// networks.
+pub async fn deploy(ctx: &Ctx, request: DeployRequest, dry_run: bool) -> (&'static str, CmdResult) {
     let res = match request {
-        DeployRequest::Steps { only, replace } => {
-            deploy_steps(ctx, only, &replace, broadcast).await
-        }
+        DeployRequest::Steps { only, replace } => deploy_steps(ctx, only, &replace, dry_run).await,
         DeployRequest::Wasm {
             path,
             name,
@@ -931,34 +906,34 @@ pub async fn deploy(
             reserve,
             tx,
         } => {
-            if broadcast {
-                deploy_wasm(ctx, &path, name, &args, reserve, &tx).await
-            } else {
+            if dry_run {
                 deploy_wasm_dry_run(ctx, &path, name, &args, reserve, &tx)
+            } else {
+                deploy_wasm(ctx, &path, name, &args, reserve, &tx).await
             }
         }
     };
     ("deploy", to_envelope(res))
 }
 
-/// Deploy.rs steps: the plan without `broadcast`, the executed report with it.
+/// Deploy.rs steps: the plan under `dry_run`, otherwise the executed report.
 async fn deploy_steps(
     ctx: &Ctx,
     only: Option<String>,
     replace: &[String],
-    broadcast: bool,
+    dry_run: bool,
 ) -> Result<serde_json::Value, labcoat_core::LabcoatError> {
     let root = project_root()?;
     let graph = crate::deploy_script::load_graph(&root, ctx.config.network_id())?;
     let options = deployment_options(only, replace);
-    if !broadcast {
+    if dry_run {
         let outcome = labcoat_core::apply::plan(&ctx.config, &root, &graph, &options).await?;
         let mut value = serde_json::to_value(outcome.plan).expect("serializable plan");
         if let serde_json::Value::Object(object) = &mut value {
             object.insert("dryRun".into(), serde_json::json!(true));
             object.insert(
                 "wouldBroadcast".into(),
-                serde_json::json!("re-run with --broadcast to execute the pending steps"),
+                serde_json::json!("re-run without --dry-run to execute the pending steps"),
             );
         }
         return Ok(value);
@@ -1466,6 +1441,7 @@ fn deployment_options(only: Option<String>, replace: &[String]) -> labcoat_core:
     labcoat_core::apply::Options {
         replace: replace.iter().cloned().collect(),
         only,
+        ..Default::default()
     }
 }
 
@@ -1740,17 +1716,6 @@ mod deployment_tests {
 
         let named = raw_deployment_artifact("/tmp/counter.wasm", Some("custom".into())).unwrap();
         assert_eq!(named.contract_name, "custom");
-    }
-
-    #[test]
-    fn deploy_needs_an_explicit_broadcast_or_dry_run() {
-        assert!(deploy_mode(true, false).unwrap());
-        assert!(!deploy_mode(false, true).unwrap());
-        assert_eq!(
-            deploy_mode(false, false).unwrap_err().code,
-            "BROADCAST_REQUIRED"
-        );
-        assert_eq!(deploy_mode(true, true).unwrap_err().code, "CONFIG_INVALID");
     }
 
     #[test]

@@ -6,7 +6,8 @@
 //! immutable, so a pinned step runs once and is then compared with its
 //! record. An edited step is a `conflict` deploy refuses, never a diff it
 //! repairs; `--replace <name>` deploys a new instance and keeps the old
-//! record. Only two things change without that flag: a replaceable
+//! record. On Labcoat Network, where nothing is permanent, changed steps
+//! are replaced without it. Elsewhere only two things change unnamed: a replaceable
 //! implementation (new code deploys a new instance) and a setting (a
 //! mutable value written when a read shows it differs).
 
@@ -37,6 +38,10 @@ pub struct Options {
     /// references must already be deployed, and it cannot be combined
     /// with `replace`, which is checked against the whole deployment.
     pub only: Option<String>,
+    /// Replace changed steps, and whatever references them, without naming
+    /// them. [`plan`] turns this on for Labcoat Network, whose chain is
+    /// local and disposable; everywhere else an edit is a conflict.
+    pub replace_changed: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +50,7 @@ pub struct Options {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionStatus {
-    /// Runs on the next `deploy --broadcast`.
+    /// Runs on the next `deploy`.
     Pending,
     /// Already ran with this definition; deploy skips it.
     Complete,
@@ -507,7 +512,7 @@ fn interrupted_detail(name: &str, record: &StepRecord) -> String {
         } else {
             " If it was dropped, pass `--replace` for this step only after verifying that."
         };
-        return format!("transaction {txid} is awaiting an execution trace — run `labcoat deploy --broadcast` again after it is indexed.{replacement}");
+        return format!("transaction {txid} is awaiting an execution trace — run `labcoat deploy` again after it is indexed.{replacement}");
     }
     if let Some(commit) = &record.commit_txid {
         return format!(
@@ -612,11 +617,85 @@ fn reconcile(
                 format!(
                     "--replace is checked against the whole deployment and cannot be combined with the step name `{only}`"
                 ),
-                "drop the step name: `labcoat deploy --replace <step> --broadcast` runs every pending step",
+                "drop the step name: `labcoat deploy --replace <step>` runs every pending step",
             ));
         }
     }
 
+    let mut replace = options.replace.clone();
+    let mut automatic = BTreeSet::new();
+    let Reconciled {
+        mut actions,
+        resolved,
+    } = loop {
+        let reconciled = reconcile_steps(graph, network, artifacts, facts, run, &replace)?;
+        if !options.replace_changed {
+            break reconciled;
+        }
+        // Replacing a step puts the steps that reference it in conflict, so
+        // repeat until nothing new conflicts. An attempt whose outcome is
+        // unknown is never replaced automatically.
+        let changed: Vec<String> = graph
+            .steps
+            .iter()
+            .zip(&reconciled.actions)
+            .filter(|(step, action)| {
+                matches!(step, Step::Contract(_) | Step::Call(_))
+                    && action.status == ActionStatus::Conflict
+                    && !replace.contains(step.name())
+                    && !run.steps.get(step.name()).is_some_and(needs_confirmation)
+            })
+            .map(|(step, _)| step.name().to_string())
+            .collect();
+        if changed.is_empty() {
+            break reconciled;
+        }
+        replace.extend(changed.iter().cloned());
+        automatic.extend(changed);
+    };
+    for action in &mut actions {
+        if !automatic.contains(&action.name) {
+            continue;
+        }
+        match (action.status, action.action) {
+            (ActionStatus::Pending, "replace") => {
+                let previous = run
+                    .steps
+                    .get(&action.name)
+                    .and_then(|record| record.id.as_deref())
+                    .unwrap_or("the earlier instance");
+                action.detail = Some(format!(
+                    "changed, or references a contract that is being replaced — redeploys with empty storage; {previous} stays in the record's history"
+                ));
+            }
+            (ActionStatus::Pending, "rerun") => {
+                action.detail = Some(
+                    "changed, or references a contract that is being replaced — runs again".into(),
+                );
+            }
+            (ActionStatus::Blocked, _) => {
+                if let Some(detail) = &mut action.detail {
+                    detail.push_str(", or run `labcoat reset` for a fresh chain");
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(only) = &options.only {
+        block_on_unmet_references(graph, &mut actions, only);
+    }
+    Ok(Reconciled { actions, resolved })
+}
+
+/// One pass over the graph with exactly the steps in `replace` replaced.
+fn reconcile_steps(
+    graph: &Graph,
+    network: &str,
+    artifacts: &BTreeMap<String, Artifact>,
+    facts: &Facts,
+    run: &RunFile,
+    replacing: &BTreeSet<String>,
+) -> Result<Reconciled> {
     let lifecycles = lifecycles(graph);
     let height = facts.height;
     let mut resolved = Resolved::default();
@@ -624,7 +703,7 @@ fn reconcile(
 
     for step in &graph.steps {
         let name = step.name();
-        let replace = options.replace.contains(name);
+        let replace = replacing.contains(name);
         let mut action = PlannedAction {
             kind: step.kind(),
             name: name.to_string(),
@@ -886,10 +965,6 @@ fn reconcile(
             }
         }
         actions.push(action);
-    }
-
-    if let Some(only) = &options.only {
-        block_on_unmet_references(graph, &mut actions, only);
     }
 
     Ok(Reconciled { actions, resolved })
@@ -1197,6 +1272,12 @@ pub async fn plan(
     graph: &Graph,
     options: &Options,
 ) -> Result<PlanOutcome> {
+    let options = &Options {
+        // Custom regtest may be shared, so only the managed network counts
+        // as disposable.
+        replace_changed: config.network == crate::NetworkTarget::Labcoat,
+        ..options.clone()
+    };
     let network = config.network_id().to_string();
     let artifacts = resolve_artifacts(root, graph)?;
     let loaded = runfile::load(root, &network)?;
@@ -1269,7 +1350,7 @@ pub async fn plan(
 pub struct AppliedAction {
     pub kind: &'static str,
     pub name: String,
-    /// executed | adopted | in-sync | skipped-complete
+    /// executed | redeployed | adopted | in-sync | skipped-complete
     pub outcome: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -1409,7 +1490,7 @@ fn finish_attempt(
         return Err(LabcoatError::new(
             "DEPLOYMENT_BLOCKED",
             format!("waiting for an execution trace for {}", outcome.txid),
-            "run `labcoat deploy --broadcast` again after the transaction is indexed",
+            "run `labcoat deploy` again after the transaction is indexed",
         ));
     }
     if status == RecordStatus::Revert {
@@ -1443,7 +1524,7 @@ async fn contract_abi(
 
 /// Execute the plan's pending steps in declaration order, or only the
 /// step `options.only` names. Requires broadcast intent — the CLI only
-/// calls this under `--broadcast`.
+/// calls this without `--dry-run`.
 pub async fn apply(
     config: &ToolkitConfig,
     signer: &crate::signer::SignerSpec,
@@ -1496,7 +1577,7 @@ pub async fn apply(
                 conflicts.join(" | ")
             ),
             if options.only.is_some() {
-                "a step that ran is never changed in place — restore it in deploy.rs, or drop the step name and run `labcoat deploy --replace <step> --broadcast`; on Labcoat Network, `labcoat reset` starts a fresh chain"
+                "a step that ran is never changed in place — restore it in deploy.rs, or drop the step name and run `labcoat deploy --replace <step>`; on Labcoat Network, `labcoat reset` starts a fresh chain"
             } else {
                 "a step that ran is never changed in place — restore it in deploy.rs, or name it in `--replace` to run it again; on Labcoat Network, `labcoat reset` starts a fresh chain"
             },
@@ -1515,7 +1596,7 @@ pub async fn apply(
                     action.name,
                     action.detail.as_deref().unwrap_or("unknown reason")
                 ),
-                "resolve the reported state and run `labcoat deploy --broadcast` again",
+                "resolve the reported state and run `labcoat deploy` again",
             ));
         }
     }
@@ -1579,6 +1660,7 @@ pub async fn apply(
                 let wasm_sha256 = artifact.map(|artifact| artifact.wasm_sha256.clone());
                 let definition = definition_hash(step, wasm_sha256.as_deref());
                 let previous = run.steps.get(name).cloned();
+                let replaced_id = previous.as_ref().and_then(|record| record.id.clone());
                 let mut record = StepRecord::new("contract", RecordStatus::Started, definition)
                     .replacing(previous.as_ref());
                 record.wasm_sha256 = wasm_sha256.clone();
@@ -1711,14 +1793,23 @@ pub async fn apply(
                     .as_deref()
                     .expect("confirmed contract has an id");
                 resolved.insert(name, id, &recorded.created).map_err(fail)?;
+                // Replaced code behind a proxy keeps its storage; a replaced
+                // pinned contract does not.
+                let redeployed =
+                    action.action == "replace" && contract.lifecycle == Lifecycle::Pinned;
                 report.actions.push(AppliedAction {
                     kind: "contract",
                     name: name.to_string(),
-                    outcome: "executed".into(),
+                    outcome: if redeployed { "redeployed" } else { "executed" }.into(),
                     id: Some(id.to_string()),
                     txid: Some(outcome.txid.clone()),
                     fee: Some(outcome.fee),
-                    detail: action.detail.clone(),
+                    detail: match &replaced_id {
+                        Some(previous) if action.action == "replace" => {
+                            Some(format!("{previous} → {id}"))
+                        }
+                        _ => action.detail.clone(),
+                    },
                 });
             }
 
@@ -2980,6 +3071,7 @@ mod tests {
         let replaced = refused(Options {
             replace: ["market".to_string()].into(),
             only: Some("market".to_string()),
+            ..Options::default()
         });
         assert_eq!(replaced.code, "CONFIG_INVALID");
         assert!(replaced.message.contains("--replace"));
@@ -2989,6 +3081,47 @@ mod tests {
         assert_eq!(
             statuses(&graph, &artifacts, &run, &only("market"))[1],
             ("market".to_string(), ActionStatus::Pending, "create")
+        );
+    }
+
+    #[test]
+    fn replace_changed_redeploys_edits_and_whatever_references_them() {
+        let graph = token_and_market();
+        let built = artifacts(&[("token", "aa"), ("market", "bb")]);
+        let edited = artifacts(&[("token", "cc"), ("market", "bb")]);
+        let mut run = RunFile::empty("labcoat", Some("chain".into()));
+        settle(&graph, &built, &mut run, &Options::default(), &mut 4);
+        let local = Options {
+            replace_changed: true,
+            ..Options::default()
+        };
+
+        assert!(statuses(&graph, &built, &run, &local)
+            .iter()
+            .all(|(_, status, _)| *status == ActionStatus::Complete));
+        assert!(statuses(&graph, &edited, &run, &local)
+            .iter()
+            .all(|(_, status, action)| *status == ActionStatus::Pending && *action == "replace"));
+
+        // One step at a time: the dependent waits for what it references.
+        let named = |name: &str| Options {
+            replace_changed: true,
+            ..only(name)
+        };
+        assert_eq!(
+            statuses(&graph, &edited, &run, &named("token"))[0].2,
+            "replace"
+        );
+        assert_eq!(
+            statuses(&graph, &edited, &run, &named("market"))[1].1,
+            ActionStatus::Blocked
+        );
+
+        // An attempt that may still land is left alone.
+        run.steps.get_mut("token").unwrap().status = RecordStatus::Started;
+        assert_eq!(
+            statuses(&graph, &edited, &run, &local)[0].1,
+            ActionStatus::Interrupted
         );
     }
 

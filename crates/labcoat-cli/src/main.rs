@@ -190,13 +190,10 @@ enum Commands {
         replace: Vec<String>,
     },
     /// Execute the pending deployment steps deploy.rs declares, or one of
-    /// them by name. Requires --broadcast or --dry-run
+    /// them by name
     Deploy {
         /// Step name from deploy.rs (every pending step when omitted)
         step: Option<String>,
-        /// Sign and broadcast the pending transactions
-        #[arg(long)]
-        broadcast: bool,
         /// Show what would happen without signing or broadcasting
         #[arg(long)]
         dry_run: bool,
@@ -542,7 +539,6 @@ async fn run(cli: Cli) -> i32 {
         }
         Commands::Deploy {
             step,
-            broadcast,
             dry_run,
             replace,
             wasm,
@@ -551,33 +547,30 @@ async fn run(cli: Cli) -> i32 {
             reserve,
             tx,
         } => {
-            let request = contract::deploy_mode(broadcast, dry_run).and_then(|broadcast| {
-                let flags = contract::DeployFlags {
-                    step,
-                    replace,
-                    wasm,
-                    name,
-                    args,
-                    reserve,
-                    tx,
-                };
-                Ok((flags.request()?, broadcast))
-            });
-            let (request, broadcast) = match request {
+            let flags = contract::DeployFlags {
+                step,
+                replace,
+                wasm,
+                name,
+                args,
+                reserve,
+                tx,
+            };
+            let request = match flags.request() {
                 Ok(request) => request,
                 Err(error) => {
                     return output::finish_contract(json, "deploy", Err(error), output_options)
                 }
             };
             let progress = output::Progress::new(
-                if broadcast {
-                    "Deploying…"
-                } else {
+                if dry_run {
                     "Planning the deployment…"
+                } else {
+                    "Deploying…"
                 },
                 !json,
             );
-            let (cmd_name, res) = contract::deploy(&ctx, request, broadcast).await;
+            let (cmd_name, res) = contract::deploy(&ctx, request, dry_run).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
@@ -1081,7 +1074,6 @@ mod envelope_tests {
                 "/tmp/counter.wasm",
             ],
             vec!["labcoat", "deploy", "counter", "--name", "custom"],
-            vec!["labcoat", "deploy", "--broadcast", "--dry-run"],
         ] {
             assert!(Cli::try_parse_from(args).is_ok());
         }
@@ -1111,13 +1103,11 @@ mod envelope_tests {
             "token",
             "--replace",
             "market",
-            "--broadcast",
         ])
         .unwrap();
         let Commands::Deploy {
             step,
             replace,
-            broadcast,
             dry_run,
             ..
         } = cli.command
@@ -1126,13 +1116,13 @@ mod envelope_tests {
         };
         assert_eq!(step, None);
         assert_eq!(replace, ["token", "market"]);
-        assert!(broadcast && !dry_run);
+        assert!(!dry_run);
 
         // A bare name is a deploy.rs step, not a Cargo package.
         let cli = Cli::try_parse_from(["labcoat", "deploy", "counter", "--dry-run"]).unwrap();
         assert!(matches!(
             cli.command,
-            Commands::Deploy { step: Some(step), dry_run: true, broadcast: false, .. } if step == "counter"
+            Commands::Deploy { step: Some(step), dry_run: true, .. } if step == "counter"
         ));
 
         let cli = Cli::try_parse_from(["labcoat", "plan", "--replace", "token"]).unwrap();
@@ -1203,7 +1193,6 @@ mod envelope_tests {
             "1,100",
             "--to",
             "bcrt1qexample",
-            "--broadcast",
         ])
         .unwrap();
         let Commands::Deploy {

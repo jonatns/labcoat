@@ -149,7 +149,7 @@ logic. It shows `pending (check)` because there is nothing to compare yet.
 ## Deploy it
 
 ```bash
-labcoat deploy --broadcast
+labcoat deploy
 ```
 
 ```text
@@ -238,7 +238,7 @@ plan deploys a new instance and repoints the beacon. The beacon and the proxy
 are untouched.
 
 ```bash
-labcoat deploy --broadcast
+labcoat deploy
 ```
 
 ```text
@@ -246,7 +246,7 @@ labcoat deploy --broadcast
 
 Kind      Name                           Outcome           Id       Change
 contract  auth_token                     skipped-complete  4:65517
-contract  counter_logic                  executed          2:5
+contract  counter_logic                  executed          2:5      2:1 → 2:5
 contract  counter_beacon                 skipped-complete  2:2
 setting   counter_beacon_implementation  executed          2:2      2:1 → 2:5
 contract  counter                        skipped-complete  2:4
@@ -271,8 +271,8 @@ at it any more.
 
 ## See what Labcoat will not change
 
-The beacon is deployed once. Try to edit it: in `deploy.rs`, mint two auth
-tokens instead of one.
+The beacon is deployed once. Edit it in `deploy.rs` to mint two auth tokens
+instead of one:
 
 ```rust
         let beacon = d.beacon("counter_beacon", "beacon", &logic).auth_units(2);
@@ -282,36 +282,15 @@ tokens instead of one.
 labcoat plan
 ```
 
-```text
-! Plan for deploy.rs — 0 pending, 1 in conflict
-
-Kind      Name                           Status    Id/Target
-contract  auth_token                     complete  4:65517
-contract  counter_logic                  complete  2:5
-contract  counter_beacon                 conflict  2:2
-setting   counter_beacon_implementation  complete  2:2
-contract  counter                        complete  2:4
-call      init_counter                   complete  2:4
-
-Step            Arguments
-counter_beacon  implementation=2:5, auth_token_units=2
-
-counter_beacon: its definition changed since it ran — restore it, or pass
-`--replace counter_beacon` to deploy a new instance
-
-Deploy refuses while a step is in conflict: restore the step, or name it in
---replace.
-```
-
 A beacon that already initialized cannot mint a different number of tokens, so
-there is nothing Labcoat could do to make the chain match. It says so instead
-of pretending, and `labcoat deploy --broadcast` stops with
-`DEPLOYMENT_CONFLICT` before sending anything.
+the only way to get there is a second beacon. On Labcoat Network the plan
+offers exactly that: `counter_beacon` and `counter`, the proxy that points at
+it, are both `pending (replace)`, and `init_counter` runs again. The new proxy
+would have a new id and a count of `0`.
 
-`--replace counter_beacon` would deploy a second beacon with a new id. The
-proxy points at the first one, so the plan would then list `counter` as a
-conflict too. That is the real cost of replacing a pinned contract, shown
-before you pay it. Here, undo the edit instead:
+On any other network Labcoat reports `counter_beacon` as a `conflict` instead,
+and `labcoat deploy` stops with `DEPLOYMENT_CONFLICT` before sending anything,
+until you name each step in `--replace`. Here, undo the edit:
 
 ```rust
         let beacon = d.beacon("counter_beacon", "beacon", &logic);

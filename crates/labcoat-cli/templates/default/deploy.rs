@@ -1,5 +1,5 @@
 //! This project's deployment, reviewed with `labcoat plan` and executed
-//! with `labcoat deploy --broadcast`.
+//! with `labcoat deploy`.
 //!
 //! The script declares steps; it never executes them. Labcoat runs it to
 //! read the steps, shows the plan, and only then signs anything, so the
@@ -7,7 +7,8 @@
 //! usage (like incrementing this counter) belongs in tests/e2e.rs or your
 //! application.
 //!
-//! A step runs once per network. Editing a contract or call after it ran
+//! A step runs once per network. On Labcoat Network an edited step runs
+//! again (a contract gets a new id and empty storage); on other networks it
 //! is a conflict that deploy refuses until you pass `--replace <name>`.
 //!
 //!   d.contract(name, package)        deploy a contract package once

@@ -45,12 +45,12 @@ labcoat wallet utxos
 
 ```bash
 labcoat plan
-labcoat deploy --broadcast
+labcoat deploy
 ```
 
 The project's `deploy.rs` declares one step: its Counter contract.
 `labcoat plan` shows that step as pending and signs nothing.
-`labcoat deploy --broadcast` recompiles the Cargo package, creates the
+`labcoat deploy` recompiles the Cargo package, creates the
 commit/reveal envelope, and records the resulting Alkanes ID in
 `labcoat.lock`. The step runs once, so deploying again does nothing.
 

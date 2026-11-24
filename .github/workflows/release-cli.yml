@@ -341,7 +341,7 @@ jobs:
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" fund "$address" 1 --json
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" mine 1 --json
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" test --json
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" deploy --broadcast --json
+          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" deploy --json
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" simulate counter get_count --json
           call=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" call counter increment --json)
           txid=$(jq -r '.result.txid // .result.revealTxid' <<<"$call")

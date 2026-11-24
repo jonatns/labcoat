@@ -130,10 +130,6 @@ jobs:
           grep -q '"dryRun": true' "$RUNNER_TEMP/labcoat-deploy.json"
           grep -q '"name": "counter"' "$RUNNER_TEMP/labcoat-deploy.json"
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
-            deploy counter --json \
-            | tee "$RUNNER_TEMP/labcoat-deploy-unconfirmed.json"
-          grep -q '"code": "BROADCAST_REQUIRED"' "$RUNNER_TEMP/labcoat-deploy-unconfirmed.json"
-          "$GITHUB_WORKSPACE/target/debug/labcoat" \
             build stateful --json \
             | tee "$RUNNER_TEMP/labcoat-build.json"
           grep -q '"ok": true' "$RUNNER_TEMP/labcoat-build.json"

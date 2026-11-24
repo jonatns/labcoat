@@ -65,7 +65,7 @@ labcoat fund <address>
 labcoat mine 1
 
 labcoat plan
-labcoat deploy --broadcast
+labcoat deploy
 labcoat simulate counter get_count
 labcoat call counter increment
 labcoat trace <txid> --wait
