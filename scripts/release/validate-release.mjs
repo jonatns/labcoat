@@ -39,7 +39,7 @@ function validateCargo() {
     }
   }
 
-  const template = read('crates/labcoat-cli/templates/default/Cargo.toml');
+  const template = read('crates/labcoat-cli/templates/default/Cargo.toml.tmpl');
   if (!template.includes('labcoat-test = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }')) {
     fail('project template must pin labcoat-test to the matching Labcoat release tag');
   }

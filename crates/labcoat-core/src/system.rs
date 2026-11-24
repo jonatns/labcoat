@@ -161,6 +161,13 @@ pub async fn connect(
     passphrase: Option<String>,
     wallet_needed: bool,
 ) -> Result<ConcreteProvider> {
+    if wallet_needed {
+        // Upstream's `initialize()` silently skips a missing keystore, and the
+        // first wallet call then fails with "wallet is in address-only or
+        // external key mode", which reads as a configuration problem.
+        require_keystore(&config.wallet_file)?;
+    }
+
     let network = config.bitcoin_network_id();
 
     // Network params + process-global network (address derivation/signing).
@@ -229,6 +236,28 @@ pub async fn connect(
     }
 
     Ok(provider)
+}
+
+/// Only a definite "not found" is `WALLET_MISSING`. `Path::exists` folds
+/// every I/O error into `false`, which would tell a user whose keystore is
+/// merely unreadable that it does not exist.
+fn require_keystore(path: &std::path::Path) -> Result<()> {
+    match path.try_exists() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(LabcoatError::new(
+            "WALLET_MISSING",
+            format!("no wallet keystore exists at {}", path.display()),
+            "run `labcoat wallet init` first",
+        )),
+        Err(error) => Err(LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!(
+                "cannot access wallet keystore at {}: {error}",
+                path.display()
+            ),
+            "check the --wallet-file path and the permissions on its directories",
+        )),
+    }
 }
 
 /// The KDF strength labcoat-created keystores use; files claiming less are
@@ -363,6 +392,58 @@ mod tests {
         assert_eq!(
             determine_rpc_call_type(&provider.rpc_config, &tip_height),
             RpcCallType::JsonRpc
+        );
+    }
+
+    #[tokio::test]
+    async fn wallet_commands_name_the_missing_keystore_path() {
+        let dir = std::env::temp_dir().join(format!("labcoat-no-wallet-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let config = ToolkitConfig {
+            wallet_file: dir.join(".labcoat/wallet.json"),
+            ..ToolkitConfig::default()
+        };
+        let error = connect(&config, None, true).await.err().unwrap();
+        assert_eq!(error.code, "WALLET_MISSING");
+        assert_eq!(
+            error.message,
+            format!(
+                "no wallet keystore exists at {}",
+                config.wallet_file.display()
+            )
+        );
+        assert!(!error.message.contains("address-only"));
+        assert_eq!(error.hint, "run `labcoat wallet init` first");
+        // Failing early must not leave a stray `.labcoat/` behind.
+        assert!(!dir.exists());
+
+        // Read-only commands still connect without a keystore.
+        assert!(connect(&config, None, false).await.is_ok());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_inaccessible_keystore_path_is_not_reported_as_missing() {
+        // A regular file where a parent directory should be: the lookup
+        // fails with ENOTDIR, which is not "the keystore does not exist".
+        let blocker =
+            std::env::temp_dir().join(format!("labcoat-keystore-blocker-{}", std::process::id()));
+        std::fs::write(&blocker, "not a directory").unwrap();
+        let path = blocker.join("wallet.json");
+        let error = require_keystore(&path).unwrap_err();
+        assert_eq!(error.code, "TOOLKIT_ERROR");
+        assert!(error.message.starts_with(&format!(
+            "cannot access wallet keystore at {}",
+            path.display()
+        )));
+        std::fs::remove_file(&blocker).ok();
+
+        let missing = std::env::temp_dir()
+            .join(format!("labcoat-keystore-absent-{}", std::process::id()))
+            .join("wallet.json");
+        assert_eq!(
+            require_keystore(&missing).unwrap_err().code,
+            "WALLET_MISSING"
         );
     }
 

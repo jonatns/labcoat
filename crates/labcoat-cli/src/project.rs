@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 const FILES: &[(&str, &str)] = &[
     (
         "Cargo.toml",
-        include_str!("../templates/default/Cargo.toml"),
+        include_str!("../templates/default/Cargo.toml.tmpl"),
     ),
     (
         "src/lib.rs",
@@ -13,7 +13,7 @@ const FILES: &[(&str, &str)] = &[
     ),
     (
         "contracts/counter/Cargo.toml",
-        include_str!("../templates/default/contracts/counter/Cargo.toml"),
+        include_str!("../templates/default/contracts/counter/Cargo.toml.tmpl"),
     ),
     (
         "contracts/counter/src/lib.rs",
@@ -45,7 +45,7 @@ const FILES: &[(&str, &str)] = &[
 pub(crate) const TOOLCHAIN_TEMPLATE: &str =
     include_str!("../templates/default/rust-toolchain.toml");
 
-const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml");
+const CONTRACT_MANIFEST: &str = include_str!("../templates/contract/Cargo.toml.tmpl");
 const CONTRACT_SOURCE: &str = include_str!("../templates/contract/src/lib.rs");
 const CONTRACT_TEST: &str = include_str!("../templates/contract/test.rs");
 
@@ -279,6 +279,53 @@ mod tests {
         std::fs::remove_dir_all(parent).ok();
     }
 
+    /// Projects depend on `labcoat-test` from this git repository, and cargo
+    /// parses every `Cargo.toml` in a git dependency's checkout. A template
+    /// manifest with `name = "{{PROJECT_NAME}}"` makes cargo print an
+    /// `invalid character` error in every downstream project, so templates
+    /// must never be stored under the name `Cargo.toml`.
+    #[test]
+    fn templates_contain_no_cargo_manifests() {
+        fn visit(dir: &Path, found: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    visit(&path, found);
+                } else if path.file_name().is_some_and(|name| name == "Cargo.toml") {
+                    found.push(path);
+                }
+            }
+        }
+        let templates = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let mut found = Vec::new();
+        visit(&templates, &mut found);
+        assert!(found.is_empty(), "rename to Cargo.toml.tmpl: {found:?}");
+    }
+
+    #[test]
+    fn rendered_manifests_have_no_placeholders() {
+        let parent = test_parent("init-manifests");
+        std::fs::remove_dir_all(&parent).ok();
+        std::fs::create_dir_all(&parent).unwrap();
+        init_in(&parent, "manifest-project").unwrap();
+        let root = parent.join("manifest-project");
+        new_contract_from(&root, "token").unwrap();
+        for manifest in [
+            "Cargo.toml",
+            "contracts/counter/Cargo.toml",
+            "contracts/token/Cargo.toml",
+        ] {
+            let contents = std::fs::read_to_string(root.join(manifest)).unwrap();
+            assert!(!contents.contains("{{"), "{manifest} kept a placeholder");
+        }
+        assert!(
+            std::fs::read_to_string(root.join("contracts/token/Cargo.toml"))
+                .unwrap()
+                .contains("name = \"token\"")
+        );
+        std::fs::remove_dir_all(parent).ok();
+    }
+
     #[test]
     fn refuses_existing_destinations_and_invalid_project_names() {
         let parent = test_parent("existing");
@@ -365,7 +412,7 @@ mod tests {
 
     #[test]
     fn template_pins_match_the_core_toolchain() {
-        let manifest = include_str!("../templates/default/Cargo.toml");
+        let manifest = include_str!("../templates/default/Cargo.toml.tmpl");
         assert!(manifest.contains(labcoat_core::compile::ALKANES_RS_REV));
         assert!(manifest.contains(
             &format!(

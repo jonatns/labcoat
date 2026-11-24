@@ -34,6 +34,9 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 - index the first block mined after `labcoat down` and `labcoat up`: an upstream runtime defect made both indexers drop it, so funding right after a restart never reached the wallet. Resuming a chain now mines two empty warm-up blocks first; the release acceptance flow covers the restart
 - keep every atomic exchange output single-asset: surplus from partially spent inputs now returns to its owner in its own change output instead of joining the counterparty's delivery, so both wallets can use their exchange outputs in later exchanges
 - make `labcoat test --e2e` honor `LABCOAT_TEST_CRATE_PATH` like `labcoat test`, so CI and packagers can run e2e tests before the release tag exists
+- stop cargo from printing two `invalid character '{' in package name` errors on a project's first build: the `labcoat init` and `labcoat new` manifest templates are now stored as `Cargo.toml.tmpl`, so cargo no longer parses them when it scans the labcoat git repository for `labcoat-test`
+- keep tracing logs out of normal human output: the default log level is now `warn` (`-v/--verbose` adds Labcoat's info logs, and `RUST_LOG` still overrides), so `labcoat test` no longer prints a timestamped `INFO labcoat_core::compile` line. Log lines on stderr follow `--color`, `NO_COLOR`, and terminal detection instead of always carrying ANSI codes
+- report a missing wallet as `no wallet keystore exists at <path>` (`WALLET_MISSING`) for `labcoat wallet addresses` and every other command that needs the keystore, instead of upstream's misleading "wallet is in address-only or external key mode"
 
 ## [0.2.0](https://github.com/jonatns/labcoat/compare/cli-v0.1.0...cli-v0.2.0) - 2026-07-31
 

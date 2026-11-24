@@ -228,6 +228,22 @@ fn write_stderr(message: &str, color: ColorMode) {
     let _ = stream.flush();
 }
 
+/// Whether diagnostics written straight to stderr (the tracing subscriber)
+/// may carry ANSI styling. Follows the same policy as the rest of human
+/// output: `--color always|never` wins; `auto` honours `NO_COLOR`/`CLICOLOR*`
+/// and colors only when stderr is a terminal.
+pub fn stderr_ansi(mode: ColorMode) -> bool {
+    resolve_ansi(mode, || AutoStream::choice(&std::io::stderr()))
+}
+
+fn resolve_ansi(mode: ColorMode, auto: impl FnOnce() -> ColorChoice) -> bool {
+    match mode {
+        ColorMode::Always => true,
+        ColorMode::Never => false,
+        ColorMode::Auto => auto() != ColorChoice::Never,
+    }
+}
+
 fn color_choice(mode: ColorMode) -> ColorChoice {
     match mode {
         ColorMode::Auto => ColorChoice::Auto,
@@ -1442,6 +1458,17 @@ fn indent(value: &str, depth: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stderr_ansi_follows_the_color_flag_and_terminal_detection() {
+        // `always`/`never` never consult the stream.
+        assert!(resolve_ansi(ColorMode::Always, || unreachable!()));
+        assert!(!resolve_ansi(ColorMode::Never, || unreachable!()));
+        // `auto` defers to anstream's detection (TTY, NO_COLOR, CLICOLOR*).
+        assert!(!resolve_ansi(ColorMode::Auto, || ColorChoice::Never));
+        assert!(resolve_ansi(ColorMode::Auto, || ColorChoice::Always));
+        assert!(resolve_ansi(ColorMode::Auto, || ColorChoice::AlwaysAnsi));
+    }
 
     #[test]
     fn state_list_renders_resources_with_chain_identity() {
