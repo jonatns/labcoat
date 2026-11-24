@@ -1,5 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+// The one prompt the site asks people to hand to an agent.
+const agentPrompt = readFileSync(new URL('../src/agent-prompt.txt', import.meta.url), 'utf8').trim();
+const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 // Starlight's search button is named "Search" but also shows a "Ctrl K"
 // shortcut hint, which axe 4.14's label-content-name-mismatch rule reports.
@@ -20,10 +25,30 @@ function seriousViolations(results: AxeResults) {
     .filter((violation) => violation.nodes.length > 0);
 }
 
-test('homepage leads with install, the quick start, and a keyboard-accessible demo', async ({ page }) => {
+test('homepage leads with the agent prompt, keeps the manual path, and has a keyboard-accessible demo', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'From Rust source to decoded trace.' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Copy install command' }).first()).toBeVisible();
+
+  // Agent is the default way in; the installer is one tab away.
+  const start = page.getByRole('tablist', { name: 'How to start' });
+  await expect(start.getByRole('tab', { name: 'Agent' })).toHaveAttribute('aria-selected', 'true');
+  const hero = page.locator('.hero');
+  await expect(hero.getByRole('button', { name: 'Copy agent prompt' })).toBeVisible();
+  await expect(hero.getByText('Paste this into Claude Code, Codex, or another coding agent with terminal access.')).toBeVisible();
+  await expect(hero.getByRole('button', { name: 'Copy install command' })).toBeHidden();
+  await expect(hero.getByRole('link', { name: /What your agent checks/ })).toHaveAttribute('href', '/docs/getting-started/agent-onboarding/');
+  // Plain English, not a shell command.
+  await expect(hero.locator('.agent-prompt .prompt')).toHaveCount(0);
+
+  await start.getByRole('tab', { name: 'Agent' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(start.getByRole('tab', { name: 'Manual' })).toBeFocused();
+  await expect(start.getByRole('tab', { name: 'Manual' })).toHaveAttribute('aria-selected', 'true');
+  await expect(hero.getByRole('button', { name: 'Copy install command' })).toBeVisible();
+  await expect(hero.getByRole('button', { name: 'Copy agent prompt' })).toBeHidden();
+  await page.keyboard.press('Home');
+  await expect(hero.getByRole('button', { name: 'Copy agent prompt' })).toBeVisible();
+
   await expect(page.getByRole('link', { name: /Run the quick start/ })).toHaveAttribute('href', '/docs/getting-started/quickstart/');
   await expect(page.getByRole('link', { name: /View source/ })).toHaveAttribute('href', 'https://github.com/jonatns/labcoat');
   await expect(page.getByLabel('Stable release compatibility')).toHaveCount(0);
@@ -34,13 +59,14 @@ test('homepage leads with install, the quick start, and a keyboard-accessible de
     await expect(page.locator(`#${id} h2`)).toBeVisible();
   }
 
-  const tabs = page.getByRole('tab');
+  const demo = page.locator('.hero-demo');
+  const tabs = demo.getByRole('tab');
   await tabs.first().focus();
   await expect(tabs.first()).toBeFocused();
   await page.keyboard.press('ArrowRight');
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tabpanel')).toHaveCount(1);
-  await expect(page.getByRole('tabpanel').locator('[data-terminal-command]')).toHaveText('labcoat test');
+  await expect(demo.getByRole('tabpanel')).toHaveCount(1);
+  await expect(demo.getByRole('tabpanel').locator('[data-terminal-command]')).toHaveText('labcoat test');
   const focusOutline = await tabs.nth(1).evaluate((element) => getComputedStyle(element).outlineStyle);
   expect(focusOutline).not.toBe('none');
   await page.keyboard.press('ArrowLeft');
@@ -60,15 +86,88 @@ test('theme choice is shared between the homepage and the docs', async ({ page }
   await expect(page.locator('html')).toHaveAttribute('data-theme', selected);
 });
 
-test('install command can be copied, or is selected when the clipboard is unavailable', async ({ page }) => {
+test('the agent prompt is copied exactly, from the keyboard, and the copy is announced', async ({ page }) => {
+  await page.addInitScript(() => {
+    const copied: string[] = [];
+    Object.defineProperty(window, '__copied', { value: copied });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: (text: string) => { copied.push(text); return Promise.resolve(); } },
+    });
+  });
+  await page.goto('/');
+  for (const region of ['.hero', '.closing']) {
+    // The button's name is its text, which changes while it reports the
+    // copy, so find it by where it is.
+    const button = page.locator(`${region} .agent-prompt button`);
+    await expect(button).toHaveAccessibleName('Copy agent prompt');
+    await button.focus();
+    await page.keyboard.press('Enter');
+    await expect(button).toContainText('Copied');
+    await expect(page.getByRole('status')).toHaveText('Copied to the clipboard.');
+    await expect(button).toContainText('Copy agent prompt');
+  }
+  const copied = await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
+  // Byte for byte the canonical prompt: paragraphs, and no line breaks inside one.
+  expect(copied).toEqual([agentPrompt, agentPrompt]);
+  expect(agentPrompt.split('\n\n')).toHaveLength(3);
+  expect(agentPrompt.split('\n\n').every((paragraph) => !paragraph.includes('\n'))).toBeTruthy();
+});
+
+test('the agent prompt is selected in full when the clipboard is unavailable', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('denied')) } });
   });
   await page.goto('/');
-  const button = page.getByRole('button', { name: 'Copy install command' }).first();
+  const button = page.locator('.hero .agent-prompt button');
+  await button.click();
+  await expect(button).toContainText('Selected');
+  await expect(page.getByRole('status')).toContainText('The text is selected');
+  const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+  expect(normalize(selected)).toBe(normalize(agentPrompt));
+});
+
+test('the agent prompt wraps inside its card at every width', async ({ page }) => {
+  await page.goto('/');
+  for (const region of ['.hero', '.closing']) {
+    const text = page.locator(`${region} .agent-prompt-text`);
+    const overflow = await text.evaluate((element) => element.scrollWidth - element.clientWidth);
+    expect(overflow, region).toBeLessThanOrEqual(1);
+    const card = await page.locator(`${region} .agent-prompt`).boundingBox();
+    const viewport = page.viewportSize();
+    expect(card && viewport && card.x >= 0 && card.x + card.width <= viewport.width, region).toBeTruthy();
+  }
+});
+
+test('the manual install command can be copied, or is selected when the clipboard is unavailable', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('denied')) } });
+  });
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Manual' }).click();
+  const button = page.getByRole('button', { name: 'Copy install command' });
   await button.click();
   await expect(button).toContainText('Selected');
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('curl -fsSL https://labcoat.sh/install | sh');
+});
+
+test('the agent guide and its plain-text forms serve the same prompt the homepage copies', async ({ page, request }) => {
+  const served = await (await request.get('/agent-prompt.txt')).text();
+  expect(served.trim()).toBe(agentPrompt);
+
+  await page.goto('/docs/getting-started/agent-onboarding/');
+  await expect(page.getByRole('heading', { level: 1, name: 'Start with an agent' })).toBeVisible();
+  // In the sidebar's Start here group (a drawer on small screens).
+  await expect(page.locator('nav.sidebar a[href="/docs/getting-started/agent-onboarding/"]')).toHaveCount(1);
+
+  const raw = await (await request.get('/docs/getting-started/agent-onboarding.md.txt')).text();
+  // The preflight stops at init and hands over to the project's own files.
+  expect(raw).toContain('labcoat init');
+  expect(raw).toContain('AGENTS.md');
+  expect(raw).not.toContain('labcoat deploy');
+
+  for (const route of ['/llms.txt', '/skill.md']) {
+    expect(await (await request.get(route)).text(), route).toContain('/docs/getting-started/agent-onboarding/');
+  }
 });
 
 test('every page has no serious accessibility violations or horizontal overflow, in both themes', async ({ page, request }) => {
@@ -104,7 +203,7 @@ test('documentation and agent surfaces are published', async ({ page, request })
   await expect(docsLogos.nth(0)).toBeHidden();
   await expect(docsLogos.nth(1)).toBeVisible();
 
-  for (const route of ['/llms.txt', '/llms-full.txt', '/docs/index.md.txt', '/docs/labcoat-network/', '/docs/reference/stability/', '/reference/cli.json', '/skill.md', '/install', '/og.svg', '/og.png']) {
+  for (const route of ['/llms.txt', '/llms-full.txt', '/agent-prompt.txt', '/docs/getting-started/agent-onboarding.md.txt', '/docs/index.md.txt', '/docs/labcoat-network/', '/docs/reference/stability/', '/reference/cli.json', '/skill.md', '/install', '/og.svg', '/og.png']) {
     const response = await request.get(route);
     expect(response.ok(), route).toBeTruthy();
   }

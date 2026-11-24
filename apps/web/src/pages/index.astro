@@ -1,4 +1,5 @@
 ---
+import AgentPrompt from '@/components/AgentPrompt.astro';
 import Brand from '@/components/Brand.astro';
 import CopyCommand from '@/components/CopyCommand.astro';
 import FontPreload from '@/components/FontPreload.astro';
@@ -89,10 +90,23 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
           <p class="eyebrow">Rust-native Alkanes development</p>
           <h1 id="hero-title"><span>From Rust source</span> <em>to decoded trace.</em></h1>
           <p class="hero-lede">{brand.description}</p>
-          <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
+          <div class="start">
+            <div class="start-tabs" role="tablist" aria-label="How to start">
+              <button type="button" role="tab" id="start-tab-agent" aria-controls="start-panel-agent" aria-selected="true" tabindex="0">Agent</button>
+              <button type="button" role="tab" id="start-tab-manual" aria-controls="start-panel-manual" aria-selected="false" tabindex="-1">Manual</button>
+            </div>
+            <div class="start-panel" role="tabpanel" id="start-panel-agent" aria-labelledby="start-tab-agent">
+              <AgentPrompt id="hero-agent-prompt" />
+              <p class="start-note"><a href="/docs/getting-started/agent-onboarding/">What your agent checks before it installs anything <span aria-hidden="true">→</span></a></p>
+            </div>
+            <div class="start-panel" role="tabpanel" id="start-panel-manual" aria-labelledby="start-tab-manual" hidden>
+              <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
+              <p class="start-note">Installs the latest stable release to <code>~/.local/bin</code> after verifying its checksum. <a href="/docs/getting-started/installation/">Platform support and other ways to install <span aria-hidden="true">→</span></a></p>
+            </div>
+          </div>
           <p class="hero-support">macOS and Linux · arm64 and x86_64 · MIT licensed</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="/docs/getting-started/quickstart/">{brand.ctas.primary} <span aria-hidden="true">→</span></a>
+            <a class="button button-ghost" href="/docs/getting-started/quickstart/">{brand.ctas.primary} <span aria-hidden="true">→</span></a>
             <a class="button button-ghost" href="https://github.com/jonatns/labcoat">{brand.ctas.secondary}</a>
           </div>
           <p class="maturity-notice"><Icon name="warning" size={16} label="Early-stage notice" />{brand.maturityNotice}</p>
@@ -134,7 +148,7 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
 <span class="t-info">› Plan for deploy.rs — 2 pending step(s)</span></code></pre>
           </figure>
           <dl class="feature-list">
-            <div><dt>Network e2e tests</dt><dd>Reset the chain, deploy the script, and drive multi-wallet flows from Rust with <code>labcoat test --e2e</code>.</dd></div>
+            <div><dt>Network e2e tests</dt><dd>Deploy the script on a network of the project's own and drive multi-wallet flows from Rust with <code>labcoat test --e2e</code>.</dd></div>
             <div><dt>Atomic exchanges</dt><dd>Swap two Alkane assets between wallets in one transaction, locally or through a seller-last PSBT ceremony.</dd></div>
             <div><dt>Web clients</dt><dd>Generate a typed TypeScript client for balances and simulations with <code>labcoat generate web</code>.</dd></div>
             <div><dt>Deployment history</dt><dd>Keep every instance of every contract, and refuse to deploy onto a chain that was reset.</dd></div>
@@ -169,6 +183,7 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
             <h3>Context for coding agents</h3>
             <p>These files are generated from the CLI on <code>main</code>. <code>labcoat docs --llm</code> prints the same reference for the version you have installed.</p>
             <ul class="link-list">
+              <li><a href="/docs/getting-started/agent-onboarding/">Start with an agent</a></li>
               <li><a href="/llms.txt">/llms.txt</a></li>
               <li><a href="/llms-full.txt">/llms-full.txt</a></li>
               <li><a href="/reference/cli.json">/reference/cli.json</a></li>
@@ -180,8 +195,8 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
 
       <section class="closing" aria-labelledby="closing-title">
         <h2 id="closing-title">{brand.ctas.expressive}.</h2>
-        <CopyCommand command="curl -fsSL https://labcoat.sh/install | sh" label="Copy install command" />
-        <p><a href="/docs/getting-started/quickstart/">Read the quick start <span aria-hidden="true">→</span></a></p>
+        <AgentPrompt id="closing-agent-prompt" />
+        <p><a href="/docs/getting-started/quickstart/">Or follow the manual quick start <span aria-hidden="true">→</span></a></p>
       </section>
     </main>
 
@@ -191,6 +206,8 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
       <nav aria-label="Footer navigation"><a href="/docs/">Docs</a><a href="/llms.txt">llms.txt</a><a href="https://github.com/jonatns/labcoat">GitHub</a><a href="https://opensource.org/license/mit">MIT License</a></nav>
       <p class="footer-meta">Built in Puerto Rico · Open source</p>
     </footer>
+
+    <p class="visually-hidden" role="status" aria-live="polite" data-copy-status></p>
 
     <script>
       const root = document.documentElement;
@@ -204,46 +221,57 @@ d.<span class="k">contract</span>(<span class="s">"market"</span>, <span class="
         }
       });
 
+      const copyStatus = document.querySelector<HTMLElement>('[data-copy-status]');
       document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((button) => {
         const label = button.querySelector('[data-copy-label]');
+        const idle = button.dataset.copyIdle ?? 'Copy';
+        const say = (text: string, announcement: string) => {
+          if (label) label.textContent = text;
+          if (copyStatus) copyStatus.textContent = announcement;
+        };
         const reset = () => {
-          if (label) label.textContent = 'Copy';
+          say(idle, '');
           delete button.dataset.copied;
         };
         button.addEventListener('click', async () => {
           try {
             await navigator.clipboard.writeText(button.dataset.copy ?? '');
-            if (label) label.textContent = 'Copied';
+            say('Copied', 'Copied to the clipboard.');
             button.dataset.copied = 'true';
           } catch {
-            // No clipboard access: select the command so the reader can copy it.
-            const code = button.parentElement?.querySelector('code');
-            if (code) window.getSelection()?.selectAllChildren(code);
-            if (label) label.textContent = 'Selected';
+            // No clipboard access: select the text so the reader can copy it.
+            const target = button.dataset.copyTarget
+              ? document.getElementById(button.dataset.copyTarget)
+              : button.parentElement?.querySelector('code');
+            if (target) window.getSelection()?.selectAllChildren(target);
+            say('Selected', 'The clipboard is unavailable. The text is selected; copy it with your keyboard.');
           }
           window.setTimeout(reset, 1800);
         });
       });
 
-      const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-terminal-tab]')];
-      function select(tab: HTMLButtonElement) {
-        for (const item of tabs) {
-          const selected = item === tab;
-          item.setAttribute('aria-selected', String(selected));
-          item.tabIndex = selected ? 0 : -1;
-          const panel = document.getElementById(item.getAttribute('aria-controls') ?? '');
-          if (panel) panel.hidden = !selected;
-        }
-      }
-      tabs.forEach((tab, index) => {
-        tab.addEventListener('click', () => select(tab));
-        tab.addEventListener('keydown', (event) => {
-          const moves: Record<string, number> = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: tabs.length - 1 };
-          if (!(event.key in moves)) return;
-          event.preventDefault();
-          const next = tabs[(moves[event.key] + tabs.length) % tabs.length];
-          next.focus();
-          select(next);
+      // Every tab list on the page: the start toggle and the terminal demo.
+      document.querySelectorAll<HTMLElement>('[role="tablist"]').forEach((list) => {
+        const tabs = [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+        const select = (tab: HTMLButtonElement) => {
+          for (const item of tabs) {
+            const selected = item === tab;
+            item.setAttribute('aria-selected', String(selected));
+            item.tabIndex = selected ? 0 : -1;
+            const panel = document.getElementById(item.getAttribute('aria-controls') ?? '');
+            if (panel) panel.hidden = !selected;
+          }
+        };
+        tabs.forEach((tab, index) => {
+          tab.addEventListener('click', () => select(tab));
+          tab.addEventListener('keydown', (event) => {
+            const moves: Record<string, number> = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: tabs.length - 1 };
+            if (!(event.key in moves)) return;
+            event.preventDefault();
+            const next = tabs[(moves[event.key] + tabs.length) % tabs.length];
+            next.focus();
+            select(next);
+          });
         });
       });
     </script>

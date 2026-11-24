@@ -3,6 +3,22 @@ title: Quick start
 description: Scaffold, test, fund, build, deploy, call, and trace an Alkanes contract.
 ---
 
+Prefer to hand this to a coding agent? Give it the prompt in
+[Start with an agent](/docs/getting-started/agent-onboarding/).
+
+## Before you start
+
+Install the CLI and the
+[compilation prerequisites](/docs/getting-started/installation/#compilation-prerequisites):
+rustup, LLVM Clang with a WebAssembly backend, and `protoc`. Check them with:
+
+```bash
+labcoat doctor
+```
+
+Until the first `labcoat up`, `runtime bundle` fails and `wallet` warns.
+Everything else should pass.
+
 ## Create and test a contract
 
 ```bash
@@ -10,6 +26,10 @@ labcoat init hello-alkane
 cd hello-alkane
 labcoat test
 ```
+
+The first `labcoat test` installs the project's pinned Rust toolchain and
+builds every dependency, which can take several minutes. Later runs take
+seconds.
 
 Run `labcoat init` without a name to enter it interactively. Initialization
 always creates a new folder and refuses an existing destination.
@@ -50,10 +70,23 @@ commit/reveal envelope, and records the resulting Alkanes ID in
 ## Interact and inspect
 
 ```bash
-labcoat simulate counter get_count
-labcoat call counter increment
-labcoat trace <txid> --wait
+labcoat simulate counter get_count        # Result  0
+labcoat call counter increment            # prints the Transaction ID
+labcoat trace <transaction-id> --wait
+labcoat simulate counter get_count        # Result  1
 ```
+
+`call` prints the transaction it sent on its `Transaction` line; pass that ID
+to `trace`. In a script, read it from the JSON envelope instead:
+
+```bash
+txid=$(labcoat call counter increment --json | jq -r .result.txid)
+labcoat trace "$txid" --wait
+```
+
+The trace lists what the transaction did inside the contract: a `call` into
+the Counter and its `return`. The count read by `simulate` goes from `0` to
+`1`.
 
 Method names resolve against the deployed contract. A matching generated ABI
 avoids an indexer metadata request; if the local build differs, Labcoat warns

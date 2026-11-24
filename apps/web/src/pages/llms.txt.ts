@@ -14,6 +14,7 @@ Source: https://github.com/jonatns/labcoat
 
 ## Start here
 - [Overview](https://labcoat.sh/docs/): Product model and supported interface
+- [Start with an agent](https://labcoat.sh/docs/getting-started/agent-onboarding/): Preflight for a coding agent setting up Labcoat, and the prompt to give it (https://labcoat.sh/agent-prompt.txt)
 - [Installation](https://labcoat.sh/docs/getting-started/installation/): Native macOS and Linux installation
 - [Quick start](https://labcoat.sh/docs/getting-started/quickstart/): Empty directory to decoded trace
 - [Tutorial: your first contract](https://labcoat.sh/docs/tutorials/first-contract/): Read the starter Counter, deploy and call it, then add a method
