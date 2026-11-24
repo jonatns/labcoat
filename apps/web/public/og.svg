@@ -15,9 +15,13 @@
   <circle cx="1010" cy="110" r="330" fill="url(#glow)"/>
   <path d="M0 505H115L150 470L202 520L255 455L318 505H445L490 478L540 505H1200" stroke="#B8FF65" stroke-opacity=".18" stroke-width="2"/>
   <g transform="translate(72 66)">
+    <clipPath id="mark-flask"><path d="M28 22 13 48a5.3 5.3 0 0 0 4.6 8h28.8a5.3 5.3 0 0 0 4.6-8L36 22Z"/></clipPath>
+    <g clip-path="url(#mark-flask)">
+      <path d="M8 43h12l7-7 5 5 5-5 7 7h12v17H8Z" fill="#B8FF65" fill-opacity=".2"/>
+      <path d="M8 43h12l7-7 5 5 5-5 7 7h12" stroke="#B8FF65" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
     <path d="M24 8h16M28 8v14L13 48a5.3 5.3 0 0 0 4.6 8h28.8a5.3 5.3 0 0 0 4.6-8L36 22V8" stroke="#F4F8F2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="m21 43 8-7 6 5 5-5 5 7" stroke="#B8FF65" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="34" cy="29" r="2.5" fill="#FFB347"/>
+    <circle cx="32" cy="28" r="2.5" fill="#FFB347"/>
   </g>
   <text x="148" y="105" class="mono" fill="#F4F8F2" font-size="24" font-weight="600" letter-spacing="4">LABCOAT</text>
   <text x="72" y="220" class="sans" fill="#F4F8F2" font-size="72" font-weight="620" letter-spacing="-2.5"><tspan x="72">From Rust source</tspan><tspan x="72" dy="78">to decoded trace.</tspan></text>
@@ -29,8 +33,12 @@
   </g>
   <text x="72" y="572" class="mono" fill="#B8FF65" font-size="17" letter-spacing="2">labcoat.sh  /  ALKANES DEVELOPMENT</text>
   <g transform="translate(930 405)">
+    <clipPath id="hero-flask"><path d="M68 70 0 190h176L108 70Z"/></clipPath>
+    <g clip-path="url(#hero-flask)">
+      <path d="M-20 150h44l40-34 24 24 24-24 40 34h44v60H-20Z" fill="#B8FF65" fill-opacity=".16"/>
+      <path d="M-20 150h44l40-34 24 24 24-24 40 34h44" stroke="#B8FF65" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
     <path d="M48 0h80M68 0v70L0 190h176L108 70V0" stroke="#F4F8F2" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="m22 158 42-38 34 26 30-28 30 40" stroke="#B8FF65" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <title>From Rust source to decoded trace.</title>
   <desc>Labcoat is the Rust-native CLI for building, testing, and operating Alkanes smart contracts on Labcoat Network, a managed local Bitcoin regtest.</desc>
