@@ -55,9 +55,18 @@ impl LabcoatNetwork {
     /// anything else on the port is stopped first.
     pub fn start(&mut self) -> Result<(), String> {
         let config = self.config.clone();
-        if !crate::rpc::is_own_node_blocking(&config) {
-            ProcessManager::stop_running(&config);
-            self.process_manager.start_all(&config)?;
+        match crate::rpc::identify_blocking(&config, std::time::Duration::from_secs(2)) {
+            crate::rpc::NodeIdentity::Own => {}
+            crate::rpc::NodeIdentity::Unresponsive => {
+                return Err(format!(
+                    "a process on port {} accepted a connection but did not answer; run `labcoat down`, or stop the process using the port",
+                    config.ports.rpc
+                ));
+            }
+            crate::rpc::NodeIdentity::Foreign | crate::rpc::NodeIdentity::Absent => {
+                ProcessManager::stop_running(&config);
+                self.process_manager.start_all(&config)?;
+            }
         }
         let ready = crate::faucet::bootstrap_blocking(&config);
         if ready.is_err() {

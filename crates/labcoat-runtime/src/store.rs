@@ -157,6 +157,14 @@ impl BlockLog {
         file.write_all(MAGIC).map_err(io)?;
         file.write_all(module).map_err(io)?;
         file.flush().map_err(io)?;
+        drop(file);
+        // Reopen for appending, so every record lands at the end of the
+        // file, also after it is shortened.
+        let file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .open(path)
+            .map_err(io)?;
         Ok(Self {
             path: path.to_owned(),
             file,
@@ -250,15 +258,25 @@ impl BlockLog {
         if keep >= self.offsets.len() {
             return Ok(());
         }
+        // Shorten the file first: if that fails, the offsets still describe
+        // it and the next append continues where it was.
+        let length = self.offsets[keep - 1];
+        self.set_len(length).map_err(|source| StoreError::Io {
+            path: self.path.clone(),
+            source,
+        })?;
         self.offsets.truncate(keep);
-        let length = *self.offsets.last().expect("kept at least the header");
-        self.file
-            .set_len(length)
-            .and_then(|()| self.file.seek(SeekFrom::End(0)).map(drop))
-            .map_err(|source| StoreError::Io {
-                path: self.path.clone(),
-                source,
-            })
+        Ok(())
+    }
+
+    fn set_len(&mut self, length: u64) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.fail_writes {
+            return Err(std::io::Error::other("no space left on device"));
+        }
+        // The file is opened for appending, so writes go to its end
+        // wherever the cursor is.
+        self.file.set_len(length)
     }
 }
 

@@ -69,10 +69,42 @@ impl From<RuntimeError> for RpcError {
 
 type Result<T> = std::result::Result<T, RpcError>;
 
+/// Snapshots by id, for `labcoat_snapshot` and `labcoat_revert`.
+#[derive(Default)]
+struct Snapshots {
+    live: Vec<(u64, Snapshot)>,
+    next: u64,
+}
+
+impl Snapshots {
+    fn push(&mut self, snapshot: Snapshot) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        self.live.push((id, snapshot));
+        id
+    }
+
+    /// Remove the snapshot `id` and every later one, returning `id`'s.
+    fn take_from(&mut self, id: u64) -> Option<Snapshot> {
+        let position = self.live.iter().position(|(known, _)| *known == id)?;
+        self.live
+            .drain(position..)
+            .next()
+            .map(|(_, snapshot)| snapshot)
+    }
+
+    /// Put back a snapshot whose revert failed.
+    fn restore(&mut self, id: u64, snapshot: Snapshot) {
+        self.live.push((id, snapshot));
+    }
+}
+
 /// A runtime served over JSON-RPC.
 pub struct Node {
     runtime: RwLock<Runtime>,
-    snapshots: Mutex<Vec<Snapshot>>,
+    /// Live snapshots, oldest first, each with its id. Ids only grow, so
+    /// an id names one snapshot forever, even after a revert consumes it.
+    snapshots: Mutex<Snapshots>,
     stopping: AtomicBool,
     started: Instant,
     data_dir: Option<String>,
@@ -82,7 +114,7 @@ impl Node {
     pub fn new(runtime: Runtime) -> Self {
         Self {
             runtime: RwLock::new(runtime),
-            snapshots: Mutex::new(Vec::new()),
+            snapshots: Mutex::new(Snapshots::default()),
             stopping: AtomicBool::new(false),
             started: Instant::now(),
             data_dir: None,
@@ -402,32 +434,34 @@ impl Node {
             "labcoat_snapshot" => {
                 let mut snapshots = self.snapshots.lock().unwrap_or_else(|p| p.into_inner());
                 let snapshot = self.read().snapshot();
-                snapshots.push(snapshot);
-                Ok((snapshots.len() - 1).into())
+                Ok(snapshots.push(snapshot).into())
             }
             "labcoat_revert" => {
                 let id = param(params, 0)
                     .and_then(Value::as_u64)
-                    .ok_or_else(|| RpcError::params("Expected a snapshot id"))?
-                    as usize;
+                    .ok_or_else(|| RpcError::params("Expected a snapshot id"))?;
                 let mut snapshots = self.snapshots.lock().unwrap_or_else(|p| p.into_inner());
-                if id >= snapshots.len() {
-                    return Ok(false.into());
-                }
                 // Like evm_revert: reverting consumes this snapshot and every
-                // later one.
-                let snapshot = snapshots.drain(id..).next().expect("checked the id");
-                self.write().revert(snapshot)?;
+                // later one. An unknown or consumed id reverts nothing.
+                let Some(snapshot) = snapshots.take_from(id) else {
+                    return Ok(false.into());
+                };
+                if let Err(error) = self.write().revert(snapshot.clone()) {
+                    // A revert that failed changed nothing; keep the snapshot.
+                    snapshots.restore(id, snapshot);
+                    return Err(error.into());
+                }
                 Ok(true.into())
             }
             // Who is serving: Labcoat checks this before trusting a node
             // it finds on its port, which could be another version, another
             // data directory, or a different program.
+            // It takes no lock, so it answers at once even while a long
+            // `generatetoaddress` holds the runtime.
             "labcoat_info" => Ok(json!({
                 "name": "Labcoat Network",
                 "version": env!("CARGO_PKG_VERSION"),
                 "dataDir": self.data_dir,
-                "height": self.read().height(),
             })),
             "uptime" => Ok(self.started.elapsed().as_secs().into()),
             "ping" => Ok(Value::Null),
@@ -445,7 +479,7 @@ impl Node {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn write(&self) -> std::sync::RwLockWriteGuard<'_, Runtime> {
+    pub(crate) fn write(&self) -> std::sync::RwLockWriteGuard<'_, Runtime> {
         self.runtime
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())

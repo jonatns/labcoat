@@ -106,38 +106,95 @@ pub fn call_blocking_with_timeout(
     params: serde_json::Value,
     timeout: std::time::Duration,
 ) -> Result<serde_json::Value, String> {
-    use std::io::{Read, Write};
+    let response =
+        exchange_blocking(config, method, params, timeout).map_err(|error| match error {
+            Exchange::Refused => "Labcoat Network RPC call failed: connection refused".to_string(),
+            Exchange::TimedOut => "Labcoat Network RPC call timed out".to_string(),
+            Exchange::Failed(message) => message,
+        })?;
+    result_from_response(response)
+}
 
+/// Why a blocking exchange produced no response.
+enum Exchange {
+    /// Nothing is listening on the port.
+    Refused,
+    /// Something accepted the connection but did not answer in time.
+    TimedOut,
+    Failed(String),
+}
+
+/// Send one request and return the parsed JSON-RPC response object.
+fn exchange_blocking(
+    config: &IsomerConfig,
+    method: &str,
+    params: serde_json::Value,
+    timeout: std::time::Duration,
+) -> Result<serde_json::Value, Exchange> {
+    use std::io::{ErrorKind, Read, Write};
+
+    let classify = |error: std::io::Error, doing: &str| match error.kind() {
+        ErrorKind::ConnectionRefused => Exchange::Refused,
+        ErrorKind::TimedOut | ErrorKind::WouldBlock => Exchange::TimedOut,
+        _ => Exchange::Failed(format!("Labcoat Network RPC {doing} failed: {error}")),
+    };
     let mut stream = std::net::TcpStream::connect_timeout(
         &std::net::SocketAddr::from(([127, 0, 0, 1], config.ports.rpc)),
         timeout,
     )
-    .map_err(|e| format!("Labcoat Network RPC call failed: {e}"))?;
+    .map_err(|e| classify(e, "connection"))?;
     stream
         .set_read_timeout(Some(timeout))
-        .map_err(|e| format!("Failed to configure Labcoat Network RPC: {e}"))?;
-    let body = serde_json::to_vec(&request_body(method, params))
-        .map_err(|e| format!("Failed to encode Labcoat Network RPC request: {e}"))?;
+        .and_then(|()| stream.set_write_timeout(Some(timeout)))
+        .map_err(|e| classify(e, "setup"))?;
+    let body = serde_json::to_vec(&request_body(method, params)).map_err(|e| {
+        Exchange::Failed(format!("Failed to encode Labcoat Network RPC request: {e}"))
+    })?;
     write!(
         stream,
         "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )
     .and_then(|_| stream.write_all(&body))
-    .map_err(|e| format!("Labcoat Network RPC call failed: {e}"))?;
+    .map_err(|e| classify(e, "request"))?;
     let mut response = Vec::new();
     stream
         .read_to_end(&mut response)
-        .map_err(|e| format!("Failed to read Labcoat Network RPC response: {e}"))?;
+        .map_err(|e| classify(e, "response"))?;
+    let invalid = || Exchange::Failed("Invalid Labcoat Network HTTP response".to_string());
     let body_start = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .map(|position| position + 4)
-        .ok_or_else(|| "Invalid Labcoat Network HTTP response".to_string())?;
-    result_from_response(
-        serde_json::from_slice(&response[body_start..])
-            .map_err(|e| format!("Failed to parse Labcoat Network RPC response: {e}"))?,
-    )
+        .ok_or_else(invalid)?;
+    serde_json::from_slice(&response[body_start..]).map_err(|_| invalid())
+}
+
+/// What is on Labcoat Network's port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeIdentity {
+    /// This release's node, serving this data home.
+    Own,
+    /// Something else answered: another program, release, or data home.
+    Foreign,
+    /// Nothing is listening.
+    Absent,
+    /// Something accepted the connection but did not answer in time. It is
+    /// left alone: it may be a node that is still working.
+    Unresponsive,
+}
+
+/// Ask whoever is on the port who it is.
+pub fn identify_blocking(config: &IsomerConfig, timeout: std::time::Duration) -> NodeIdentity {
+    match exchange_blocking(config, "labcoat_info", serde_json::json!([]), timeout) {
+        Ok(response) => match result_from_response(response) {
+            Ok(info) if is_own_node_info(&info) => NodeIdentity::Own,
+            _ => NodeIdentity::Foreign,
+        },
+        Err(Exchange::Refused) => NodeIdentity::Absent,
+        Err(Exchange::TimedOut) => NodeIdentity::Unresponsive,
+        Err(Exchange::Failed(_)) => NodeIdentity::Foreign,
+    }
 }
 
 /// Whether `labcoat_info` describes this release's node serving this data
@@ -154,13 +211,7 @@ fn is_own_node_info(info: &serde_json::Value) -> bool {
 
 /// Whether this release's node is serving this data home on the port.
 pub fn is_own_node_blocking(config: &IsomerConfig) -> bool {
-    call_blocking_with_timeout(
-        config,
-        "labcoat_info",
-        serde_json::json!([]),
-        std::time::Duration::from_millis(500),
-    )
-    .is_ok_and(|info| is_own_node_info(&info))
+    identify_blocking(config, std::time::Duration::from_millis(500)) == NodeIdentity::Own
 }
 
 /// Whether this release's node is serving this data home on the port.
@@ -292,6 +343,66 @@ mod tests {
         ] {
             assert!(!is_own_node_info(&foreign), "{foreign}");
         }
+    }
+
+    /// A config whose port serves `respond` once per connection, or nothing.
+    fn serve(respond: Option<&'static str>) -> IsomerConfig {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut config = IsomerConfig::default();
+        config.ports.rpc = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let Some(body) = respond else {
+                    // Accept and hold the connection without answering.
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        drop(stream);
+                    });
+                    continue;
+                };
+                use std::io::{Read, Write};
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        config
+    }
+
+    #[test]
+    fn tells_own_foreign_absent_and_unresponsive_nodes_apart() {
+        let short = std::time::Duration::from_millis(300);
+
+        let unused = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut absent = IsomerConfig::default();
+        absent.ports.rpc = unused.local_addr().unwrap().port();
+        drop(unused);
+        assert_eq!(identify_blocking(&absent, short), NodeIdentity::Absent);
+
+        assert_eq!(
+            identify_blocking(&serve(None), short),
+            NodeIdentity::Unresponsive
+        );
+
+        let qubitcoind = serve(Some(
+            r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found: labcoat_info"},"id":1}"#,
+        ));
+        assert_eq!(identify_blocking(&qubitcoind, short), NodeIdentity::Foreign);
+
+        let own = format!(
+            r#"{{"jsonrpc":"2.0","result":{{"name":"Labcoat Network","version":"{}","dataDir":{}}},"id":1}}"#,
+            env!("CARGO_PKG_VERSION"),
+            serde_json::to_string(&crate::config::get_network_dir().display().to_string()).unwrap()
+        );
+        assert_eq!(
+            identify_blocking(&serve(Some(Box::leak(own.into_boxed_str()))), short),
+            NodeIdentity::Own
+        );
     }
 
     #[test]

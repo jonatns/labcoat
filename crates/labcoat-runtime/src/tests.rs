@@ -338,6 +338,36 @@ fn a_block_that_cannot_be_saved_is_not_mined() {
 }
 
 #[test]
+fn a_revert_that_cannot_be_saved_changes_nothing() {
+    let path = temporary("unreverted");
+    let mut runtime = Runtime::open(module(RECORDER), &path).unwrap();
+    runtime.mine(anyone()).unwrap();
+    let snapshot = runtime.snapshot();
+    runtime.mine(anyone()).unwrap();
+    runtime.mine(anyone()).unwrap();
+    let tip = runtime.chain().tip().block_hash();
+
+    runtime.log.as_mut().unwrap().fail_writes_for_test(true);
+    assert!(matches!(
+        runtime.revert(snapshot),
+        Err(RuntimeError::Store(_))
+    ));
+    assert_eq!(runtime.height(), 3);
+    assert_eq!(runtime.chain().tip().block_hash(), tip);
+
+    // The log still agrees with memory: the next block is saved as block 4.
+    runtime.log.as_mut().unwrap().fail_writes_for_test(false);
+    assert_eq!(runtime.mine(anyone()).unwrap(), 4);
+    let tip = runtime.chain().tip().block_hash();
+    drop(runtime);
+    let reopened = Runtime::open(module(RECORDER), &path).unwrap();
+    assert_eq!(
+        (reopened.height(), reopened.chain().tip().block_hash()),
+        (4, tip)
+    );
+}
+
+#[test]
 fn a_revert_is_saved() {
     let path = temporary("revert");
     let mut runtime = Runtime::open(module(RECORDER), &path).unwrap();
@@ -501,6 +531,42 @@ mod rpc {
         assert_eq!(info["name"], json!("Labcoat Network"));
         assert_eq!(info["version"], json!(env!("CARGO_PKG_VERSION")));
         assert_eq!(info["dataDir"], json!("/data/network"));
+    }
+
+    #[test]
+    fn says_who_is_serving_while_the_runtime_is_busy() {
+        let node = Arc::new(Node::new(runtime()));
+        let busy = node.write();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn({
+            let node = node.clone();
+            move || sender.send(call(&node, "labcoat_info", json!([]))).unwrap()
+        });
+        let info = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("labcoat_info must not wait for the runtime");
+        assert_eq!(info["name"], json!("Labcoat Network"));
+        drop(busy);
+    }
+
+    #[test]
+    fn snapshot_ids_are_never_reused() {
+        let node = Node::new(runtime());
+        let first = call(&node, "labcoat_snapshot", json!([]));
+        call(&node, "generatetoaddress", json!([1, address()]));
+        assert_eq!(call(&node, "labcoat_revert", json!([first])), json!(true));
+
+        let second = call(&node, "labcoat_snapshot", json!([]));
+        assert_ne!(second, first, "a consumed id is not handed out again");
+        call(&node, "generatetoaddress", json!([2, address()]));
+        assert_eq!(
+            call(&node, "labcoat_revert", json!([first])),
+            json!(false),
+            "retrying a consumed id reverts nothing"
+        );
+        assert_eq!(call(&node, "getblockcount", json!([])), json!(2));
+        assert_eq!(call(&node, "labcoat_revert", json!([second])), json!(true));
+        assert_eq!(call(&node, "getblockcount", json!([])), json!(0));
     }
 
     #[test]

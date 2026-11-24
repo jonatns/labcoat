@@ -191,6 +191,26 @@ fn parse_esplora_utxos(result: &serde_json::Value) -> Result<Vec<FaucetUtxo>, St
         .collect()
 }
 
+/// What to remember after a funding: change still in the mempool that this
+/// funding did not spend, and this funding's own change. Confirmed coins are
+/// found on the chain next time.
+fn still_pending(
+    pending: &[FaucetUtxo],
+    spent: &[FaucetUtxo],
+    change: Option<FaucetUtxo>,
+) -> Vec<FaucetUtxo> {
+    pending
+        .iter()
+        .filter(|utxo| {
+            !spent
+                .iter()
+                .any(|spent| spent.txid == utxo.txid && spent.vout == utxo.vout)
+        })
+        .cloned()
+        .chain(change)
+        .collect()
+}
+
 /// The faucet's coins worth checking: those confirmed on the chain, plus
 /// recorded change that may still be in the mempool, each once.
 fn candidates(on_chain: Vec<FaucetUtxo>, recorded: &[FaucetUtxo]) -> Vec<FaucetUtxo> {
@@ -253,6 +273,9 @@ pub async fn fund(
     )
     .await?;
     let mut available = Vec::new();
+    // Outputs still waiting in the mempool, which the chain view cannot
+    // show next time.
+    let mut pending = Vec::new();
     for utxo in candidates(parse_esplora_utxos(&on_chain)?, &state.utxos) {
         // gettxout sees the mempool: an output spent there, or change from
         // a funding the node no longer knows, comes back null.
@@ -282,10 +305,14 @@ pub async fn fund(
             continue;
         };
         if is_spendable(confirmations, coinbase) {
-            available.push(FaucetUtxo {
+            let utxo = FaucetUtxo {
                 amount_sats: value.to_sat(),
                 ..utxo
-            });
+            };
+            if confirmations == 0 {
+                pending.push(utxo.clone());
+            }
+            available.push(utxo);
         }
     }
 
@@ -343,16 +370,12 @@ pub async fn fund(
         .to_string();
     Txid::from_str(&txid)
         .map_err(|e| format!("Labcoat Network returned an invalid transaction id: {e}"))?;
-    // Remember only change still waiting to confirm; confirmed coins are
-    // found on the chain next time.
-    state.utxos.clear();
-    if change >= DUST_SATS {
-        state.utxos.push(FaucetUtxo {
-            txid: txid.clone(),
-            vout: 1,
-            amount_sats: change,
-        });
-    }
+    let change = (change >= DUST_SATS).then(|| FaucetUtxo {
+        txid: txid.clone(),
+        vout: 1,
+        amount_sats: change,
+    });
+    state.utxos = still_pending(&pending, &selected, change);
     save(&state)?;
     Ok(txid)
 }
@@ -449,6 +472,25 @@ mod tests {
         );
         let ids: Vec<_> = merged.iter().map(|u| (u.txid.as_str(), u.vout)).collect();
         assert_eq!(ids, [("aa", 0), ("bb", 0), ("cc", 1)]);
+    }
+
+    #[test]
+    fn keeps_earlier_pending_change_a_funding_did_not_spend() {
+        let coin = |txid: &str| FaucetUtxo {
+            txid: txid.into(),
+            vout: 1,
+            amount_sats: 1_000,
+        };
+        // Two earlier fundings left change in the mempool; this one spent
+        // the second and made its own.
+        let kept = still_pending(
+            &[coin("first"), coin("second")],
+            &[coin("second")],
+            Some(coin("third")),
+        );
+        let ids: Vec<_> = kept.iter().map(|utxo| utxo.txid.as_str()).collect();
+        assert_eq!(ids, ["first", "third"]);
+        assert!(still_pending(&[coin("first")], &[coin("first")], None).is_empty());
     }
 
     #[test]

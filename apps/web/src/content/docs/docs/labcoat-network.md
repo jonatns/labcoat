@@ -59,7 +59,8 @@ Labcoat Network answers Bitcoin Core-style JSON-RPC at
   and `metashrew_height` and `metashrew_view`;
 - snapshots: `labcoat_snapshot` returns an id, and `labcoat_revert` with that
   id returns the chain, mempool, and index to that moment in memory. Reverting
-  uses the snapshot and every later one, as Hardhat's `evm_revert` does;
+  uses the snapshot and every later one, as Hardhat's `evm_revert` does. Ids
+  are never reused, so retrying a used id returns `false` and changes nothing;
 - identity: `labcoat_info` names the serving release and data directory.
   Labcoat only reuses a node whose answer matches it, and stops anything else
   holding the port, such as a `qubitcoind` from an earlier release.
