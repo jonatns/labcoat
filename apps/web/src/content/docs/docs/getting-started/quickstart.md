@@ -29,17 +29,10 @@ public configuration, deployment state, and agent instructions.
 ```bash
 labcoat up
 labcoat status
-labcoat wallet init
-labcoat wallet addresses
 ```
 
-Fund the displayed P2TR address and confirm it:
-
-```bash
-labcoat fund <address>
-labcoat mine 1
-labcoat wallet utxos
-```
+The network comes with a funded wallet, so you can deploy right away. See
+[Wallets](/docs/projects-configuration/#wallets) for other networks.
 
 ## Plan and deploy
 

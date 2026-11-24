@@ -23,7 +23,7 @@ surface `error.hint` to the operator or agent.
 | --- | --- | --- |
 | `LABCOAT_NETWORK_ERROR` | A Labcoat Network operation failed | Run `labcoat status` and inspect `labcoat logs` |
 | `BINARY_CRASH` | A Labcoat Network process exited | Inspect service logs |
-| `WALLET_MISSING` | No project wallet exists | Run `labcoat wallet init` |
+| `WALLET_MISSING` | The selected network has no keystore | Run `labcoat up` on Labcoat Network, or `labcoat wallet init` for another network |
 | `WALLET_LOCKED` | Passphrase is missing or incorrect | Set `LABCOAT_WALLET_PASSPHRASE` |
 | `INSUFFICIENT_FUNDS` | Spendable BTC or single-asset token outputs cannot cover the operation | Fund and mine the wallet |
 

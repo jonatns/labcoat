@@ -275,7 +275,7 @@
       },
       {
         "arguments": [],
-        "description": "Wallet management (keystore at --wallet-file)",
+        "description": "Wallet management",
         "name": "wallet",
         "path": "labcoat wallet",
         "subcommands": [
@@ -300,7 +300,7 @@
                 "required": false
               }
             ],
-            "description": "Create (or load) the project wallet. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv",
+            "description": "Create (or load) the selected network's wallet; Labcoat Network already has one after `labcoat up`. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv",
             "name": "init",
             "path": "labcoat wallet init",
             "subcommands": [],
@@ -1004,8 +1004,6 @@
       "labcoat init my-project",
       "cd my-project && labcoat test",
       "labcoat up",
-      "labcoat wallet init",
-      "labcoat fund <address> && labcoat mine 1",
       "labcoat plan",
       "labcoat deploy",
       "labcoat abi verify counter",
@@ -1029,7 +1027,7 @@
       {
         "code": "WALLET_MISSING",
         "meaning": "the project wallet does not exist",
-        "recovery": "run `labcoat wallet init`"
+        "recovery": "run `labcoat up` on Labcoat Network, or `labcoat wallet init` for another network"
       },
       {
         "code": "WALLET_LOCKED",
@@ -1236,7 +1234,7 @@
     "mcpProtocolVersion": "2024-11-05",
     "mcpTools": [
       {
-        "description": "Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
+        "description": "Boot Labcoat Network using the exact runtime bundle for this CLI release. Creates and funds the built-in wallet, then returns service status, the endpoint manifest, and the wallet.",
         "inputSchema": {
           "properties": {
             "noDownload": {
@@ -1335,7 +1333,7 @@
         "name": "network_logs"
       },
       {
-        "description": "Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
+        "description": "Create or load the selected network's wallet keystore. Not needed on Labcoat Network, which comes with a funded wallet. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
         "inputSchema": {
           "properties": {
             "mnemonic": {

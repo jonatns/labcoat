@@ -20,8 +20,6 @@ curl -fsSL https://labcoat.sh/install | sh
 labcoat init my-project
 cd my-project && labcoat test
 labcoat up
-labcoat wallet init
-labcoat fund <address> && labcoat mine 1
 labcoat plan
 labcoat deploy
 labcoat abi verify counter
@@ -216,7 +214,7 @@ Arguments and options:
 
 ### `labcoat wallet`
 
-Wallet management (keystore at --wallet-file)
+Wallet management
 
 ```text
 wallet <COMMAND>
@@ -224,7 +222,7 @@ wallet <COMMAND>
 
 #### `labcoat wallet init`
 
-Create (or load) the project wallet. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv
+Create (or load) the selected network's wallet; Labcoat Network already has one after `labcoat up`. Mnemonic is read from LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv
 
 ```text
 init [OPTIONS]
@@ -605,14 +603,14 @@ doctor
 
 | Tool | Description |
 |---|---|
-| `network_up` | Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest. |
+| `network_up` | Boot Labcoat Network using the exact runtime bundle for this CLI release. Creates and funds the built-in wallet, then returns service status, the endpoint manifest, and the wallet. |
 | `network_down` | Stop all Labcoat Network services. |
 | `network_status` | Labcoat Network service health, block height, and mempool size. |
 | `network_mine` | Mine blocks on Labcoat Network. |
 | `network_fund` | Send BTC from the Labcoat Network faucet wallet to an address. |
 | `network_reset` | Stop services and wipe all Labcoat Network chain data. |
 | `network_logs` | Recent Labcoat Network service logs. |
-| `wallet_init` | Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true. |
+| `wallet_init` | Create or load the selected network's wallet keystore. Not needed on Labcoat Network, which comes with a funded wallet. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true. |
 | `wallet_addresses` | Wallet receive addresses per script type. |
 | `wallet_utxos` | Spendable wallet UTXOs. |
 | `build` | Build Cargo contract packages and extract their Wasm-exported ABIs. |
@@ -639,7 +637,7 @@ doctor
 |---|---|---|
 | `LABCOAT_NETWORK_ERROR` | a Labcoat Network operation failed | run `labcoat status` and inspect `labcoat logs` |
 | `CONFIG_INVALID` | configuration is invalid | run `labcoat doctor` |
-| `WALLET_MISSING` | the project wallet does not exist | run `labcoat wallet init` |
+| `WALLET_MISSING` | the project wallet does not exist | run `labcoat up` on Labcoat Network, or `labcoat wallet init` for another network |
 | `WALLET_LOCKED` | the keystore could not be unlocked | set `LABCOAT_WALLET_PASSPHRASE` |
 | `WALLET_ERROR` | wallet metadata, ownership, or signing failed | inspect the wallet, PSBT prevouts, and expected derivation path |
 | `SIGNER_UNSUPPORTED` | the selected signer lacks a required capability | use the keystore signer or a compatible PSBT signer |

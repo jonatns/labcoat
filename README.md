@@ -59,10 +59,6 @@ cd hello-alkane
 labcoat test
 
 labcoat up
-labcoat wallet init
-labcoat wallet addresses
-labcoat fund <address>
-labcoat mine 1
 
 labcoat plan
 labcoat deploy

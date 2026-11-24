@@ -8,7 +8,8 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum WalletCmd {
-    /// Create (or load) the project wallet. Mnemonic is read from
+    /// Create (or load) the selected network's wallet; Labcoat Network
+    /// already has one after `labcoat up`. Mnemonic is read from
     /// LABCOAT_MNEMONIC or — with --mnemonic-stdin — from stdin; never argv.
     Init {
         /// Read the mnemonic from stdin (one line)
@@ -173,16 +174,43 @@ impl Ctx {
         crate::output::print_warning(message, self.color);
     }
 
-    /// Wallet passphrase: env var first; on regtest a loud dev default; on
+    /// The built-in wallet's passphrase is public, so it never holds a
+    /// mnemonic that could also control real coins.
+    pub fn refuse_imported_mnemonic(
+        &self,
+        mnemonic: &Option<String>,
+    ) -> Result<(), labcoat_core::LabcoatError> {
+        if mnemonic.is_some() && crate::local_wallet::is_built_in(&self.config.wallet_file) {
+            return Err(labcoat_core::LabcoatError::new(
+                "CONFIG_INVALID",
+                "a mnemonic cannot be imported into the built-in Labcoat Network wallet, whose passphrase is public",
+                "pass --wallet-file <path> to keep it in a wallet of its own",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Nobody should write down, and later reuse, the built-in wallet's
+    /// mnemonic.
+    pub fn hide_built_in_mnemonic(&self, result: &mut labcoat_core::wallet::WalletInitResult) {
+        if crate::local_wallet::is_built_in(&self.config.wallet_file) {
+            result.mnemonic = None;
+        }
+    }
+
+    /// Wallet passphrase: the built-in wallet's is fixed; otherwise env var first; on regtest a loud dev default; on
     /// public networks an interactive prompt when a terminal is available
     /// (CI keeps using the env var).
     pub fn passphrase(&self) -> Option<String> {
+        if crate::local_wallet::is_built_in(&self.config.wallet_file) {
+            return Some(crate::local_wallet::PASSPHRASE.to_string());
+        }
         match std::env::var("LABCOAT_WALLET_PASSPHRASE") {
             Ok(p) if !p.is_empty() => Some(p),
             _ => {
                 if self.config.network.uses_regtest() {
                     self.warn("LABCOAT_WALLET_PASSPHRASE not set — using the fixed development passphrase (Labcoat Network and custom regtest only)");
-                    Some("labcoat-dev".to_string())
+                    Some(crate::local_wallet::PASSPHRASE.to_string())
                 } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
                     rpassword::prompt_password(format!(
                         "wallet passphrase ({}): ",
@@ -587,11 +615,13 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, Cmd
             let passphrase = ctx.passphrase();
             let res = async {
                 ctx.config.require_passphrase_policy(&passphrase)?;
+                ctx.refuse_imported_mnemonic(&mnemonic)?;
                 let mut provider =
                     labcoat_core::system::connect(&ctx.config, passphrase.clone(), false).await?;
                 let mut result =
                     labcoat_core::wallet::init(&mut provider, &ctx.config, mnemonic, passphrase)
                         .await?;
+                ctx.hide_built_in_mnemonic(&mut result);
                 // Machine-readable output (CI logs, MCP transcripts) must not
                 // capture the mnemonic unless explicitly asked to.
                 if json && !show_mnemonic && result.mnemonic.is_some() {

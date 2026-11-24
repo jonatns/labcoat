@@ -8,6 +8,7 @@ mod contract;
 mod deploy_script;
 mod docs;
 mod doctor;
+mod local_wallet;
 mod mcp;
 mod output;
 mod project;
@@ -46,7 +47,7 @@ struct Cli {
     #[arg(long, global = true)]
     rpc_url: Option<String>,
 
-    /// Wallet keystore path (project-local by default)
+    /// Wallet keystore path (defaults to one per network, outside the project)
     #[arg(long, global = true)]
     wallet_file: Option<String>,
 
@@ -168,7 +169,7 @@ enum Commands {
         download: bool,
     },
 
-    /// Wallet management (keystore at --wallet-file)
+    /// Wallet management
     #[command(subcommand)]
     Wallet(contract::WalletCmd),
     /// Build Cargo contract packages into build/<package>.{wasm,wasm.gz,abi.json}
@@ -783,6 +784,8 @@ async fn run(cli: Cli) -> i32 {
                     );
                 }
             }
+            let wallet = local_wallet::prepare(&mut network).await;
+            status = network.status().await;
             let endpoints = network.endpoints();
             // The stack must outlive this process: dropping the handle
             // would stop the children it spawned.
@@ -791,6 +794,7 @@ async fn run(cli: Cli) -> i32 {
             let payload = serde_json::json!({
                 "status": status,
                 "endpoints": endpoints,
+                "wallet": wallet,
             });
             if json || ci {
                 output::finish(true, "up", Ok(payload), output_options)

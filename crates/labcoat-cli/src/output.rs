@@ -498,6 +498,28 @@ fn status_document(command: &str, value: &Value, verbose: bool) -> Document {
             ),
         ),
     ]);
+    if let Some(wallet) = value.get("wallet") {
+        match wallet.get("error").and_then(Value::as_str) {
+            Some(error) => document.note(
+                Tone::Warning,
+                format!("The built-in wallet is not ready: {error}. Run `labcoat up` again."),
+            ),
+            None => document.fields(vec![
+                ("Wallet", string_at(wallet, "address")),
+                (
+                    "Balance",
+                    format!(
+                        "{:.8} BTC",
+                        wallet
+                            .get("balanceSats")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0) as f64
+                            / 100_000_000.0
+                    ),
+                ),
+            ]),
+        }
+    }
     if let Some(services) = status.get("services").and_then(Value::as_array) {
         let rows = services
             .iter()

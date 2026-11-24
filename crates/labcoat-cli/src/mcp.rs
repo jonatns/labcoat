@@ -30,7 +30,7 @@ pub(crate) fn tools() -> Vec<Value> {
         "description": "cellpack args: decimal u128, 0x-hex, or short strings (≤16 bytes)"
     });
     vec![
-        tool("network_up", "Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.",
+        tool("network_up", "Boot Labcoat Network using the exact runtime bundle for this CLI release. Creates and funds the built-in wallet, then returns service status, the endpoint manifest, and the wallet.",
             json!({"noDownload": {"type": "boolean", "description": "skip the binary check/download"}}), &[]),
         tool("network_down", "Stop all Labcoat Network services.", json!({}), &[]),
         tool("network_status", "Labcoat Network service health, block height, and mempool size.", json!({}), &[]),
@@ -41,7 +41,7 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("network_reset", "Stop services and wipe all Labcoat Network chain data.", json!({}), &[]),
         tool("network_logs", "Recent Labcoat Network service logs.",
             json!({"service": {"type": "string", "enum": ["qubitcoind"]}, "limit": {"type": "integer"}}), &[]),
-        tool("wallet_init", "Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
+        tool("wallet_init", "Create or load the selected network's wallet keystore. Not needed on Labcoat Network, which comes with a funded wallet. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.",
             json!({"mnemonic": {"type": "string"}, "showMnemonic": {"type": "boolean"}}), &[]),
         tool("wallet_addresses", "Wallet receive addresses per script type.",
             json!({"count": {"type": "integer", "minimum": 1}}), &[]),
@@ -156,10 +156,11 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             network
                 .start()
                 .map_err(|e| (e, "see network_logs for the failing service".into()))?;
+            let wallet = crate::local_wallet::prepare(&mut network).await;
             let status = network.status().await;
             let endpoints = network.endpoints();
             std::mem::forget(network); // services must outlive this process
-            Ok(json!({ "status": status, "endpoints": endpoints }))
+            Ok(json!({ "status": status, "endpoints": endpoints, "wallet": wallet }))
         }
         "network_down" => {
             let mut network = LabcoatNetwork::new();
@@ -244,6 +245,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             let res: Result<labcoat_core::wallet::WalletInitResult, labcoat_core::LabcoatError> =
                 async {
                     ctx.config.require_passphrase_policy(&passphrase)?;
+                    ctx.refuse_imported_mnemonic(&mnemonic)?;
                     let mut provider =
                         labcoat_core::system::connect(&ctx.config, passphrase.clone(), false)
                             .await?;
@@ -254,6 +256,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
                         passphrase,
                     )
                     .await?;
+                    ctx.hide_built_in_mnemonic(&mut result);
                     // MCP transcripts are logs; never capture a generated
                     // mnemonic in one unless the caller asked for it.
                     if !show_mnemonic && result.mnemonic.is_some() {

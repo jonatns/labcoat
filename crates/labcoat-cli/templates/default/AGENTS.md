@@ -18,7 +18,7 @@ Commit the `Cargo.lock` created by the first build. `rust-toolchain.toml` pins
 the Rust toolchain and WebAssembly targets this Labcoat release is tested with;
 rustup installs them automatically. Change it only together with a Labcoat
 upgrade, and run `labcoat doctor` to check it. Run `labcoat test`, then
-`labcoat up`, `labcoat wallet init`, `labcoat plan`, and
+`labcoat up` (which comes with a funded wallet), `labcoat plan`, and
 `labcoat deploy`.
 Use `labcoat simulate counter get_count` and `labcoat call counter increment`
 for the starter contract. Use `--json` for machine-readable envelopes and

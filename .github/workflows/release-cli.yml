@@ -336,10 +336,9 @@ jobs:
           cd "$work"
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" init counter-app --json
           cd counter-app
-          wallet=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" wallet init --json)
-          address=$(jq -r .result.address <<<"$wallet")
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" fund "$address" 1 --json
-          "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" mine 1 --json
+          wallet=$("$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" up --no-download --ci --json)
+          test "$(jq -r .result.wallet.balanceSats <<<"$wallet")" -ge 100000000
+          address=$(jq -r .result.wallet.address <<<"$wallet")
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" test --json
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" deploy --json
           "$GITHUB_WORKSPACE/dist/labcoat-linux-x86_64" simulate counter get_count --json

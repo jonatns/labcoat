@@ -100,20 +100,13 @@ The script declares five steps and executes none of them. Two details matter:
   Labcoat the method name belongs to the logic: the proxy's own ABI knows only
   proxy methods.
 
-## Start the network and fund the wallet
+## Start the network
 
 ```bash
 labcoat up
-labcoat wallet init
-labcoat wallet addresses
 ```
 
-Fund the displayed address and confirm it:
-
-```bash
-labcoat fund <address>
-labcoat mine 1
-```
+It comes with a funded wallet.
 
 ## Review the plan
 

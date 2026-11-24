@@ -145,20 +145,19 @@ fn mints_the_supply_to_the_deployer() -> Result<(), Box<dyn std::error::Error>> 
 labcoat test token
 ```
 
-## Start the network and create two wallets
+## Start the network and create a second wallet
 
-The project wallet plays the buyer. A second keystore file plays the seller.
+The network's built-in wallet plays the buyer. A second keystore file plays the seller.
 
 ```bash
 labcoat up
-labcoat wallet init
 labcoat --wallet-file seller.json wallet init
 ```
 
-Each `wallet init` prints its primary P2TR address. Fund both and mine a block:
+`labcoat up` prints the buyer's address, already funded. `wallet init` prints
+the seller's. Fund it and mine a block:
 
 ```bash
-labcoat fund <buyer-address> 2
 labcoat fund <seller-address> 2
 labcoat mine 1
 ```

@@ -48,6 +48,29 @@ Bitcoin regtest protocol rules underneath but is not Signet. The separate
 `regtest` selector is reserved for custom regtest RPC endpoints and is rejected
 with the default Labcoat endpoint.
 
+## Wallets
+
+Keystores live in Labcoat's data directory, one per network, never in the
+project:
+
+| Platform | Path |
+|---|---|
+| macOS | `~/Library/Application Support/Labcoat/wallets/<network>.json` |
+| Linux | `~/.local/share/labcoat/wallets/<network>.json` |
+
+Labcoat Network's wallet is created and funded by `labcoat up`. Its passphrase
+is public, so Labcoat refuses to use it on any other network or to import a
+mnemonic into it. Every other network needs its own:
+
+```bash
+labcoat --network signet wallet init
+```
+
+`--wallet-file`, `LABCOAT_WALLET_FILE`, or `wallet_file` in `labcoat.toml`
+select a different keystore. A project created before this change sets
+`wallet_file = ".labcoat/wallet.json"` and keeps using it on every network;
+remove that line to use the defaults.
+
 ## Secrets
 
 Never put a mnemonic or passphrase in `labcoat.toml` or on the command line.

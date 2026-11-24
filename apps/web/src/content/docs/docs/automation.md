@@ -23,8 +23,8 @@ labcoat deploy --json
   "schema": "labcoat/v1/error",
   "error": {
     "code": "WALLET_MISSING",
-    "message": "project wallet does not exist",
-    "hint": "run `labcoat wallet init` first"
+    "message": "no wallet keystore exists at .../wallets/signet.json",
+    "hint": "run `labcoat up` for Labcoat Network's built-in wallet, or `labcoat wallet init` to create one"
   }
 }
 ```

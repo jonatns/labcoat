@@ -10,7 +10,8 @@ Add another minimal contract and matching test with
 
 1. Run `labcoat test` for host-side Rust integration tests.
 2. Run `labcoat up --json` and wait for `result.status.is_ready`.
-3. Initialize the keystore with `labcoat wallet init --json`.
+3. The network comes with a funded wallet: `result.wallet` in that output.
+   Never create, import, or move keys unless asked.
 4. Preview the deployment with `labcoat plan --json`; it signs nothing.
 5. Deploy what `deploy.rs` declares with `labcoat deploy --json`;
    Labcoat recompiles each package first and skips steps that already ran.

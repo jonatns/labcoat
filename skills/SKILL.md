@@ -28,16 +28,19 @@ endpoint (`http://127.0.0.1:18443`).
 
 ## 2. Wallet
 
+Labcoat Network comes with a funded wallet: `up` creates it, tops it up, and
+returns `result.wallet`. No setup is needed, and it works on no other network.
+
 ```bash
-labcoat wallet init --json                 # creates .labcoat/wallet.json
-labcoat wallet addresses --json            # p2tr address is the primary
-labcoat fund <p2tr-address> --json         # faucet 1 BTC
-labcoat mine 1 --json                      # confirm it
-labcoat wallet utxos --json                # verify spendable balance
+labcoat wallet utxos --json                       # verify spendable balance
+labcoat --network signet wallet init --json       # other networks only
 ```
 
-Secrets: `LABCOAT_WALLET_PASSPHRASE` env (Labcoat Network and custom regtest
-have a development default);
+Keystores live in Labcoat's data directory, one per network, not in the
+project. Never create, import, or move keys unless asked.
+
+Secrets: `LABCOAT_WALLET_PASSPHRASE` env (custom regtest has a development
+default; the built-in wallet needs none);
 mnemonic via `LABCOAT_MNEMONIC` env or `wallet init --mnemonic-stdin`.
 Never place either on argv.
 
@@ -207,14 +210,14 @@ stdio. Prefer it when a host supports MCP; the JSON envelopes above are the
 fallback.
 
 <!-- BEGIN GENERATED MCP TOOLS -->
-- `network_up` — Boot Labcoat Network using the exact runtime bundle for this CLI release. Returns service status and the endpoint manifest.
+- `network_up` — Boot Labcoat Network using the exact runtime bundle for this CLI release. Creates and funds the built-in wallet, then returns service status, the endpoint manifest, and the wallet.
 - `network_down` — Stop all Labcoat Network services.
 - `network_status` — Labcoat Network service health, block height, and mempool size.
 - `network_mine` — Mine blocks on Labcoat Network.
 - `network_fund` — Send BTC from the Labcoat Network faucet wallet to an address.
 - `network_reset` — Stop services and wipe all Labcoat Network chain data.
 - `network_logs` — Recent Labcoat Network service logs.
-- `wallet_init` — Create or load the project wallet keystore. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.
+- `wallet_init` — Create or load the selected network's wallet keystore. Not needed on Labcoat Network, which comes with a funded wallet. Optional mnemonic (else generated). Generated mnemonics are redacted from the response unless showMnemonic is true.
 - `wallet_addresses` — Wallet receive addresses per script type.
 - `wallet_utxos` — Spendable wallet UTXOs.
 - `build` — Build Cargo contract packages and extract their Wasm-exported ABIs.

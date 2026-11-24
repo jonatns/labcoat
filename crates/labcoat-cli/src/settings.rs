@@ -5,7 +5,6 @@ use std::str::FromStr;
 
 const DEFAULT_NETWORK: &str = "labcoat";
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:18443";
-const DEFAULT_WALLET_FILE: &str = ".labcoat/wallet.json";
 const DEFAULT_ENVIRONMENT: &str = "default";
 
 #[derive(Debug, Default, Deserialize)]
@@ -82,7 +81,14 @@ fn resolve_in_with(
         .map(PathBuf::from)
         .or_else(|| env("LABCOAT_WALLET_FILE").map(PathBuf::from))
         .or(config.wallet_file)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_WALLET_FILE));
+        .unwrap_or_else(|| crate::local_wallet::default_path(network));
+    if network != NetworkTarget::Labcoat && crate::local_wallet::is_built_in(&wallet_file) {
+        return Err(format!(
+            "the built-in Labcoat Network wallet cannot be used on {}; its passphrase is public. Create a wallet for this network with `labcoat --network {} wallet init`",
+            network.id(),
+            network.id()
+        ));
+    }
     let env_fee_rate = env("LABCOAT_FEE_RATE")
         .filter(|value| !value.is_empty())
         .map(|value| {
@@ -125,7 +131,7 @@ pub fn labcoat_network() -> ResolvedSettings {
     ResolvedSettings {
         network: NetworkTarget::Labcoat,
         rpc_url: DEFAULT_RPC_URL.to_string(),
-        wallet_file: PathBuf::from(DEFAULT_WALLET_FILE),
+        wallet_file: crate::local_wallet::default_path(NetworkTarget::Labcoat),
         fee_rate: Some(2.0),
         signer: "keystore".to_string(),
         environment: DEFAULT_ENVIRONMENT.to_string(),
@@ -263,6 +269,36 @@ mod tests {
         let resolved = resolve_in_with(&root, Overrides::default(), |_| None).unwrap();
         assert_eq!(resolved.network, NetworkTarget::Labcoat);
         assert_eq!(resolved.rpc_url, DEFAULT_RPC_URL);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn keystores_default_outside_the_project_and_the_built_in_one_stays_local() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-settings-wallets-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let on = |network, wallet_file: Option<&str>| {
+            resolve_in_with(
+                &root,
+                Overrides {
+                    network: Some(network),
+                    wallet_file,
+                    ..Overrides::default()
+                },
+                |_| None,
+            )
+        };
+        let local = on("labcoat", None).unwrap().wallet_file;
+        let signet = on("signet", None).unwrap().wallet_file;
+        assert_ne!(local, signet);
+        assert!(!local.starts_with(&root) && !signet.starts_with(&root));
+        assert!(on("signet", local.to_str())
+            .unwrap_err()
+            .contains("built-in"));
+        assert_eq!(
+            on("signet", Some("mine.json")).unwrap().wallet_file,
+            PathBuf::from("mine.json")
+        );
         std::fs::remove_dir_all(root).ok();
     }
 

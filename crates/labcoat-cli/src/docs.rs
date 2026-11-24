@@ -18,7 +18,7 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     (
         "WALLET_MISSING",
         "the project wallet does not exist",
-        "run `labcoat wallet init`",
+        "run `labcoat up` on Labcoat Network, or `labcoat wallet init` for another network",
     ),
     (
         "WALLET_LOCKED",
@@ -287,8 +287,6 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
             "labcoat init my-project".into(),
             "cd my-project && labcoat test".into(),
             "labcoat up".into(),
-            "labcoat wallet init".into(),
-            "labcoat fund <address> && labcoat mine 1".into(),
             "labcoat plan".into(),
             "labcoat deploy".into(),
             "labcoat abi verify counter".into(),

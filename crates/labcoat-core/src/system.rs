@@ -90,7 +90,7 @@ pub struct ToolkitConfig {
     pub network: NetworkTarget,
     /// Direct Qubitcoin RPC endpoint.
     pub rpc_url: String,
-    /// Keystore path (project-local by default).
+    /// Keystore path.
     pub wallet_file: PathBuf,
     /// Fee rate in sat/vB for state-changing operations.
     pub fee_rate: Option<f32>,
@@ -247,7 +247,7 @@ fn require_keystore(path: &std::path::Path) -> Result<()> {
         Ok(false) => Err(LabcoatError::new(
             "WALLET_MISSING",
             format!("no wallet keystore exists at {}", path.display()),
-            "run `labcoat wallet init` first",
+            "run `labcoat up` for Labcoat Network's built-in wallet, or `labcoat wallet init` to create one",
         )),
         Err(error) => Err(LabcoatError::new(
             "TOOLKIT_ERROR",
@@ -413,7 +413,7 @@ mod tests {
             )
         );
         assert!(!error.message.contains("address-only"));
-        assert_eq!(error.hint, "run `labcoat wallet init` first");
+        assert!(error.hint.contains("labcoat wallet init"));
         // Failing early must not leave a stray `.labcoat/` behind.
         assert!(!dir.exists());
 
