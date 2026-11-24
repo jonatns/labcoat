@@ -49,6 +49,14 @@ download matches the digest. Remove the `prebuilt` entry when pinning a
 revision that can be built from source again; a new revision cannot reuse an
 older build.
 
+## Runtime build runners
+
+The release builds `qubitcoind` on pinned runner images, `ubuntu-24.04` and
+`macos-15`, not on `ubuntu-latest` or a retired label. The pinned Qubitcoin
+revision vendors RocksDB 8.1.1, which does not compile with the GCC on
+`ubuntu-26.04`, and the older Ubuntu image keeps the Linux binary's glibc
+baseline. Revisit both pins when the Qubitcoin revision changes.
+
 ## Toolchains
 
 | Tool | Version | Where enforced |

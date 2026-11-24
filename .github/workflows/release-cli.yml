@@ -167,7 +167,10 @@ jobs:
         include:
           - runner: macos-15
             suffix: darwin-arm64
-          - runner: ubuntu-latest
+          # Pinned: the RocksDB 8.1.1 that Qubitcoin vendors does not compile
+          # with the GCC on ubuntu-26.04, and the older image keeps the
+          # binary's glibc baseline.
+          - runner: ubuntu-24.04
             suffix: linux-x86_64
     runs-on: ${{ matrix.runner }}
     steps:
