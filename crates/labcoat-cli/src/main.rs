@@ -43,7 +43,8 @@ struct Cli {
     #[arg(long, global = true)]
     network: Option<String>,
 
-    /// Unified JSON-RPC endpoint (defaults to Labcoat Network)
+    /// JSON-RPC endpoint, or `subfrost` (defaults to Labcoat Network
+    /// locally and to Subfrost on signet and mainnet)
     #[arg(long, global = true)]
     rpc_url: Option<String>,
 

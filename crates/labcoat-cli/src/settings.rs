@@ -60,16 +60,34 @@ fn resolve_in_with(
     let network_value = choose_string(
         overrides.network,
         env("LABCOAT_NETWORK"),
-        config.network,
+        config.network.clone(),
         DEFAULT_NETWORK,
     );
     let network = NetworkTarget::from_str(&network_value)?;
+    // labcoat.toml describes one network. Its endpoint must not follow a
+    // `--network` override to a different chain.
+    let file_network = config
+        .network
+        .as_deref()
+        .map_or(Ok(NetworkTarget::Labcoat), NetworkTarget::from_str)?;
     let rpc_url = choose_string(
         overrides.rpc_url,
         env("LABCOAT_RPC_URL"),
-        config.rpc_url,
-        DEFAULT_RPC_URL,
+        config.rpc_url.filter(|_| file_network == network),
+        default_rpc_url(network),
     );
+    let rpc_url = if rpc_url == "subfrost" {
+        subfrost_rpc_url(network)
+            .ok_or_else(|| {
+                format!(
+                    "Subfrost has no endpoint for network '{}'; use signet, mainnet, or regtest",
+                    network.id()
+                )
+            })?
+            .to_string()
+    } else {
+        rpc_url
+    };
     if network == NetworkTarget::Regtest && rpc_url == DEFAULT_RPC_URL {
         return Err(
             "network 'regtest' is reserved for custom regtest RPCs; use network = \"labcoat\" for Labcoat Network or configure a non-default rpc_url"
@@ -125,6 +143,26 @@ fn resolve_in_with(
         signer,
         environment,
     })
+}
+
+/// Subfrost's hosted Alkanes JSON-RPC for `network`.
+fn subfrost_rpc_url(network: NetworkTarget) -> Option<&'static str> {
+    match network {
+        NetworkTarget::Signet => Some("https://signet.subfrost.io/v4/jsonrpc"),
+        NetworkTarget::Mainnet => Some("https://mainnet.subfrost.io/v4/jsonrpc"),
+        NetworkTarget::Regtest => Some("https://regtest.subfrost.io/v4/jsonrpc"),
+        _ => None,
+    }
+}
+
+/// Public networks default to Subfrost; everything else is a local node.
+fn default_rpc_url(network: NetworkTarget) -> &'static str {
+    match network {
+        NetworkTarget::Signet | NetworkTarget::Mainnet => {
+            subfrost_rpc_url(network).expect("Subfrost serves signet and mainnet")
+        }
+        _ => DEFAULT_RPC_URL,
+    }
 }
 
 pub fn labcoat_network() -> ResolvedSettings {
@@ -299,6 +337,49 @@ mod tests {
             on("signet", Some("mine.json")).unwrap().wallet_file,
             PathBuf::from("mine.json")
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn public_networks_default_to_subfrost_and_never_inherit_the_local_endpoint() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-settings-subfrost-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("labcoat.toml"),
+            "network = \"labcoat\"\nrpc_url = \"http://127.0.0.1:18443\"\n",
+        )
+        .unwrap();
+        let rpc = |network: Option<&str>, rpc_url: Option<&str>| {
+            resolve_in_with(
+                &root,
+                Overrides {
+                    network,
+                    rpc_url,
+                    ..Overrides::default()
+                },
+                |_| None,
+            )
+            .map(|settings| settings.rpc_url)
+        };
+        assert_eq!(rpc(None, None).unwrap(), DEFAULT_RPC_URL);
+        assert_eq!(
+            rpc(Some("signet"), None).unwrap(),
+            "https://signet.subfrost.io/v4/jsonrpc"
+        );
+        assert_eq!(
+            rpc(Some("mainnet"), None).unwrap(),
+            "https://mainnet.subfrost.io/v4/jsonrpc"
+        );
+        assert_eq!(
+            rpc(Some("signet"), Some("http://mine")).unwrap(),
+            "http://mine"
+        );
+        assert_eq!(
+            rpc(Some("regtest"), Some("subfrost")).unwrap(),
+            "https://regtest.subfrost.io/v4/jsonrpc"
+        );
+        assert!(rpc(Some("testnet"), Some("subfrost")).is_err());
         std::fs::remove_dir_all(root).ok();
     }
 

@@ -43,6 +43,31 @@ CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
 `default`). The default network is `labcoat` and the default Qubitcoin RPC
 endpoint is `http://127.0.0.1:18443`.
 
+## Signet and mainnet through Subfrost
+
+`--network signet` and `--network mainnet` use [Subfrost](https://subfrost.io)'s
+hosted Alkanes JSON-RPC unless you set another endpoint:
+
+```bash
+labcoat --network signet simulate 2:0 99
+labcoat --network signet plan
+```
+
+| Network | Default endpoint |
+|---|---|
+| `signet` | `https://signet.subfrost.io/v4/jsonrpc` |
+| `mainnet` | `https://mainnet.subfrost.io/v4/jsonrpc` |
+
+`rpc_url = "subfrost"` (or `--rpc-url subfrost`) names the same endpoints, and
+Subfrost's hosted regtest with `--network regtest`. Set `SUBFROST_API_KEY` to
+send an API key; the public endpoints answer without one, with their own
+limits. An `rpc_url` in `labcoat.toml` applies only to the network that file
+names, so a local endpoint never follows `--network signet`.
+
+Reads and `labcoat plan` work today. Signing on a public network needs a
+wallet for it (`labcoat --network signet wallet init`) and has not been
+proven end to end; mainnet deployment controls are not production-ready.
+
 `labcoat` selects Labcoat Network, Labcoat's local/private environment. It uses
 Bitcoin regtest protocol rules underneath but is not Signet. The separate
 `regtest` selector is reserved for custom regtest RPC endpoints and is rejected
