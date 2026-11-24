@@ -81,9 +81,12 @@ Labcoat Network answers Bitcoin Core-style JSON-RPC at
   uses the snapshot and every later one, as Hardhat's `evm_revert` does. Ids
   are never reused, so retrying a used id returns `false` and changes nothing;
 - identity: `labcoat_info` names the serving release and data directory.
-  Labcoat only reuses a node whose answer matches it. It replaces an earlier
-  release's node for the same data home, and a `qubitcoind` left by a release
-  that ran one. It leaves a network that serves another data home running.
+  Labcoat only reuses a node whose answer matches it, and only stops what it
+  can identify as this data home's: an earlier release's node that answers
+  for the same data directory, the process its own pid file records, and a
+  `qubitcoind` that an earlier release started on this data home. A network
+  that serves another data home, and any program Labcoat does not recognize,
+  keeps running: `labcoat up` fails and says the port is taken.
 
 ```bash
 id=$(curl -s -d '{"jsonrpc":"2.0","id":1,"method":"labcoat_snapshot"}' http://127.0.0.1:18443 | jq .result)

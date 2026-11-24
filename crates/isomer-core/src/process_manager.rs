@@ -104,18 +104,33 @@ impl ProcessManager {
         }
     }
 
-    /// Stop a network started by an earlier command: ask it to stop, then
-    /// end the recorded process if it is still running. Also ends a
-    /// `qubitcoind` left by a Labcoat release that used one, since it would
-    /// hold the network's port. A network serving another data home on the
-    /// same port is not this one, and is not asked to stop.
+    /// Stop this data home's network, started by an earlier command. Only
+    /// processes Labcoat can identify as this data home's are touched:
+    ///
+    /// - a node that answers `labcoat_info` for this data home is asked to
+    ///   stop over RPC;
+    /// - the process recorded in this data home's pid file is ended, if it
+    ///   is still a `labcoat node` serving this data home;
+    /// - a `qubitcoind` an earlier release started on this data home is
+    ///   ended.
+    ///
+    /// Anything else, on the port or under the same program name, is left
+    /// running.
     pub fn stop_running(config: &IsomerConfig) {
-        let pid_file = get_network_dir().join(PID_FILE);
-        let another_home = matches!(
+        Self::stop_running_in(config, &get_network_dir(), &crate::config::get_data_dir());
+    }
+
+    fn stop_running_in(
+        config: &IsomerConfig,
+        network_dir: &std::path::Path,
+        data_dir: &std::path::Path,
+    ) {
+        let pid_file = network_dir.join(PID_FILE);
+        let ours = matches!(
             crate::rpc::identify_blocking(config, Duration::from_secs(2)),
-            crate::rpc::NodeIdentity::OtherDataHome(_)
+            crate::rpc::NodeIdentity::Own | crate::rpc::NodeIdentity::OwnOtherRelease
         );
-        let asked = !another_home
+        let asked = ours
             && crate::rpc::call_blocking_with_timeout(
                 config,
                 "stop",
@@ -130,17 +145,16 @@ impl ProcessManager {
         while pid_file.exists() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
-        if let Some(pid) = recorded_pid() {
-            if process_alive(pid) {
-                signal(pid, true);
+        let recorded = recorded_pid(&pid_file);
+        for (pid, command) in &running_processes() {
+            // A pid file can outlive its process, and the number can be
+            // given to an unrelated one: the command line has to match too.
+            let recorded_node = recorded == Some(*pid) && is_node_for(command, network_dir);
+            if recorded_node || is_legacy_qubitcoind_for(command, data_dir) {
+                signal(*pid, true);
             }
         }
         let _ = std::fs::remove_file(&pid_file);
-
-        #[cfg(unix)]
-        {
-            let _ = Command::new("pkill").args(["-x", "qubitcoind"]).output();
-        }
     }
 
     pub fn get_logs(&self, service_filter: Option<String>, limit: usize) -> Vec<LogEntry> {
@@ -402,8 +416,8 @@ impl Drop for ProcessManager {
     }
 }
 
-fn recorded_pid() -> Option<u32> {
-    std::fs::read_to_string(get_network_dir().join(PID_FILE))
+fn recorded_pid(pid_file: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(pid_file)
         .ok()?
         .trim()
         .parse()
@@ -411,17 +425,51 @@ fn recorded_pid() -> Option<u32> {
         .filter(|pid| *pid != std::process::id())
 }
 
-fn process_alive(pid: u32) -> bool {
+/// Every running process with its command line. Empty when the process
+/// table cannot be read, and then nothing is signalled.
+fn running_processes() -> Vec<(u32, String)> {
     #[cfg(unix)]
     {
-        // SAFETY: signal 0 only checks that the process exists.
-        unsafe { libc::kill(pid as i32, 0) == 0 }
+        let Ok(output) = Command::new("ps")
+            .args(["-axww", "-o", "pid=", "-o", "args="])
+            .output()
+        else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let (pid, command) = line.trim_start().split_once(char::is_whitespace)?;
+                Some((pid.parse().ok()?, command.trim().to_string()))
+            })
+            .filter(|(pid, _)| *pid != std::process::id())
+            .collect()
     }
     #[cfg(not(unix))]
     {
-        let _ = pid;
-        false
+        Vec::new()
     }
+}
+
+/// Whether `command` is a `labcoat node` serving `network_dir`, as
+/// [`ProcessManager::build_args`] starts it. Paths can hold spaces, so the
+/// command line is matched as text, not split into arguments.
+fn is_node_for(command: &str, network_dir: &std::path::Path) -> bool {
+    command.contains(" node --port ")
+        && command.contains(&format!("--data-dir {} --indexer ", network_dir.display()))
+}
+
+/// Whether `command` is a `qubitcoind` that an earlier Labcoat release
+/// started on this data home: those releases kept its chain below
+/// `data_dir`. A `qubitcoind` with any other data directory is someone
+/// else's.
+fn is_legacy_qubitcoind_for(command: &str, data_dir: &std::path::Path) -> bool {
+    command.contains("qubitcoind")
+        && command.contains(&format!(
+            "-datadir={}{}",
+            data_dir.display(),
+            std::path::MAIN_SEPARATOR
+        ))
 }
 
 /// Ask a process to stop, or with `force`, end it.
@@ -466,6 +514,109 @@ mod tests {
 
     #[test]
     fn this_process_is_never_its_own_orphan() {
-        assert!(process_alive(std::process::id()));
+        assert!(running_processes()
+            .iter()
+            .all(|(pid, _)| *pid != std::process::id()));
+    }
+
+    #[cfg(unix)]
+    /// A JSON-RPC server that is not Labcoat's. Returns its config and the
+    /// methods it has been sent.
+    fn foreign_service() -> (IsomerConfig, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut config = IsomerConfig::default();
+        config.ports.rpc = listener.local_addr().unwrap().port();
+        let methods = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = methods.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 1024];
+                // The requests are small: read until the JSON body closes.
+                while !request.ends_with(b"}") {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => request.extend_from_slice(&chunk[..read]),
+                    }
+                }
+                let text = String::from_utf8_lossy(&request);
+                let body = text.split("\r\n\r\n").nth(1).unwrap_or_default();
+                if let Ok(call) = serde_json::from_str::<serde_json::Value>(body) {
+                    if let Some(method) = call.get("method").and_then(|m| m.as_str()) {
+                        seen.lock().unwrap().push(method.to_string());
+                    }
+                }
+                let answer = r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":1}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+            }
+        });
+        (config, methods)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_foreign_service_on_the_port_is_never_asked_to_stop() {
+        let home = std::env::temp_dir().join(format!("labcoat-foreign-{}", std::process::id()));
+        let network_dir = home.join("runtime-v3/network");
+        std::fs::create_dir_all(&network_dir).unwrap();
+        // A stale pid file naming a live process that is not a Labcoat
+        // node: the test's own parent.
+        let bystander = std::os::unix::process::parent_id();
+        std::fs::write(network_dir.join(PID_FILE), bystander.to_string()).unwrap();
+
+        let (config, methods) = foreign_service();
+        ProcessManager::stop_running_in(&config, &network_dir, &home);
+
+        // It was asked who it is, and nothing else.
+        assert_eq!(*methods.lock().unwrap(), ["labcoat_info"]);
+        // It still answers, and the bystander is still running.
+        assert_eq!(
+            crate::rpc::identify_blocking(&config, Duration::from_secs(2)),
+            crate::rpc::NodeIdentity::Foreign
+        );
+        // SAFETY: signal 0 only checks that the process exists.
+        assert_eq!(unsafe { libc::kill(bystander as i32, 0) }, 0);
+        std::fs::remove_dir_all(home).ok();
+    }
+
+    #[test]
+    fn only_this_data_homes_node_is_recognized() {
+        let network =
+            std::path::Path::new("/home/dev/Application Support/Isomer/runtime-v3/network");
+        let ours = "/usr/local/bin/labcoat node --port 18443 --data-dir /home/dev/Application Support/Isomer/runtime-v3/network --indexer /r/alkanes.wasm --cache-dir /r/compiled";
+        assert!(is_node_for(ours, network));
+        // Another data home's node, a directory that only starts the same
+        // way, and an unrelated process that was given a recorded pid.
+        for other in [
+            "/usr/local/bin/labcoat node --port 18443 --data-dir /elsewhere/Isomer/runtime-v3/network --indexer /r/alkanes.wasm --cache-dir /r/compiled",
+            "/usr/local/bin/labcoat node --port 18443 --data-dir /home/dev/Application Support/Isomer/runtime-v3/network-2 --indexer /r/alkanes.wasm --cache-dir /r/compiled",
+            "/usr/bin/python3 -m http.server 18443",
+            "vim /home/dev/Application Support/Isomer/runtime-v3/network/node.pid",
+        ] {
+            assert!(!is_node_for(other, network), "{other}");
+        }
+    }
+
+    #[test]
+    fn only_this_data_homes_legacy_qubitcoind_is_recognized() {
+        let data = std::path::Path::new("/home/dev/.local/share/Isomer");
+        let ours = "/home/dev/.local/share/labcoat/runtimes/cli-v0.3.0/qubitcoind -regtest=1 -rpcbind=127.0.0.1 -datadir=/home/dev/.local/share/Isomer/runtime-v2/qubitcoin -synchronous-secondary=1";
+        assert!(is_legacy_qubitcoind_for(ours, data));
+        // Someone else's qubitcoind, another data home's, a directory that
+        // only starts the same way, and another program on our directory.
+        for other in [
+            "/opt/qubitcoin/bin/qubitcoind -regtest=1 -datadir=/srv/qubitcoin",
+            "/tmp/other/labcoat/runtimes/cli-v0.3.0/qubitcoind -regtest=1 -datadir=/tmp/other/Isomer/runtime-v2/qubitcoin",
+            "/opt/qubitcoin/bin/qubitcoind -datadir=/home/dev/.local/share/Isomer-backup/qubitcoin",
+            "bitcoind -regtest -datadir=/home/dev/.local/share/Isomer/runtime-v2/qubitcoin",
+        ] {
+            assert!(!is_legacy_qubitcoind_for(other, data), "{other}");
+        }
     }
 }

@@ -175,11 +175,14 @@ fn exchange_blocking(
 pub enum NodeIdentity {
     /// This release's node, serving this data home.
     Own,
+    /// Another release's node, serving this data home. It is this data
+    /// home's network, so it may be stopped and replaced.
+    OwnOtherRelease,
     /// A Labcoat Network serving another data home, named here. It belongs
     /// to another project or session and is never stopped from this one.
     OtherDataHome(String),
-    /// Something else answered: another program, or another release's node
-    /// for this data home.
+    /// Something else answered. Labcoat cannot tell whose it is, so it is
+    /// never asked to stop.
     Foreign,
     /// Nothing is listening.
     Absent,
@@ -193,6 +196,7 @@ pub fn identify_blocking(config: &IsomerConfig, timeout: std::time::Duration) ->
     match exchange_blocking(config, "labcoat_info", serde_json::json!([]), timeout) {
         Ok(response) => match result_from_response(response) {
             Ok(info) if is_own_node_info(&info) => NodeIdentity::Own,
+            Ok(info) if serves_this_data_home(&info) => NodeIdentity::OwnOtherRelease,
             Ok(info) => match other_data_home(&info) {
                 Some(data_dir) => NodeIdentity::OtherDataHome(data_dir),
                 None => NodeIdentity::Foreign,
@@ -217,14 +221,21 @@ fn is_own_node_info(info: &serde_json::Value) -> bool {
         && info.get("dataDir").and_then(serde_json::Value::as_str) == Some(data_dir.as_str())
 }
 
+/// Whether `labcoat_info` describes a Labcoat Network serving this data
+/// home, whatever its release.
+fn serves_this_data_home(info: &serde_json::Value) -> bool {
+    let own = crate::config::get_network_dir().display().to_string();
+    info.get("name").and_then(serde_json::Value::as_str) == Some("Labcoat Network")
+        && info.get("dataDir").and_then(serde_json::Value::as_str) == Some(own.as_str())
+}
+
 /// The data directory of a Labcoat Network that serves a data home other
 /// than this one, whatever its release.
 fn other_data_home(info: &serde_json::Value) -> Option<String> {
     let data_dir = info.get("dataDir").and_then(serde_json::Value::as_str)?;
-    let own = crate::config::get_network_dir().display().to_string();
     (info.get("name").and_then(serde_json::Value::as_str) == Some("Labcoat Network")
-        && data_dir != own)
-        .then(|| data_dir.to_string())
+        && !serves_this_data_home(info))
+    .then(|| data_dir.to_string())
 }
 
 /// Whether this release's node is serving this data home on the port.
@@ -459,14 +470,15 @@ mod tests {
             NodeIdentity::OtherDataHome("/another/home/network".into())
         );
 
-        // An earlier release's node for this data home is replaced.
+        // An earlier release's node for this data home is recognized as
+        // this data home's, so it can be replaced.
         let earlier = format!(
             r#"{{"jsonrpc":"2.0","result":{{"name":"Labcoat Network","version":"0.0.1","dataDir":{}}},"id":1}}"#,
             serde_json::to_string(&crate::config::get_network_dir().display().to_string()).unwrap()
         );
         assert_eq!(
             identify_blocking(&serve(Some(Box::leak(earlier.into_boxed_str()))), short),
-            NodeIdentity::Foreign
+            NodeIdentity::OwnOtherRelease
         );
     }
 

@@ -51,13 +51,15 @@ impl LabcoatNetwork {
     }
 
     /// Start Labcoat Network and bootstrap the persistent faucet. This
-    /// release's node, already serving this data home, is left running. A
-    /// network serving another data home is someone else's and is left
-    /// running too: starting fails instead. Anything else on the port is
-    /// stopped first.
+    /// release's node, already serving this data home, is left running, and
+    /// an earlier release's is replaced. Nothing else is stopped: a network
+    /// serving another data home, or a program Labcoat cannot identify,
+    /// keeps the port, and starting fails instead.
     pub fn start(&mut self) -> Result<(), String> {
+        use crate::rpc::NodeIdentity;
         let config = self.config.clone();
-        match crate::rpc::identify_blocking(&config, std::time::Duration::from_secs(2)) {
+        let identify = || crate::rpc::identify_blocking(&config, std::time::Duration::from_secs(2));
+        match identify() {
             crate::rpc::NodeIdentity::Own => {}
             crate::rpc::NodeIdentity::OtherDataHome(data_dir) => {
                 return Err(format!(
@@ -71,8 +73,22 @@ impl LabcoatNetwork {
                     config.ports.rpc
                 ));
             }
-            crate::rpc::NodeIdentity::Foreign | crate::rpc::NodeIdentity::Absent => {
+            NodeIdentity::OwnOtherRelease | NodeIdentity::Absent => {
                 ProcessManager::stop_running(&config);
+                self.process_manager.start_all(&config)?;
+            }
+            NodeIdentity::Foreign => {
+                // The one unrecognized program that can be this data home's
+                // is the `qubitcoind` an earlier release started for it.
+                // Stopping that one is the whole cleanup: whatever still
+                // holds the port afterwards is not Labcoat's to stop.
+                ProcessManager::stop_running(&config);
+                if identify() != NodeIdentity::Absent {
+                    return Err(format!(
+                        "port {} is in use by a program Labcoat did not start; it was left running. Stop it, or set LABCOAT_RPC_PORT to run Labcoat Network on another port",
+                        config.ports.rpc
+                    ));
+                }
                 self.process_manager.start_all(&config)?;
             }
         }
