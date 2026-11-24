@@ -10,8 +10,8 @@ The `labcoat` executable runs Labcoat Network itself: `labcoat up` starts it in
 the background as one process holding the regtest chain, its mempool, and the
 Alkanes indexer, and serves Bitcoin Core-style JSON-RPC on port 18443. It
 validates transactions as Bitcoin Core relays them: signatures and scripts,
-coinbase maturity, fees of at least 1 sat/vB, dust, and the 400,000 weight-unit
-limit.
+coinbase maturity, absolute and relative timelocks, fees of at least 1 sat/vB,
+dust, and the 400,000 weight-unit limit.
 
 The only download is the Alkanes indexer module, `alkanes.wasm`, from the
 installed CLI's exact `cli-vX.Y.Z` release. It lives under a matching version
@@ -59,7 +59,10 @@ Labcoat Network answers Bitcoin Core-style JSON-RPC at
   and `metashrew_height` and `metashrew_view`;
 - snapshots: `labcoat_snapshot` returns an id, and `labcoat_revert` with that
   id returns the chain, mempool, and index to that moment in memory. Reverting
-  uses the snapshot and every later one, as Hardhat's `evm_revert` does.
+  uses the snapshot and every later one, as Hardhat's `evm_revert` does;
+- identity: `labcoat_info` names the serving release and data directory.
+  Labcoat only reuses a node whose answer matches it, and stops anything else
+  holding the port, such as a `qubitcoind` from an earlier release.
 
 ```bash
 id=$(curl -s -d '{"jsonrpc":"2.0","id":1,"method":"labcoat_snapshot"}' http://127.0.0.1:18443 | jq .result)

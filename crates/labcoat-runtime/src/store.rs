@@ -35,6 +35,8 @@ pub enum StoreError {
     NotAChain { path: PathBuf },
     #[error("the chain file {path} is damaged at block {height}; run `labcoat reset`")]
     Damaged { path: PathBuf, height: u32 },
+    #[error("the chain file {path} is not in the expected state; `labcoat down` and `labcoat up` reload it")]
+    Unusable { path: PathBuf },
 }
 
 /// One mined block and the indexer writes it caused.
@@ -58,6 +60,11 @@ pub struct BlockLog {
     file: File,
     /// The offset of each height's record; one past the end is the length.
     offsets: Vec<u64>,
+    /// Set when a failed write could not be undone: the file may end in a
+    /// partial record, so nothing more is written to it.
+    broken: bool,
+    #[cfg(test)]
+    fail_writes: bool,
 }
 
 impl BlockLog {
@@ -123,6 +130,9 @@ impl BlockLog {
                 path: path.to_owned(),
                 file,
                 offsets,
+                broken: false,
+                #[cfg(test)]
+                fail_writes: false,
             },
             records,
         ))
@@ -151,6 +161,9 @@ impl BlockLog {
             path: path.to_owned(),
             file,
             offsets: vec![HEADER],
+            broken: false,
+            #[cfg(test)]
+            fail_writes: false,
         })
     }
 
@@ -174,7 +187,11 @@ impl BlockLog {
         block: &Block,
         writes: &Storage,
     ) -> Result<(), StoreError> {
-        debug_assert_eq!(height as usize, self.len());
+        if self.broken || height as usize != self.len() {
+            return Err(StoreError::Unusable {
+                path: self.path.clone(),
+            });
+        }
         let mut payload = Vec::new();
         payload.extend_from_slice(&height.to_le_bytes());
         put(&mut payload, &serialize(block));
@@ -191,15 +208,40 @@ impl BlockLog {
             .last()
             .copied()
             .expect("offsets start with the header");
-        self.file
-            .write_all(&record)
-            .and_then(|()| self.file.flush())
-            .map_err(|source| StoreError::Io {
+        if let Err(source) = self.write_record(&record) {
+            // Remove whatever part of the record reached the file, so the
+            // file still ends at the last complete block.
+            let undone = self
+                .file
+                .set_len(end)
+                .and_then(|()| self.file.seek(SeekFrom::End(0)).map(drop));
+            if undone.is_err() {
+                self.broken = true;
+            }
+            return Err(StoreError::Io {
                 path: self.path.clone(),
                 source,
-            })?;
+            });
+        }
         self.offsets.push(end + record.len() as u64);
         Ok(())
+    }
+
+    /// Make later writes stop halfway and fail, as a full disk does.
+    #[cfg(test)]
+    pub(crate) fn fail_writes_for_test(&mut self, fail: bool) {
+        self.fail_writes = fail;
+    }
+
+    fn write_record(&mut self, record: &[u8]) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.fail_writes {
+            self.file.write_all(&record[..record.len() / 2])?;
+            self.file.flush()?;
+            return Err(std::io::Error::other("no space left on device"));
+        }
+        self.file.write_all(record)?;
+        self.file.flush()
     }
 
     /// Keep blocks up to and including `height`.

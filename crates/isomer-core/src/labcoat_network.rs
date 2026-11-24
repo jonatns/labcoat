@@ -50,18 +50,12 @@ impl LabcoatNetwork {
         BinaryManager::ensure_bundle(progress).await
     }
 
-    /// Start Labcoat Network and bootstrap the persistent faucet. A network
-    /// that is already serving is left running.
+    /// Start Labcoat Network and bootstrap the persistent faucet. This
+    /// release's node, already serving this data home, is left running;
+    /// anything else on the port is stopped first.
     pub fn start(&mut self) -> Result<(), String> {
         let config = self.config.clone();
-        if crate::rpc::call_blocking_with_timeout(
-            &config,
-            "getblockcount",
-            serde_json::json!([]),
-            std::time::Duration::from_millis(500),
-        )
-        .is_err()
-        {
+        if !crate::rpc::is_own_node_blocking(&config) {
             ProcessManager::stop_running(&config);
             self.process_manager.start_all(&config)?;
         }

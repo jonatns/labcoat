@@ -12,9 +12,10 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 ### Added
 
 - run Labcoat Network on every platform the CLI supports, now including macOS x86_64 and Linux arm64
-- validate transactions on Labcoat Network as Bitcoin Core relays them: signatures and scripts for taproot (key and script path), P2WPKH, P2PKH, and nested P2WPKH spends, coinbase maturity, the 1 sat/vB minimum fee, dust, and the 400,000 weight-unit limit. Rejections use Bitcoin Core's reasons
+- validate transactions on Labcoat Network as Bitcoin Core relays them: signatures and scripts for taproot (key and script path), P2WPKH, P2PKH, and nested P2WPKH spends, coinbase maturity, absolute and BIP 68 relative timelocks measured against median time past, the 1 sat/vB minimum fee, dust, and the 400,000 weight-unit limit. Rejections use Bitcoin Core's reasons
 - answer Esplora address and transaction queries from Labcoat Network's own ledger, with each input's `prevout`
-- add `labcoat_snapshot` and `labcoat_revert` JSON-RPC methods for instant in-memory snapshots
+- add `labcoat_snapshot` and `labcoat_revert` JSON-RPC methods for instant in-memory snapshots, and `labcoat_info`, which names the serving release and data directory. `labcoat up`, `status`, and the faucet use it to trust only this release's node for this data home: a `qubitcoind` left by an earlier release, or a node serving another `LABCOAT_DATA_HOME`, is stopped and replaced rather than reused
+- find the faucet's coins on the chain each time it funds, so a restart that drops an unmined funding transaction no longer strands the coins it spent
 
 ### Changed
 

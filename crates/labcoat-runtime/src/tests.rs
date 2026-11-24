@@ -219,6 +219,34 @@ fn reverts_to_a_snapshot() {
 }
 
 #[test]
+fn refuses_a_snapshot_from_a_branch_that_was_reverted_away() {
+    let mut runtime = runtime();
+    let start = runtime.snapshot();
+    runtime.mine(anyone()).unwrap();
+    runtime.mine(anyone()).unwrap();
+    let discarded = runtime.snapshot();
+
+    runtime.revert(start).unwrap();
+    runtime.set_clock(|| 1_000_000_000);
+    runtime.mine(wallet_script()).unwrap();
+    runtime.mine(wallet_script()).unwrap();
+    let height = runtime.height();
+    let storage = runtime.indexer().storage().clone();
+    assert_eq!(
+        height,
+        discarded.height(),
+        "back at the discarded snapshot's height"
+    );
+
+    assert!(matches!(
+        runtime.revert(discarded),
+        Err(RuntimeError::SnapshotOffChain { snapshot: 2 })
+    ));
+    assert_eq!(runtime.height(), height);
+    assert_eq!(runtime.indexer().storage(), &storage);
+}
+
+#[test]
 fn reopens_a_saved_chain_without_indexing_again() {
     let path = temporary("reopen");
     let mut runtime = Runtime::open(module(RECORDER), &path).unwrap();
@@ -251,6 +279,62 @@ fn indexes_a_saved_chain_again_for_a_different_module() {
         store::Opened::Matching(log, _) => assert_eq!(log.len(), 3),
         _ => panic!("the chain file should now name the new module"),
     }
+}
+
+#[test]
+fn a_block_that_cannot_be_saved_is_not_mined() {
+    let path = temporary("unsaved");
+    let mut runtime = Runtime::open(module(RECORDER), &path).unwrap();
+    runtime.set_clock(|| 0);
+    runtime.mine(wallet_script()).unwrap();
+    for _ in 0..100 {
+        runtime.mine(anyone()).unwrap();
+    }
+    let coinbase = runtime.chain().block(1).unwrap().txdata[0].clone();
+    let outpoint = OutPoint::new(coinbase.compute_txid(), 0);
+    runtime
+        .submit(
+            spend(
+                outpoint,
+                &coinbase.output[0],
+                coinbase.output[0].value.to_sat() - 2_000,
+            ),
+            None,
+        )
+        .unwrap();
+    let height = runtime.height();
+    let storage = runtime.indexer().storage().clone();
+
+    let saved = std::fs::metadata(&path).unwrap().len();
+    runtime.log.as_mut().unwrap().fail_writes_for_test(true);
+    assert!(matches!(
+        runtime.mine(anyone()),
+        Err(RuntimeError::Store(_))
+    ));
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        saved,
+        "the partial record is removed"
+    );
+    assert_eq!(runtime.height(), height);
+    assert_eq!(runtime.indexer().tip(), Some(height));
+    assert_eq!(runtime.indexer().storage(), &storage);
+    assert_eq!(
+        runtime.mempool().len(),
+        1,
+        "the transaction waits for the next block"
+    );
+    assert!(runtime.ledger().coin(&outpoint).is_some());
+
+    // Once the disk accepts writes again, mining continues where it was,
+    // and the saved chain reopens.
+    runtime.log.as_mut().unwrap().fail_writes_for_test(false);
+    assert_eq!(runtime.mine(anyone()).unwrap(), height + 1);
+    assert!(runtime.ledger().coin(&outpoint).is_none());
+    let tip = runtime.chain().tip().block_hash();
+    drop(runtime);
+    let reopened = Runtime::open(module(RECORDER), &path).unwrap();
+    assert_eq!(reopened.chain().tip().block_hash(), tip);
 }
 
 #[test]
@@ -408,6 +492,15 @@ mod rpc {
             error(&node, "nosuchmethod", json!([])),
             (-32601, "Method not found: nosuchmethod".into())
         );
+    }
+
+    #[test]
+    fn says_who_is_serving() {
+        let node = Node::new(runtime()).with_data_dir("/data/network");
+        let info = call(&node, "labcoat_info", json!([]));
+        assert_eq!(info["name"], json!("Labcoat Network"));
+        assert_eq!(info["version"], json!(env!("CARGO_PKG_VERSION")));
+        assert_eq!(info["dataDir"], json!("/data/network"));
     }
 
     #[test]

@@ -105,8 +105,9 @@ library:
   index of outputs by script, and chains of unconfirmed transactions.
 - **Validation** following Bitcoin Core's consensus rules and default relay
   policy: signatures and scripts for taproot key-path and tapscript spends,
-  P2WPKH, P2PKH, and P2WPKH nested in P2SH; coinbase maturity; the 1 sat/vB
-  minimum fee; dust; the 400,000 weight-unit limit; locktime; conflicts.
+  P2WPKH, P2PKH, and P2WPKH nested in P2SH; coinbase maturity; absolute and
+  BIP 68 relative timelocks against median time past; the 1 sat/vB minimum
+  fee; dust; the 400,000 weight-unit limit; conflicts.
   Tapscript runs on a small interpreter covering the opcodes envelopes and
   signature checks use. Unsupported scripts, such as P2WSH, are rejected by
   name rather than accepted unchecked.
@@ -118,7 +119,9 @@ library:
   byte format Esplorashrew used.
 - **Persistence**: an append-only file of each block and the indexer writes it
   caused. A restart replays the writes without running WebAssembly; a
-  different module makes the runtime index the blocks again.
+  different module makes the runtime index the blocks again. A block is
+  saved before it is committed in memory, so a failed write leaves the node
+  where it was.
 - **A compiled-module cache**, so only the first start of a release compiles
   `alkanes.wasm`.
 - **A JSON-RPC server** with the subset of Bitcoin Core and Qubitcoin methods

@@ -19,6 +19,7 @@ fn secret(byte: u8) -> SecretKey {
 
 /// A chain whose block 1 pays `outputs` from a transaction nobody checks.
 struct Fixture {
+    chain: Chain,
     ledger: Ledger,
     mempool: Mempool,
     funding: Txid,
@@ -44,6 +45,7 @@ impl Fixture {
         ledger.apply_block(0, chain.block(0).unwrap());
         ledger.apply_block(1, chain.block(1).unwrap());
         Self {
+            chain,
             ledger,
             mempool: Mempool::default(),
             funding: txid,
@@ -51,16 +53,20 @@ impl Fixture {
     }
 
     fn check(&self, tx: &Transaction) -> Result<Accepted, Rejection> {
-        check(
-            tx,
-            &Context {
-                ledger: &self.ledger,
-                mempool: &self.mempool,
-                next_height: 2,
-                tip_time: 1_700_000_000,
-            },
-            None,
-        )
+        self.check_at(tx, 2)
+    }
+
+    fn check_at(&self, tx: &Transaction, next_height: u32) -> Result<Accepted, Rejection> {
+        check(tx, &self.context(next_height), None)
+    }
+
+    fn context(&self, next_height: u32) -> Context<'_> {
+        Context {
+            chain: &self.chain,
+            ledger: &self.ledger,
+            mempool: &self.mempool,
+            next_height,
+        }
     }
 
     fn outpoint(&self, vout: u32) -> OutPoint {
@@ -344,12 +350,7 @@ fn applies_relay_policy() {
 
     let mut expensive = spending(&[fixture.outpoint(0)], 10_000);
     sign_key_path(&mut expensive, 0, &prevouts, &key);
-    let context = Context {
-        ledger: &fixture.ledger,
-        mempool: &fixture.mempool,
-        next_height: 2,
-        tip_time: 1_700_000_000,
-    };
+    let context = fixture.context(2);
     assert_eq!(
         check(&expensive, &context, Some(100)).unwrap_err().code,
         -25
@@ -442,10 +443,10 @@ fn coinbase_outputs_mature_after_100_blocks() {
         check(
             &tx,
             &Context {
+                chain: &chain,
                 ledger: &ledger,
                 mempool: &mempool,
                 next_height,
-                tip_time: 1_700_000_000,
             },
             None,
         )
@@ -455,6 +456,62 @@ fn coinbase_outputs_mature_after_100_blocks() {
         .reason
         .starts_with("bad-txns-premature-spend-of-coinbase"));
     at(101).unwrap();
+}
+
+/// A key-path spend of the fixture's output 0 with this input sequence.
+fn relative(fixture: &Fixture, key: &SecretKey, sequence: u32, version: i32) -> Transaction {
+    let prevouts = [funded(p2tr(key), 100_000)];
+    let mut tx = spending(&[fixture.outpoint(0)], 99_000);
+    tx.version = transaction::Version(version);
+    tx.input[0].sequence = Sequence(sequence);
+    sign_key_path(&mut tx, 0, &prevouts, key);
+    tx
+}
+
+#[test]
+fn enforces_relative_height_locks() {
+    let key = secret(1);
+    let fixture = Fixture::new(vec![funded(p2tr(&key), 100_000)]);
+    // Confirmed at height 1, locked for 3 blocks: spendable in block 4.
+    let locked = relative(&fixture, &key, 3, 2);
+    assert_eq!(
+        fixture.check_at(&locked, 3).unwrap_err().reason,
+        "non-BIP68-final"
+    );
+    fixture.check_at(&locked, 4).unwrap();
+
+    // The lock does not apply with the disable flag or to version 1.
+    fixture
+        .check_at(&relative(&fixture, &key, (1 << 31) | 3, 2), 2)
+        .unwrap();
+    fixture
+        .check_at(&relative(&fixture, &key, 3, 1), 2)
+        .unwrap();
+}
+
+#[test]
+fn enforces_relative_time_locks_against_median_time_past() {
+    let key = secret(1);
+    let mut fixture = Fixture::new(vec![funded(p2tr(&key), 100_000)]);
+    // 2 units of 512 seconds, from the median time past before block 1.
+    let locked = relative(&fixture, &key, (1 << 22) | 2, 2);
+    assert_eq!(
+        fixture.check(&locked).unwrap_err().reason,
+        "non-BIP68-final"
+    );
+
+    let start = fixture.chain.median_time_past(0);
+    for _ in 0..11 {
+        fixture.chain.mine(
+            Vec::new(),
+            ScriptBuf::from_bytes(vec![0x51]),
+            Amount::ZERO,
+            start + 1_024,
+        );
+    }
+    let next = fixture.chain.height() + 1;
+    assert!(fixture.chain.median_time_past(next - 1) > start + 1_023);
+    fixture.check_at(&locked, next).unwrap();
 }
 
 #[test]

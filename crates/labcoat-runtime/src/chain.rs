@@ -48,6 +48,19 @@ impl Chain {
         }
     }
 
+    /// The median time of the eleven blocks ending at `height` (fewer near
+    /// genesis): Bitcoin's clock for time locks (BIP 113). A height above
+    /// the tip is read as the tip.
+    pub fn median_time_past(&self, height: u32) -> u32 {
+        let height = height.min(self.height()) as usize;
+        let mut times: Vec<u32> = self.blocks[height.saturating_sub(10)..=height]
+            .iter()
+            .map(|block| block.header.time)
+            .collect();
+        times.sort_unstable();
+        times[times.len() / 2]
+    }
+
     /// The height of the block with this hash.
     pub fn height_of(&self, hash: &BlockHash) -> Option<u32> {
         self.heights.get(hash).copied()

@@ -12,7 +12,8 @@
 //! - mining: `generatetoaddress`;
 //! - indexers: `secondaryheight` and `secondaryview` for `alkanes` and
 //!   `esplora`, and `metashrew_height` and `metashrew_view`;
-//! - development: `labcoat_snapshot`, `labcoat_revert`, and `stop`.
+//! - development: `labcoat_snapshot`, `labcoat_revert`, `labcoat_info`, and
+//!   `stop`.
 
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -74,6 +75,7 @@ pub struct Node {
     snapshots: Mutex<Vec<Snapshot>>,
     stopping: AtomicBool,
     started: Instant,
+    data_dir: Option<String>,
 }
 
 impl Node {
@@ -83,7 +85,14 @@ impl Node {
             snapshots: Mutex::new(Vec::new()),
             stopping: AtomicBool::new(false),
             started: Instant::now(),
+            data_dir: None,
         }
+    }
+
+    /// Name the directory the chain is saved in, for `labcoat_info`.
+    pub fn with_data_dir(mut self, data_dir: impl Into<String>) -> Self {
+        self.data_dir = Some(data_dir.into());
+        self
     }
 
     /// Whether a `stop` request arrived.
@@ -387,9 +396,12 @@ impl Node {
                 let output = self.read().view(view, &input)?;
                 Ok(format!("0x{}", output.to_lower_hex_string()).into())
             }
+            // Both snapshot methods take the snapshot list first and the
+            // runtime second, so a snapshot is registered before any revert
+            // can run, and a revert discards every snapshot taken after it.
             "labcoat_snapshot" => {
+                let mut snapshots = self.snapshots.lock().unwrap_or_else(|p| p.into_inner());
                 let snapshot = self.read().snapshot();
-                let mut snapshots = self.snapshots.lock().expect("snapshot lock");
                 snapshots.push(snapshot);
                 Ok((snapshots.len() - 1).into())
             }
@@ -398,7 +410,7 @@ impl Node {
                     .and_then(Value::as_u64)
                     .ok_or_else(|| RpcError::params("Expected a snapshot id"))?
                     as usize;
-                let mut snapshots = self.snapshots.lock().expect("snapshot lock");
+                let mut snapshots = self.snapshots.lock().unwrap_or_else(|p| p.into_inner());
                 if id >= snapshots.len() {
                     return Ok(false.into());
                 }
@@ -408,6 +420,15 @@ impl Node {
                 self.write().revert(snapshot)?;
                 Ok(true.into())
             }
+            // Who is serving: Labcoat checks this before trusting a node
+            // it finds on its port, which could be another version, another
+            // data directory, or a different program.
+            "labcoat_info" => Ok(json!({
+                "name": "Labcoat Network",
+                "version": env!("CARGO_PKG_VERSION"),
+                "dataDir": self.data_dir,
+                "height": self.read().height(),
+            })),
             "uptime" => Ok(self.started.elapsed().as_secs().into()),
             "ping" => Ok(Value::Null),
             "stop" => {

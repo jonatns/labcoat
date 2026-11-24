@@ -1,4 +1,11 @@
 //! Persistent Labcoat Network regtest faucet.
+//!
+//! The faucet's key is saved; its coins are not trusted to a saved list.
+//! Each funding finds the faucet's confirmed outputs on the chain, through
+//! the node's Esplora view, and adds the change outputs of its own funding
+//! transactions that are still waiting in the mempool. A restart drops the
+//! mempool, so change that never confirmed disappears and the coins it would
+//! have replaced are found on the chain again.
 
 use crate::config::{get_network_dir, IsomerConfig};
 use bitcoin::absolute;
@@ -16,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 const FAUCET_STATE_SCHEMA: u32 = 1;
-const COINBASE_SATS: u64 = 5_000_000_000;
 const COINBASE_MATURITY: u64 = 100;
 const FEE_RATE_SATS_VB: u64 = 2;
 const DUST_SATS: u64 = 546;
@@ -114,49 +120,90 @@ pub fn address() -> Result<String, String> {
     Ok(key_material(&state)?.2.to_string())
 }
 
-/// Wait for Labcoat Network, then create 101 faucet coinbase outputs when
-/// the persisted faucet has no recorded funding.
+/// Wait for this release's node, then mine 101 blocks to the faucet if the
+/// chain holds none of its coins yet.
 pub fn bootstrap_blocking(config: &IsomerConfig) -> Result<(), String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while std::time::Instant::now() < deadline {
-        if crate::rpc::call_blocking(config, "getblockcount", serde_json::json!([])).is_ok() {
-            break;
+    while !crate::rpc::is_own_node_blocking(config) {
+        if std::time::Instant::now() >= deadline {
+            return Err("Labcoat Network did not start within 30 seconds".into());
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    let mut state = load_or_create()?;
-    if !state.utxos.is_empty() {
-        return wait_for_indexers(config);
-    }
-    let address = key_material(&state)?.2.to_string();
-    let hashes = crate::rpc::call_blocking(
+    let state = load_or_create()?;
+    let (_, _, address) = key_material(&state)?;
+    let on_chain = crate::rpc::call_blocking(
         config,
-        "generatetoaddress",
-        serde_json::json!([101, address]),
+        "secondaryview",
+        esplora_utxo_params(&address.script_pubkey()),
     )?;
-    let hashes = hashes
-        .as_array()
-        .ok_or_else(|| "Invalid generatetoaddress response".to_string())?;
-    for hash in hashes {
-        let hash = hash
-            .as_str()
-            .ok_or_else(|| "Invalid generated block hash".to_string())?;
-        let block = crate::rpc::call_blocking(config, "getblock", serde_json::json!([hash, 1]))?;
-        let txid = block
-            .get("tx")
-            .and_then(|txs| txs.as_array())
-            .and_then(|txs| txs.first())
-            .and_then(|txid| txid.as_str())
-            .ok_or_else(|| "Generated block has no coinbase transaction".to_string())?;
-        state.utxos.push(FaucetUtxo {
-            txid: txid.to_string(),
-            vout: 0,
-            amount_sats: COINBASE_SATS,
-        });
+    if parse_esplora_utxos(&on_chain)?.is_empty() {
+        crate::rpc::call_blocking(
+            config,
+            "generatetoaddress",
+            serde_json::json!([101, address.to_string()]),
+        )?;
     }
-    save(&state)?;
     wait_for_indexers(config)
+}
+
+/// `secondaryview` parameters asking for the confirmed outputs paying
+/// `script`, which Esplora indexes by the reversed SHA-256 of the script.
+fn esplora_utxo_params(script: &ScriptBuf) -> serde_json::Value {
+    let mut hash = bitcoin::hashes::sha256::Hash::hash(script.as_bytes()).to_byte_array();
+    hash.reverse();
+    serde_json::json!([
+        "esplora",
+        "utxosbyscripthash",
+        hex::encode(hex::encode(hash).as_bytes()),
+    ])
+}
+
+fn parse_esplora_utxos(result: &serde_json::Value) -> Result<Vec<FaucetUtxo>, String> {
+    let invalid = || "Invalid Esplora outputs response".to_string();
+    let encoded = result
+        .as_str()
+        .and_then(|hex| hex.strip_prefix("0x"))
+        .ok_or_else(invalid)?;
+    let bytes = hex::decode(encoded).map_err(|_| invalid())?;
+    let outputs: Vec<serde_json::Value> = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+    outputs
+        .iter()
+        .map(|output| {
+            Ok(FaucetUtxo {
+                txid: output
+                    .get("txid")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(invalid)?
+                    .to_string(),
+                vout: output
+                    .get("vout")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|vout| u32::try_from(vout).ok())
+                    .ok_or_else(invalid)?,
+                amount_sats: output
+                    .get("value")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(invalid)?,
+            })
+        })
+        .collect()
+}
+
+/// The faucet's coins worth checking: those confirmed on the chain, plus
+/// recorded change that may still be in the mempool, each once.
+fn candidates(on_chain: Vec<FaucetUtxo>, recorded: &[FaucetUtxo]) -> Vec<FaucetUtxo> {
+    let mut candidates = on_chain;
+    for utxo in recorded {
+        if !candidates
+            .iter()
+            .any(|known| known.txid == utxo.txid && known.vout == utxo.vout)
+        {
+            candidates.push(utxo.clone());
+        }
+    }
+    candidates
 }
 
 fn wait_for_indexers(config: &IsomerConfig) -> Result<(), String> {
@@ -198,8 +245,17 @@ pub async fn fund(
     let (secret, public, faucet_address) = key_material(&state)?;
     let faucet_script = faucet_address.script_pubkey();
 
+    let on_chain = crate::rpc::call(
+        config,
+        "secondaryview",
+        esplora_utxo_params(&faucet_script),
+        std::time::Duration::from_secs(5),
+    )
+    .await?;
     let mut available = Vec::new();
-    for utxo in &state.utxos {
+    for utxo in candidates(parse_esplora_utxos(&on_chain)?, &state.utxos) {
+        // gettxout sees the mempool: an output spent there, or change from
+        // a funding the node no longer knows, comes back null.
         let result = crate::rpc::call(
             config,
             "gettxout",
@@ -218,8 +274,18 @@ pub async fn fund(
             .get("coinbase")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
+        let Some(value) = result
+            .get("value")
+            .and_then(|value| value.as_f64())
+            .and_then(|btc| Amount::from_btc(btc).ok())
+        else {
+            continue;
+        };
         if is_spendable(confirmations, coinbase) {
-            available.push(utxo.clone());
+            available.push(FaucetUtxo {
+                amount_sats: value.to_sat(),
+                ..utxo
+            });
         }
     }
 
@@ -277,11 +343,9 @@ pub async fn fund(
         .to_string();
     Txid::from_str(&txid)
         .map_err(|e| format!("Labcoat Network returned an invalid transaction id: {e}"))?;
-    state.utxos.retain(|utxo| {
-        !selected
-            .iter()
-            .any(|spent| spent.txid == utxo.txid && spent.vout == utxo.vout)
-    });
+    // Remember only change still waiting to confirm; confirmed coins are
+    // found on the chain next time.
+    state.utxos.clear();
     if change >= DUST_SATS {
         state.utxos.push(FaucetUtxo {
             txid: txid.clone(),
@@ -369,6 +433,50 @@ fn sign_p2wpkh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const COINBASE_SATS: u64 = 5_000_000_000;
+
+    #[test]
+    fn checks_chain_coins_and_recorded_change_once_each() {
+        let coin = |txid: &str, vout| FaucetUtxo {
+            txid: txid.into(),
+            vout,
+            amount_sats: 1,
+        };
+        let merged = candidates(
+            vec![coin("aa", 0), coin("bb", 0)],
+            &[coin("bb", 0), coin("cc", 1)],
+        );
+        let ids: Vec<_> = merged.iter().map(|u| (u.txid.as_str(), u.vout)).collect();
+        assert_eq!(ids, [("aa", 0), ("bb", 0), ("cc", 1)]);
+    }
+
+    #[test]
+    fn reads_esplora_outputs() {
+        let body = r#"[{"txid":"ab","vout":1,"value":5000,"status":{"confirmed":true}}]"#;
+        let result = serde_json::json!(format!("0x{}", hex::encode(body)));
+        let outputs = parse_esplora_utxos(&result).unwrap();
+        assert_eq!(
+            (
+                outputs[0].txid.as_str(),
+                outputs[0].vout,
+                outputs[0].amount_sats
+            ),
+            ("ab", 1, 5000)
+        );
+        assert!(parse_esplora_utxos(&serde_json::json!("not hex")).is_err());
+    }
+
+    #[test]
+    fn asks_for_outputs_by_reversed_script_hash() {
+        let script = ScriptBuf::from_bytes(vec![0x51]);
+        let params = esplora_utxo_params(&script);
+        let text = String::from_utf8(hex::decode(params[2].as_str().unwrap()).unwrap()).unwrap();
+        let mut hash = bitcoin::hashes::sha256::Hash::hash(&[0x51]).to_byte_array();
+        hash.reverse();
+        assert_eq!(text, hex::encode(hash));
+        assert_eq!(params[1], "utxosbyscripthash");
+    }
 
     #[test]
     fn fee_scales_with_inputs_and_outputs() {

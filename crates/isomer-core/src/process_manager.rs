@@ -386,14 +386,7 @@ impl ProcessManager {
     }
 
     pub async fn probe_health(_service: ServiceId, config: &IsomerConfig) -> bool {
-        crate::rpc::call(
-            config,
-            "getblockchaininfo",
-            serde_json::json!([]),
-            Duration::from_secs(2),
-        )
-        .await
-        .is_ok()
+        crate::rpc::is_own_node(config).await
     }
 }
 

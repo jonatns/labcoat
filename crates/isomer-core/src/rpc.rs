@@ -140,6 +140,41 @@ pub fn call_blocking_with_timeout(
     )
 }
 
+/// Whether `labcoat_info` describes this release's node serving this data
+/// home. Anything else on the port, such as a `qubitcoind` left by an older
+/// release, a node from another release, or one serving another
+/// `LABCOAT_DATA_HOME`, is not reused or trusted.
+fn is_own_node_info(info: &serde_json::Value) -> bool {
+    let data_dir = crate::config::get_network_dir().display().to_string();
+    info.get("name").and_then(serde_json::Value::as_str) == Some("Labcoat Network")
+        && info.get("version").and_then(serde_json::Value::as_str)
+            == Some(env!("CARGO_PKG_VERSION"))
+        && info.get("dataDir").and_then(serde_json::Value::as_str) == Some(data_dir.as_str())
+}
+
+/// Whether this release's node is serving this data home on the port.
+pub fn is_own_node_blocking(config: &IsomerConfig) -> bool {
+    call_blocking_with_timeout(
+        config,
+        "labcoat_info",
+        serde_json::json!([]),
+        std::time::Duration::from_millis(500),
+    )
+    .is_ok_and(|info| is_own_node_info(&info))
+}
+
+/// Whether this release's node is serving this data home on the port.
+pub async fn is_own_node(config: &IsomerConfig) -> bool {
+    call(
+        config,
+        "labcoat_info",
+        serde_json::json!([]),
+        std::time::Duration::from_secs(2),
+    )
+    .await
+    .is_ok_and(|info| is_own_node_info(&info))
+}
+
 pub async fn try_block_count(config: &IsomerConfig) -> Option<u64> {
     call(
         config,
@@ -236,6 +271,28 @@ pub async fn block_details(config: &IsomerConfig, height: u64) -> Result<BlockDe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_this_releases_node_for_this_data_home_is_trusted() {
+        let own = serde_json::json!({
+            "name": "Labcoat Network",
+            "version": env!("CARGO_PKG_VERSION"),
+            "dataDir": crate::config::get_network_dir().display().to_string(),
+        });
+        assert!(is_own_node_info(&own));
+
+        let mut other_release = own.clone();
+        other_release["version"] = "0.0.1".into();
+        let mut other_home = own.clone();
+        other_home["dataDir"] = "/somewhere/else".into();
+        for foreign in [
+            other_release,
+            other_home,
+            serde_json::json!({"chain": "regtest"}),
+        ] {
+            assert!(!is_own_node_info(&foreign), "{foreign}");
+        }
+    }
 
     #[test]
     fn endpoint_is_the_single_rpc_port() {

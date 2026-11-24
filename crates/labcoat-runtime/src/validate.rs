@@ -25,6 +25,7 @@ use bitcoin::{
     XOnlyPublicKey,
 };
 
+use crate::chain::Chain;
 use crate::ledger::{Coin, Ledger, Mempool};
 
 /// Blocks before a coinbase output can be spent.
@@ -73,12 +74,19 @@ pub struct Accepted {
 
 /// What a transaction is checked against.
 pub struct Context<'a> {
+    pub chain: &'a Chain,
     pub ledger: &'a Ledger,
     pub mempool: &'a Mempool,
     /// The height of the next block: the one this transaction would join.
     pub next_height: u32,
-    /// The time of the newest block.
-    pub tip_time: u32,
+}
+
+impl Context<'_> {
+    /// The median time past of the block before the next one: the time
+    /// locks are measured against.
+    fn lock_time(&self) -> u32 {
+        self.chain.median_time_past(self.next_height - 1)
+    }
 }
 
 /// Check `tx` against the chain and the mempool. `max_fee_rate` is the
@@ -104,13 +112,16 @@ pub fn check(
 
     let tip = Height::from_consensus(context.next_height - 1)
         .map_err(|_| Rejection::invalid("non-final"))?;
-    let time = Time::from_consensus(context.tip_time.max(Time::MIN.to_consensus_u32()))
+    let time = Time::from_consensus(context.lock_time().max(Time::MIN.to_consensus_u32()))
         .map_err(|_| Rejection::invalid("non-final"))?;
     if !tx.is_absolute_timelock_satisfied(tip, time) {
         return Err(Rejection::invalid("non-final"));
     }
 
     let coins = spent_coins(tx, context)?;
+    if !sequence_locks_satisfied(tx, &coins, context) {
+        return Err(Rejection::invalid("non-BIP68-final"));
+    }
     let input_value: Amount = coins.iter().map(|coin| coin.output.value).sum();
     let output_value: Amount = tx.output.iter().map(|output| output.value).sum();
     let fee = input_value
@@ -219,6 +230,41 @@ fn spent_coins(tx: &Transaction, context: &Context) -> Result<Vec<Coin>, Rejecti
             Ok(coin)
         })
         .collect()
+}
+
+/// BIP 68: whether every input's relative lock has passed by the next
+/// block, computed as Bitcoin Core's `CalculateSequenceLocks` does.
+fn sequence_locks_satisfied(tx: &Transaction, coins: &[Coin], context: &Context) -> bool {
+    const DISABLE: u32 = 1 << 31;
+    const TIME_BASED: u32 = 1 << 22;
+    const VALUE: u32 = 0xffff;
+    const GRANULARITY: u32 = 9;
+
+    if tx.version.0 < 2 {
+        return true;
+    }
+    let mut min_height: i64 = -1;
+    let mut min_time: i64 = -1;
+    for (input, coin) in tx.input.iter().zip(coins) {
+        let sequence = input.sequence.to_consensus_u32();
+        if sequence & DISABLE != 0 {
+            continue;
+        }
+        let value = i64::from(sequence & VALUE);
+        if sequence & TIME_BASED != 0 {
+            // Measured from the median time past of the block before the
+            // one that confirmed the coin.
+            let coin_time = i64::from(
+                context
+                    .chain
+                    .median_time_past(coin.height.saturating_sub(1)),
+            );
+            min_time = min_time.max(coin_time + (value << GRANULARITY) - 1);
+        } else {
+            min_height = min_height.max(i64::from(coin.height) + value - 1);
+        }
+    }
+    min_height < i64::from(context.next_height) && min_time < i64::from(context.lock_time())
 }
 
 fn coin(outpoint: &OutPoint, context: &Context) -> Option<Coin> {

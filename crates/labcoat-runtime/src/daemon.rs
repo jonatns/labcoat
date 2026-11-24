@@ -58,7 +58,8 @@ pub fn run(options: &Options) -> Result<(), String> {
     let pid_file = options.data_dir.join(PID_FILE);
     std::fs::write(&pid_file, std::process::id().to_string())
         .map_err(|error| format!("cannot write {}: {error}", pid_file.display()))?;
-    let served = crate::server::serve(Arc::new(Node::new(runtime)), listener);
+    let node = Node::new(runtime).with_data_dir(options.data_dir.display().to_string());
+    let served = crate::server::serve(Arc::new(node), listener);
     remove_pid_file(&pid_file);
     served.map_err(|error| format!("Labcoat Network stopped: {error}"))
 }

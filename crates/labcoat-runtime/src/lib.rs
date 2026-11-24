@@ -43,6 +43,9 @@ use store::{BlockLog, Opened, StoreError};
 #[derive(Clone)]
 pub struct Snapshot {
     height: u32,
+    /// The block at `height` when the snapshot was taken, so a snapshot of
+    /// a branch that has since been reverted away is refused.
+    tip: bitcoin::BlockHash,
     ledger: Ledger,
     mempool: Mempool,
     indexer: IndexerSnapshot,
@@ -67,6 +70,8 @@ pub enum RuntimeError {
     Rejected(#[from] Rejection),
     #[error("the snapshot was taken at block {snapshot}, above the current block {current}")]
     SnapshotAhead { snapshot: u32, current: u32 },
+    #[error("the snapshot was taken on a branch that has since been reverted away (block {snapshot} differs)")]
+    SnapshotOffChain { snapshot: u32 },
     #[error("the saved chain does not start at the regtest genesis block; run `labcoat reset`")]
     ForeignGenesis,
 }
@@ -219,8 +224,8 @@ impl Runtime {
         validate::Context {
             ledger: &self.ledger,
             mempool: &self.mempool,
+            chain: &self.chain,
             next_height: self.chain.height() + 1,
-            tip_time: self.chain.tip().header.time,
         }
     }
 
@@ -247,34 +252,38 @@ impl Runtime {
     }
 
     /// Mine a block holding every mempool transaction and paying `reward`,
-    /// then index and save it. Returns the new height. If the indexer
-    /// rejects the block, it is dropped and the mempool kept.
+    /// then index and save it. Returns the new height.
+    ///
+    /// The block is saved before anything in memory changes for good: if
+    /// the indexer rejects it or it cannot be saved, the chain, indexer,
+    /// ledger, and mempool stay as they were.
     pub fn mine(&mut self, reward: ScriptBuf) -> Result<u32, RuntimeError> {
         let entries = self.mempool.take();
         let fees = entries.iter().map(|entry| entry.fee).sum();
         let transactions = entries.iter().map(|entry| entry.tx.clone()).collect();
+        let indexed = self.indexer.snapshot();
         let height = self.chain.mine(transactions, reward, fees, (self.clock)());
-        let bytes = self
-            .chain
-            .block_bytes(height)
-            .expect("the block just mined");
 
-        let writes = match self.indexer.index_block(height, &bytes) {
-            Ok(writes) => writes,
-            Err(error) => {
-                self.chain.truncate(height - 1);
-                for entry in entries {
-                    self.mempool.add(entry);
-                }
-                return Err(error.into());
+        let saved = self.index_and_save(height);
+        if let Err(error) = saved {
+            self.chain.truncate(height - 1);
+            self.indexer.restore(indexed);
+            for entry in entries {
+                self.mempool.add(entry);
             }
-        };
+            return Err(error);
+        }
+        self.ledger.apply_block(height, self.chain.tip());
+        Ok(height)
+    }
+
+    fn index_and_save(&mut self, height: u32) -> Result<(), RuntimeError> {
         let block = self.chain.tip();
-        self.ledger.apply_block(height, block);
+        let writes = self.indexer.index_block(height, &serialize(block))?;
         if let Some(log) = &mut self.log {
             log.append(height, block, &writes)?;
         }
-        Ok(height)
+        Ok(())
     }
 
     /// Call an indexer view against the state as of the newest block.
@@ -286,6 +295,7 @@ impl Runtime {
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             height: self.chain.height(),
+            tip: self.chain.tip().block_hash(),
             ledger: self.ledger.clone(),
             mempool: self.mempool.clone(),
             indexer: self.indexer.snapshot(),
@@ -294,14 +304,19 @@ impl Runtime {
 
     /// Return to a recorded state, dropping every block mined since.
     ///
-    /// A snapshot is only valid on the chain it was taken from, at or below
-    /// the current height.
+    /// A snapshot is only valid on the chain it was taken from: its block
+    /// must still be in the chain, at or below the tip.
     pub fn revert(&mut self, snapshot: Snapshot) -> Result<(), RuntimeError> {
         let current = self.chain.height();
         if snapshot.height > current {
             return Err(RuntimeError::SnapshotAhead {
                 snapshot: snapshot.height,
                 current,
+            });
+        }
+        if self.chain.block_hash(snapshot.height) != Some(snapshot.tip) {
+            return Err(RuntimeError::SnapshotOffChain {
+                snapshot: snapshot.height,
             });
         }
         if let Some(log) = &mut self.log {
