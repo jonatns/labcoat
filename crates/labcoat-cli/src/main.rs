@@ -383,17 +383,31 @@ enum McpCmd {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "isomer_core=warn,labcoat=info".into()),
-        )
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
+    init_tracing(&cli);
     let code = run(cli).await;
     std::process::exit(code);
+}
+
+/// Log directives used when `RUST_LOG` is unset. Human output stays quiet
+/// apart from warnings; `-v/--verbose` adds Labcoat's own progress logs.
+fn default_tracing_directives(verbose: bool) -> &'static str {
+    if verbose {
+        "warn,labcoat=info,labcoat_core=info,labcoat_test=info,isomer_core=info"
+    } else {
+        "warn"
+    }
+}
+
+fn init_tracing(cli: &Cli) {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::new(default_tracing_directives(cli.verbose))
+    });
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_ansi(output::stderr_ansi(cli.color))
+        .init();
 }
 
 async fn run(cli: Cli) -> i32 {
@@ -1005,6 +1019,26 @@ mod envelope_tests {
         assert!(Cli::try_parse_from(["labcoat", "init", "my-alkane"]).is_ok());
         assert!(Cli::try_parse_from(["labcoat", "init", "--force"]).is_err());
         assert!(Cli::try_parse_from(["labcoat", "init", "--contract", "my-token"]).is_err());
+    }
+
+    #[test]
+    fn default_tracing_is_quiet_unless_verbose() {
+        use tracing_subscriber::EnvFilter;
+        let quiet = default_tracing_directives(false);
+        assert_eq!(quiet, "warn");
+        // `labcoat test` used to print `INFO labcoat_core::compile: building
+        // contract packages` on every run.
+        assert_eq!(
+            EnvFilter::new(quiet).max_level_hint(),
+            Some(tracing_subscriber::filter::LevelFilter::WARN)
+        );
+        let verbose = default_tracing_directives(true);
+        assert!(verbose.starts_with("warn,"));
+        assert!(verbose.contains("labcoat_core=info"));
+        assert_eq!(
+            EnvFilter::new(verbose).max_level_hint(),
+            Some(tracing_subscriber::filter::LevelFilter::INFO)
+        );
     }
 
     #[test]

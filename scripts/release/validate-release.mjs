@@ -39,7 +39,7 @@ function validateCargo() {
     }
   }
 
-  const template = read('crates/labcoat-cli/templates/default/Cargo.toml');
+  const template = read('crates/labcoat-cli/templates/default/Cargo.toml.tmpl');
   for (const name of ['labcoat-deploy', 'labcoat-test']) {
     if (!template.includes(`${name} = { git = "https://github.com/jonatns/labcoat", tag = "cli-v{{LABCOAT_VERSION}}" }`)) {
       fail(`project template must pin ${name} to the matching Labcoat release tag`);
