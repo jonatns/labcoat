@@ -38,7 +38,10 @@ The **Release Labcoat** workflow runs only for a merged, labeled
 1. validates the workspace version, changelog, runtime source pins, and release
    target;
 2. builds the Qubitcoin executable for macOS arm64 and Linux x86_64;
-3. builds the Alkanes and Esplorashrew WASM modules;
+3. builds the Alkanes and Esplorashrew WASM modules, or, for a source listed
+   under `prebuilt` in `runtime-sources.json`, reuses the module an earlier
+   release built from the same revision after checking that release's manifest
+   and the pinned SHA-256;
 4. generates `runtime-manifest.json` with exact sizes and SHA-256 checksums;
 5. builds the CLI for macOS and Linux on arm64 and x86_64;
 6. runs the Linux runtime, wallet, contract, deployment, simulation, and trace
