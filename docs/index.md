@@ -11,6 +11,7 @@ wallets, Labcoat Network, deployment, calls, simulation, and tracing.
 - [Durable state (Milestone 1, shipped for local development)](STATE.md)
 - [Durable state design (later milestones proposed)](DURABLE-STATE-PLAN.md)
 - [Toolchain and upstream pins](../TOOLCHAIN.md)
+- [ADR 0001: an Alkanes development runtime (proposed)](adr/0001-alkanes-development-runtime.md)
 - [Agent workflow](../skills/SKILL.md)
 
 For the complete command and protocol reference, run:
