@@ -8,9 +8,9 @@
 #
 #   scripts/release/acceptance.sh <labcoat> [--bundle <dir>] [--boot-only]
 #
-#   --bundle <dir>  a directory holding alkanes.wasm (and, for a release,
-#                   runtime-manifest.json) to install instead of downloading
-#                   the runtime
+#   --bundle <dir>  a directory holding alkanes.wasm and its
+#                   runtime-manifest.json to install instead of downloading
+#                   the runtime (--boot-only needs only alkanes.wasm)
 #   --boot-only     boot the network, fund, mine, and stop; needs no Rust
 #                   toolchain, so it runs on every release target
 #
@@ -96,6 +96,9 @@ if [ -n "$bundle" ]; then
   cp "$bundle/alkanes.wasm" "$runtime/"
   if [ -f "$bundle/runtime-manifest.json" ]; then
     cp "$bundle/runtime-manifest.json" "$runtime/"
+  elif ! $boot_only; then
+    # `test --e2e` verifies the runtime against its manifest before it runs.
+    fail "$bundle has no runtime-manifest.json; write one with: node scripts/release/build-runtime-manifest.mjs --version $version --directory $bundle"
   fi
   up=(up --no-download --ci)
 fi
@@ -148,8 +151,10 @@ jq -e '.result.status == "success"' >/dev/null <<<"$call" || fail "increment did
 txid=$(jq -r '.result.txid // .result.revealTxid' <<<"$call")
 trace=$(ok trace "$txid" --wait)
 jq -e '.result.traces | length > 0' >/dev/null <<<"$trace" || fail "the increment has no trace: $trace"
-jq -e '[.result.traces[] | .. | objects | select(.status? == "success")] | length > 0' >/dev/null <<<"$trace" \
-  || fail "the increment's trace did not decode to a successful call: $trace"
+# A decoded trace is a list of typed events: the call into the Counter and
+# its return. A revert would be an event of its own.
+jq -e '[.result.traces[].trace[].type] | index("call") != null and index("return") != null and index("revert") == null' >/dev/null <<<"$trace" \
+  || fail "the increment's trace did not decode to a call that returned: $trace"
 [ "$(count)" = 1 ] || fail "the Counter did not increment"
 
 step "run from a subdirectory"

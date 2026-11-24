@@ -65,13 +65,15 @@ home, and a port of its own when a Labcoat Network is already running on
 cargo build -p labcoat-cli
 export LABCOAT_DATA_HOME=$(mktemp -d) LABCOAT_RPC_PORT=18555
 export LABCOAT_TEST_CRATE_PATH=$PWD/crates/labcoat-test
-scripts/release/acceptance.sh target/debug/labcoat --bundle <dir-with-alkanes.wasm>
+node scripts/release/build-runtime-manifest.mjs --version 0.3.0 --directory <bundle>
+scripts/release/acceptance.sh target/debug/labcoat --bundle <bundle>
 ```
 
-`--bundle` installs an `alkanes.wasm` you built or downloaded; any module
-built with the `regtest` feature from the revision in
-`crates/labcoat-cli/runtime-sources.json` works. Leave it out to accept a
-published release, which downloads its own runtime. `--boot-only` stops after
+`<bundle>` is a directory holding an `alkanes.wasm` you built or downloaded;
+any module built with the `regtest` feature from the revision in
+`crates/labcoat-cli/runtime-sources.json` works. The manifest script
+describes it for the workspace version you pass. Leave `--bundle` out to
+accept a published release, which downloads its own runtime. `--boot-only` stops after
 booting, funding, and mining, and needs no Rust toolchain.
 
 ## Completion checklist
