@@ -57,24 +57,32 @@ complete product without creating a tag or GitHub release.
 
 ## Run the acceptance flow locally
 
-The acceptance script takes any `labcoat` executable. Give it a scratch data
-home, and a port of its own when a Labcoat Network is already running on
-18443, so it never touches the network you develop on:
+Before cutting a release, run the same flow on your own machine:
 
 ```bash
-cargo build -p labcoat-cli
-export LABCOAT_DATA_HOME=$(mktemp -d) LABCOAT_RPC_PORT=18555
-export LABCOAT_TEST_CRATE_PATH=$PWD/crates/labcoat-test
-node scripts/release/build-runtime-manifest.mjs --version 0.3.0 --directory <bundle>
-scripts/release/acceptance.sh target/debug/labcoat --bundle <bundle>
+scripts/release/local-acceptance.sh
 ```
 
-`<bundle>` is a directory holding an `alkanes.wasm` you built or downloaded;
-any module built with the `regtest` feature from the revision in
-`crates/labcoat-cli/runtime-sources.json` works. The manifest script
-describes it for the workspace version you pass. Leave `--bundle` out to
-accept a published release, which downloads its own runtime. `--boot-only` stops after
-booting, funding, and mining, and needs no Rust toolchain.
+It builds the CLI from this checkout, builds `alkanes.wasm` from the
+revision in `crates/labcoat-cli/runtime-sources.json` (several minutes the
+first time; later runs reuse it from `target/acceptance/`), writes its
+runtime manifest, and runs `scripts/release/acceptance.sh` against both. The
+run uses a scratch data home and port 18555, or `LABCOAT_RPC_PORT`, so a
+Labcoat Network you already have running is left alone.
+
+- `--release` builds the CLI as the release workflow does.
+- `--boot-only` stops after booting, funding, and mining.
+- `--indexer <file>` uses an `alkanes.wasm` you already have.
+
+It needs cargo and rustup, clang with a `wasm32` backend (Homebrew's `llvm`
+on macOS), `protoc`, node, jq, curl, and git.
+
+`scripts/release/acceptance.sh <labcoat>` is the underlying check. Without
+`--bundle` it accepts a published release, which downloads its own runtime;
+give it a scratch `LABCOAT_DATA_HOME` yourself in that case.
+
+Then run **Release Labcoat** with `dry_run=true`. It is the only place the
+other three platforms are booted.
 
 ## Completion checklist
 
