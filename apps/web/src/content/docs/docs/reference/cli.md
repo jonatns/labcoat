@@ -661,7 +661,7 @@ doctor
 | `TRACE_TIMEOUT` | a decoded trace did not arrive in time | retry `labcoat trace --wait` |
 | `ENVELOPE_INVALID` | an Alkanes transaction envelope is invalid | check the contract and arguments |
 | `COMPILE_FAILED` | Rust or WebAssembly compilation failed | read stderr and run `labcoat doctor` |
-| `TOOLCHAIN_MISSING` | Cargo, a Rust WebAssembly target, or a C toolchain for WebAssembly is not installed | install the prerequisite the message names, then run `labcoat doctor` |
+| `TOOLCHAIN_MISSING` | Cargo, a Rust WebAssembly target, a C toolchain for WebAssembly, or protoc is not installed | install the prerequisite the message names, then run `labcoat doctor` |
 | `PACKAGE_NOT_FOUND` | the requested Cargo contract package was not discovered | run `labcoat build` or pass a package listed in the error |
 | `ABI_MISMATCH` | local and deployed __meta output differ | build the deployed source revision and verify the contract ID |
 | `CONTRACT_NOT_FOUND` | a contract name or ID could not be resolved | run `labcoat lock show` |

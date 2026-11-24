@@ -31,7 +31,7 @@ surface `error.hint` to the operator or agent.
 
 | Code | Meaning | First response |
 | --- | --- | --- |
-| `TOOLCHAIN_MISSING` | Cargo, a Rust WebAssembly target, a WebAssembly-capable C compiler, or the WASI C headers are not installed | Install what the message names, then run `labcoat doctor` |
+| `TOOLCHAIN_MISSING` | Cargo, a Rust WebAssembly target, a WebAssembly-capable C compiler, the WASI C headers, or `protoc` are not installed | Install what the message names, then run `labcoat doctor` |
 | `COMPILE_FAILED` | Rust or Wasm compilation failed | Read stderr and run `labcoat doctor` |
 | `TEST_FAILED` | Host or e2e tests failed, or an e2e filter matched no test | Fix the failing tests named in the output |
 | `CONTRACT_NOT_FOUND` | Name or ID could not be resolved | Run `labcoat lock show` |

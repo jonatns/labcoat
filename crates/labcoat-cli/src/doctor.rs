@@ -265,7 +265,21 @@ pub async fn run() -> Vec<Check> {
         None => checks.push(fail(
             "wasm C compiler",
             "no LLVM clang with a wasm32 backend found",
-            "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Linux)",
+            "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Debian or Ubuntu)",
+        )),
+    }
+    // The Alkanes support crates every project depends on generate code
+    // with it at build time.
+    match std::env::var("PROTOC")
+        .ok()
+        .filter(|path| std::path::Path::new(path).is_file())
+        .or_else(|| version_of("protoc", "--version"))
+    {
+        Some(found) => checks.push(ok("protoc", found)),
+        None => checks.push(fail(
+            "protoc",
+            "the Protocol Buffers compiler was not found on PATH",
+            "install it (`brew install protobuf` on macOS, `apt install protobuf-compiler` on Debian or Ubuntu); contracts do not build without it",
         )),
     }
     // Ports

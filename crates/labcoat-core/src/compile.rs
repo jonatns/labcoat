@@ -76,6 +76,13 @@ fn missing_prerequisite(target: &str, stderr: &str, wasi_headers: bool) -> Optio
             "run `rustup target add wasm32-unknown-unknown wasm32-wasip1` in the project, or `labcoat upgrade` to pin a toolchain that includes both",
         ));
     }
+    if stderr.contains("Could not find `protoc`") {
+        return Some(LabcoatError::new(
+            "TOOLCHAIN_MISSING",
+            "the Protocol Buffers compiler `protoc` was not found; the Alkanes support crates need it to build",
+            "install it (`brew install protobuf` on macOS, `apt install protobuf-compiler` on Debian or Ubuntu), then run `labcoat doctor`",
+        ));
+    }
     let header_missing = ["stdlib.h", "string.h", "stdio.h", "stdint.h", "assert.h"]
         .iter()
         .any(|header| stderr.contains(&format!("'{header}' file not found")));
@@ -129,7 +136,7 @@ pub fn compile_packages(
             LabcoatError::new(
                 "TOOLCHAIN_MISSING",
                 "no C compiler with a wasm32 backend was found",
-                "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Linux)",
+                "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Debian or Ubuntu)",
             )
         })?;
         command.env(format!("CC_{}", target.replace('-', "_")), compiler);
@@ -439,6 +446,15 @@ mod tests {
         let wasi = missing_prerequisite("wasm32-wasip1", headers, false).unwrap();
         assert_eq!(wasi.code, "TOOLCHAIN_MISSING");
         assert!(wasi.hint.contains("wasi-libc"));
+
+        let protoc = missing_prerequisite(
+            "wasm32-wasip1",
+            "called `Result::unwrap()` on an `Err` value: Custom { kind: NotFound, error: \"Could not find `protoc`. If `protoc` is installed, try setting the `PROTOC` environment variable\" }",
+            true,
+        )
+        .unwrap();
+        assert_eq!(protoc.code, "TOOLCHAIN_MISSING");
+        assert!(protoc.hint.contains("protobuf"));
 
         // With the headers installed, or on another target, a missing
         // include is the build's own problem.

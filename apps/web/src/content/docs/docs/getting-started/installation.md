@@ -123,15 +123,16 @@ to match the installed CLI. Commit the result with the updated
 
 ## Compilation prerequisites
 
-Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
-a WebAssembly backend.
+Contract compilation requires [rustup](https://rustup.rs), LLVM Clang with a
+WebAssembly backend, and the Protocol Buffers compiler, `protoc`, which the
+Alkanes support crates run at build time.
 
 ```bash
 # macOS
-brew install llvm
+brew install llvm protobuf
 
 # Debian or Ubuntu
-sudo apt install clang wasi-libc
+sudo apt install clang wasi-libc protobuf-compiler
 ```
 
 You do not need to install a particular Rust version or WebAssembly target.

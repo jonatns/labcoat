@@ -38,12 +38,12 @@ not supported. Releases after 0.3.0 run Labcoat Network on all four; 0.3.0 and
 earlier run it only on macOS arm64 and Linux x86_64. See
 [platform support](https://labcoat.sh/docs/getting-started/installation/#platform-support).
 
-Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
-a WebAssembly backend:
+Contract compilation requires [rustup](https://rustup.rs), LLVM Clang with a
+WebAssembly backend, and the Protocol Buffers compiler:
 
 ```bash
-brew install llvm                    # macOS
-sudo apt install clang wasi-libc     # Debian/Ubuntu
+brew install llvm protobuf                             # macOS
+sudo apt install clang wasi-libc protobuf-compiler     # Debian/Ubuntu
 ```
 
 Generated projects pin their Rust toolchain and WebAssembly targets in

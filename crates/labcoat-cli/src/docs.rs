@@ -137,7 +137,7 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     ),
     (
         "TOOLCHAIN_MISSING",
-        "Cargo, a Rust WebAssembly target, or a C toolchain for WebAssembly is not installed",
+        "Cargo, a Rust WebAssembly target, a C toolchain for WebAssembly, or protoc is not installed",
         "install the prerequisite the message names, then run `labcoat doctor`",
     ),
     (
