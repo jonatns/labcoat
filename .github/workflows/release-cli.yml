@@ -33,15 +33,8 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
       publish: ${{ steps.release.outputs.publish }}
-      qubitcoin_repo: ${{ steps.release.outputs.qubitcoin_repo }}
-      qubitcoin_ref: ${{ steps.release.outputs.qubitcoin_ref }}
       alkanes_repo: ${{ steps.release.outputs.alkanes_repo }}
       alkanes_ref: ${{ steps.release.outputs.alkanes_ref }}
-      esplorashrew_repo: ${{ steps.release.outputs.esplorashrew_repo }}
-      esplorashrew_ref: ${{ steps.release.outputs.esplorashrew_ref }}
-      esplorashrew_prebuilt_release: ${{ steps.release.outputs.esplorashrew_prebuilt_release }}
-      esplorashrew_prebuilt_sha256: ${{ steps.release.outputs.esplorashrew_prebuilt_sha256 }}
-      qubitcoin_metashrew_ref: ${{ steps.release.outputs.qubitcoin_metashrew_ref }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -90,15 +83,8 @@ jobs:
             echo "tag=$tag"
             echo "sha=$sha"
             echo "publish=$publish"
-            echo "qubitcoin_repo=$(jq -er '.sources.qubitcoin.repository' "$sources")"
-            echo "qubitcoin_ref=$(jq -er '.sources.qubitcoin.revision' "$sources")"
             echo "alkanes_repo=$(jq -er '.sources["alkanes-wasm"].repository' "$sources")"
             echo "alkanes_ref=$(jq -er '.sources["alkanes-wasm"].revision' "$sources")"
-            echo "esplorashrew_repo=$(jq -er '.sources["esplorashrew-wasm"].repository' "$sources")"
-            echo "esplorashrew_ref=$(jq -er '.sources["esplorashrew-wasm"].revision' "$sources")"
-            echo "esplorashrew_prebuilt_release=$(jq -r '.prebuilt["esplorashrew-wasm"].release // empty' "$sources")"
-            echo "esplorashrew_prebuilt_sha256=$(jq -r '.prebuilt["esplorashrew-wasm"].sha256 // empty' "$sources")"
-            echo "qubitcoin_metashrew_ref=$(jq -er '.compatibility.qubitcoin_metashrew_revision' "$sources")"
           } >> "$GITHUB_OUTPUT"
 
   build-cli:
@@ -159,41 +145,6 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  build-qubitcoind:
-    needs: metadata
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            suffix: darwin-arm64
-          # Pinned: the RocksDB 8.1.1 that Qubitcoin vendors does not compile
-          # with the GCC on ubuntu-26.04, and the older image keeps the
-          # binary's glibc baseline.
-          - runner: ubuntu-24.04
-            suffix: linux-x86_64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ needs.metadata.outputs.qubitcoin_repo }}
-          ref: ${{ needs.metadata.outputs.qubitcoin_ref }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install build dependencies
-        run: ${{ runner.os == 'macOS' && 'brew install protobuf' || 'sudo apt-get update && sudo apt-get install -y clang protobuf-compiler' }}
-      - name: Pin Qubitcoin-compatible Metashrew
-        env:
-          METASHREW_REV: ${{ needs.metadata.outputs.qubitcoin_metashrew_ref }}
-        run: cargo update -p metashrew-runtime --precise "$METASHREW_REV"
-      - run: cargo build --locked --release -p qubitcoind
-      - run: cp target/release/qubitcoind qubitcoind-${{ matrix.suffix }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: runtime-qubitcoind-${{ matrix.suffix }}
-          path: qubitcoind-${{ matrix.suffix }}
-          if-no-files-found: error
-
   build-alkanes-wasm:
     needs: metadata
     runs-on: ubuntu-latest
@@ -215,84 +166,11 @@ jobs:
           path: alkanes.wasm
           if-no-files-found: error
 
-  build-esplorashrew-wasm:
-    needs: metadata
-    runs-on: ubuntu-latest
-    env:
-      PREBUILT_RELEASE: ${{ needs.metadata.outputs.esplorashrew_prebuilt_release }}
-      PREBUILT_SHA256: ${{ needs.metadata.outputs.esplorashrew_prebuilt_sha256 }}
-      SOURCE_REVISION: ${{ needs.metadata.outputs.esplorashrew_ref }}
-    steps:
-      - if: env.PREBUILT_RELEASE == ''
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ needs.metadata.outputs.esplorashrew_repo }}
-          ref: ${{ needs.metadata.outputs.esplorashrew_ref }}
-      - if: env.PREBUILT_RELEASE == ''
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - if: env.PREBUILT_RELEASE == ''
-        uses: Swatinem/rust-cache@v2
-      - if: env.PREBUILT_RELEASE == ''
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - name: Build Esplorashrew WASM
-        if: env.PREBUILT_RELEASE == ''
-        env:
-          RUSTFLAGS: "-C link-arg=--allow-undefined"
-        run: cargo build --release --target wasm32-unknown-unknown
-      - if: env.PREBUILT_RELEASE == ''
-        run: cp target/wasm32-unknown-unknown/release/esplorashrew.wasm esplorashrew.wasm
-      - name: Reuse the Esplorashrew WASM an earlier release built from this revision
-        if: env.PREBUILT_RELEASE != ''
-        run: |
-          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$PREBUILT_RELEASE"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/runtime-manifest.json" "$base/runtime-manifest.json"
-          curl -fsSL --retry 3 -o esplorashrew.wasm "$base/esplorashrew.wasm"
-          built_from=$(jq -er '.sources["esplorashrew-wasm"].revision' "$RUNNER_TEMP/runtime-manifest.json")
-          if [ "$built_from" != "$SOURCE_REVISION" ]; then
-            echo "$PREBUILT_RELEASE built Esplorashrew from $built_from, not $SOURCE_REVISION" >&2
-            exit 1
-          fi
-          recorded=$(jq -er '.assets["esplorashrew.wasm"].sha256' "$RUNNER_TEMP/runtime-manifest.json")
-          if [ "$recorded" != "$PREBUILT_SHA256" ]; then
-            echo "$PREBUILT_RELEASE records esplorashrew.wasm as $recorded, not $PREBUILT_SHA256" >&2
-            exit 1
-          fi
-          echo "$PREBUILT_SHA256  esplorashrew.wasm" | sha256sum -c -
-      - name: Verify Metashrew host imports
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const wasm = new WebAssembly.Module(fs.readFileSync('esplorashrew.wasm'));
-          const actual = WebAssembly.Module.imports(wasm)
-            .map(({ module, name, kind }) => `${module}:${name}:${kind}`)
-            .sort();
-          const expected = [
-            'env:__flush:function',
-            'env:__get:function',
-            'env:__get_len:function',
-            'env:__host_len:function',
-            'env:__load_input:function',
-            'env:__log:function',
-          ].sort();
-          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-            throw new Error(`unexpected Esplorashrew imports: ${actual.join(', ')}`);
-          }
-          NODE
-      - uses: actions/upload-artifact@v7
-        with:
-          name: runtime-esplorashrew-wasm
-          path: esplorashrew.wasm
-          if-no-files-found: error
-
   assemble:
     needs:
       - metadata
       - build-cli
-      - build-qubitcoind
       - build-alkanes-wasm
-      - build-esplorashrew-wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -306,19 +184,17 @@ jobs:
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 9
           for suffix in darwin-arm64 darwin-x86_64 linux-arm64 linux-x86_64; do
             test -f "dist/labcoat-$suffix"
             test -f "dist/labcoat-$suffix.sha256"
             (cd dist && sha256sum -c "labcoat-$suffix.sha256")
           done
-          for file in qubitcoind-darwin-arm64 qubitcoind-linux-x86_64 alkanes.wasm esplorashrew.wasm; do
-            test -f "dist/$file"
-          done
+          test -f dist/alkanes.wasm
           node scripts/release/build-runtime-manifest.mjs \
             --version "$VERSION" \
             --directory dist
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 13
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 10
       - uses: actions/upload-artifact@v7
         with:
           name: labcoat-release-${{ needs.metadata.outputs.version }}
@@ -352,9 +228,8 @@ jobs:
         run: |
           bundle="$LABCOAT_DATA_HOME/labcoat/runtimes/$TAG"
           mkdir -p "$bundle"
-          cp dist/runtime-manifest.json dist/alkanes.wasm dist/esplorashrew.wasm "$bundle/"
-          cp dist/qubitcoind-linux-x86_64 "$bundle/qubitcoind"
-          chmod +x "$bundle/qubitcoind" dist/labcoat-linux-x86_64
+          cp dist/runtime-manifest.json dist/alkanes.wasm "$bundle/"
+          chmod +x dist/labcoat-linux-x86_64
       - name: Boot and verify the complete runtime
         run: |
           trap 'dist/labcoat-linux-x86_64 down --json || true' EXIT
@@ -447,7 +322,7 @@ jobs:
           if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
             gh release edit "$TAG" --draft=false --latest
           fi
-          test "$(gh release view "$TAG" --json assets --jq '.assets | length')" -eq 13
+          test "$(gh release view "$TAG" --json assets --jq '.assets | length')" -eq 10
           test "$(git ls-remote origin "refs/tags/$TAG" | awk '{print $1}')" = "$(git rev-parse HEAD)"
           tmp=$(mktemp -d)
           LABCOAT_REPO="$GITHUB_REPOSITORY" LABCOAT_INSTALL_DIR="$tmp/bin" \

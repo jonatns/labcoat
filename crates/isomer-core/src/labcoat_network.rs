@@ -50,26 +50,46 @@ impl LabcoatNetwork {
         BinaryManager::ensure_bundle(progress).await
     }
 
-    /// Start Qubitcoin and bootstrap the persistent Labcoat faucet.
+    /// Start Labcoat Network and bootstrap the persistent faucet. A network
+    /// that is already serving is left running.
     pub fn start(&mut self) -> Result<(), String> {
-        ProcessManager::kill_orphans();
         let config = self.config.clone();
-        self.process_manager.start_all(&config)?;
-        crate::faucet::bootstrap_blocking(&config)
+        if crate::rpc::call_blocking_with_timeout(
+            &config,
+            "getblockcount",
+            serde_json::json!([]),
+            std::time::Duration::from_millis(500),
+        )
+        .is_err()
+        {
+            ProcessManager::stop_running(&config);
+            self.process_manager.start_all(&config)?;
+        }
+        let ready = crate::faucet::bootstrap_blocking(&config);
+        if ready.is_err() {
+            if let Some(status) = self.process_manager.exit_status(ServiceId::Node) {
+                let log = get_logs_dir().join(format!("{}.log", ServiceId::Node.id()));
+                return Err(format!(
+                    "Labcoat Network exited ({status}); see {}",
+                    log.display()
+                ));
+            }
+        }
+        ready
     }
 
-    /// Stop all services — both any owned by this handle and detached
-    /// ones from earlier `labcoat up` runs (matched by name/port).
+    /// Stop the network, whether this handle or an earlier `labcoat up`
+    /// started it.
     pub fn stop(&mut self) -> Result<(), String> {
         self.process_manager.stop_all()?;
-        ProcessManager::kill_orphans();
+        ProcessManager::stop_running(&self.config);
         Ok(())
     }
 
-    /// Stop services and clear all chain/index data.
-    /// (reset_data stops owned processes and force-kills strays itself.)
+    /// Stop the network and delete its chain.
     pub fn reset(&mut self) -> Result<(), String> {
-        self.process_manager.reset_data()
+        let config = self.config.clone();
+        self.process_manager.reset_data(&config)
     }
 
     /// Current system status. Services are probed over their local
@@ -105,11 +125,11 @@ impl LabcoatNetwork {
             is_ready,
         };
 
-        let qubitcoind_running = status
+        let running = status
             .services
             .iter()
-            .any(|s| s.id == "qubitcoind" && s.status == "running");
-        if qubitcoind_running {
+            .any(|s| s.id == ServiceId::Node.id() && s.status == "running");
+        if running {
             if let Some(height) = crate::rpc::try_block_count(&self.config).await {
                 status.block_height = height;
             }
@@ -181,12 +201,12 @@ impl LabcoatNetwork {
     pub fn endpoints(&self) -> serde_json::Value {
         let p = &self.config.ports;
         serde_json::json!({
-            "qubitcoin_rpc": format!("http://127.0.0.1:{}", p.qubitcoin_rpc),
+            "rpc": format!("http://127.0.0.1:{}", p.rpc),
         })
     }
 
     fn snapshots_dir() -> PathBuf {
-        crate::config::get_data_dir().join("snapshots-v2")
+        crate::config::get_data_dir().join("snapshots-v3")
     }
 
     /// Snapshot the Labcoat Network data directory under the given name.
@@ -287,11 +307,11 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_manifest_exposes_only_qubitcoin() {
+    fn endpoint_manifest_exposes_one_rpc_endpoint() {
         let endpoints = LabcoatNetwork::with_config(IsomerConfig::default()).endpoints();
         assert_eq!(
             endpoints,
-            serde_json::json!({"qubitcoin_rpc": "http://127.0.0.1:18443"})
+            serde_json::json!({"rpc": "http://127.0.0.1:18443"})
         );
     }
 

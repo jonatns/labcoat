@@ -67,9 +67,9 @@ pub async fn wait_for_trace(
     }
 }
 
-/// Qubitcoin does not keep a Bitcoin Core-style transaction index. Read the
-/// reveal transaction from its Esplora secondary, then query Alkanes traces
-/// for the virtual protostone outpoints.
+/// Read the reveal transaction through the node's Esplora view, as the
+/// Alkanes client does for Qubitcoin-protocol nodes, then query Alkanes
+/// traces for the virtual protostone outpoints.
 async fn trace_qubitcoin(
     provider: &ConcreteProvider,
     txid: &str,
@@ -81,8 +81,8 @@ async fn trace_qubitcoin(
         .ok_or_else(|| {
             LabcoatError::new(
                 "CONFIG_INVALID",
-                "Qubitcoin mode is missing its RPC URL",
-                "set rpc_url to the Qubitcoin endpoint",
+                "the network has no RPC URL",
+                "set rpc_url to the network's JSON-RPC endpoint",
             )
         })?;
     let encoded = JsonRpcProvider::call(
@@ -98,15 +98,15 @@ async fn trace_qubitcoin(
     let tx_bytes = hex::decode(&tx_hex).map_err(|e| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("Qubitcoin returned invalid transaction hex: {e}"),
-            "inspect the Qubitcoin Esplora indexer logs",
+            format!("the node returned invalid transaction hex: {e}"),
+            "run `labcoat logs`",
         )
     })?;
     let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&tx_bytes).map_err(|e| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("failed to decode Qubitcoin transaction: {e}"),
-            "inspect the Qubitcoin Esplora indexer logs",
+            format!("failed to decode the node's transaction: {e}"),
+            "run `labcoat logs`",
         )
     })?;
 
@@ -162,8 +162,8 @@ fn decode_qubitcoin_text(value: &serde_json::Value) -> Result<String> {
     let text = value.as_str().ok_or_else(|| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("unexpected Qubitcoin secondary response: {value}"),
-            "inspect the Qubitcoin Esplora indexer logs",
+            format!("unexpected indexer response: {value}"),
+            "run `labcoat logs`",
         )
     })?;
     let Some(encoded) = text.strip_prefix("0x") else {
@@ -172,15 +172,15 @@ fn decode_qubitcoin_text(value: &serde_json::Value) -> Result<String> {
     let bytes = hex::decode(encoded).map_err(|e| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("Qubitcoin secondary response is not hex: {e}"),
-            "inspect the Qubitcoin Esplora indexer logs",
+            format!("the indexer response is not hex: {e}"),
+            "run `labcoat logs`",
         )
     })?;
     String::from_utf8(bytes).map_err(|e| {
         LabcoatError::new(
             "TOOLKIT_ERROR",
-            format!("Qubitcoin secondary response is not UTF-8: {e}"),
-            "inspect the Qubitcoin Esplora indexer logs",
+            format!("the indexer response is not UTF-8: {e}"),
+            "run `labcoat logs`",
         )
     })
 }

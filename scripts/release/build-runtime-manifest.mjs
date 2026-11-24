@@ -24,42 +24,32 @@ if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
 }
 
 const sourceConfig = JSON.parse(await readFile(sourcesPath, 'utf8'));
-if (sourceConfig.schema !== 1 || Object.keys(sourceConfig.sources ?? {}).length !== 3) {
+if (sourceConfig.schema !== 2 || Object.keys(sourceConfig.sources ?? {}).length !== 1) {
   throw new Error('runtime source configuration is invalid');
 }
 
-const definitions = [
-  ['qubitcoind-darwin-arm64', true, 'darwin-arm64'],
-  ['qubitcoind-linux-x86_64', true, 'linux-x86_64'],
-  ['alkanes.wasm', false, null],
-  ['esplorashrew.wasm', false, null],
-];
+// Labcoat Network runs inside the CLI; its one runtime asset is the
+// portable Alkanes indexer module.
 const assets = {};
-for (const [name, executable, platform] of definitions) {
+for (const name of ['alkanes.wasm']) {
   const file = path.join(directory, name);
   const bytes = await readFile(file);
   const metadata = await stat(file);
   assets[name] = {
     sha256: createHash('sha256').update(bytes).digest('hex'),
     size_bytes: metadata.size,
-    executable,
-    platform,
   };
 }
 
 const sourceDigest = createHash('sha256')
-  .update(JSON.stringify({
-    sources: sourceConfig.sources,
-    compatibility: sourceConfig.compatibility,
-  }))
+  .update(JSON.stringify({ sources: sourceConfig.sources }))
   .digest('hex');
 const manifest = {
-  schema: 1,
+  schema: 2,
   labcoat_version: version,
   release_tag: `cli-v${version}`,
   source_digest: sourceDigest,
   sources: sourceConfig.sources,
-  compatibility: sourceConfig.compatibility,
   assets,
 };
 await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`);

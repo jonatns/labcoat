@@ -1,26 +1,37 @@
-//! Qubitcoin process management for Labcoat Network.
+//! The Labcoat Network process.
+//!
+//! Labcoat Network is served by the `labcoat` executable itself, run as
+//! `labcoat node` in the background. It needs one runtime asset, the Alkanes
+//! indexer module `alkanes.wasm`. `labcoat up` starts the process and it
+//! outlives that command; later commands find it through its port and the
+//! process id it records in the network data directory.
 
-use crate::config::{get_bin_dir, get_logs_dir, get_qubitcoin_dir, IsomerConfig};
+use crate::config::{get_bin_dir, get_compiled_dir, get_logs_dir, get_network_dir, IsomerConfig};
 use crate::state::{ServiceInfo, ServiceStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// The runtime asset the network needs.
+pub const INDEXER_ASSET: &str = "alkanes.wasm";
+/// The file in the network data directory holding the serving process id.
+const PID_FILE: &str = "node.pid";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceId {
-    Qubitcoind,
+    Node,
 }
 
 impl ServiceId {
     pub fn all() -> Vec<Self> {
-        vec![Self::Qubitcoind]
+        vec![Self::Node]
     }
 
     pub fn name(self) -> &'static str {
-        "qubitcoind"
+        "node"
     }
 
     pub fn id(self) -> &'static str {
@@ -28,11 +39,12 @@ impl ServiceId {
     }
 
     pub fn display_name(self) -> &'static str {
-        "Qubitcoin"
+        "Labcoat Network"
     }
 
+    /// The runtime asset this service needs.
     pub fn binary_name(self) -> &'static str {
-        "qubitcoind"
+        INDEXER_ASSET
     }
 
     pub fn dependencies(self) -> Vec<Self> {
@@ -76,10 +88,10 @@ impl Default for ProcessManager {
 
 impl ProcessManager {
     pub fn new() -> Self {
-        Self::kill_orphans();
         Self::with_options(LogMode::Pipe)
     }
 
+    /// A manager whose processes log to files and outlive it.
     pub fn detached() -> Self {
         Self::with_options(LogMode::File)
     }
@@ -92,29 +104,36 @@ impl ProcessManager {
         }
     }
 
-    pub fn kill_orphans() {
+    /// Stop a network started by an earlier command: ask it to stop, then
+    /// end the recorded process if it is still running. Also ends a
+    /// `qubitcoind` left by a Labcoat release that used one, since it would
+    /// hold the network's port.
+    pub fn stop_running(config: &IsomerConfig) {
+        let pid_file = get_network_dir().join(PID_FILE);
+        let asked = crate::rpc::call_blocking_with_timeout(
+            config,
+            "stop",
+            serde_json::json!([]),
+            Duration::from_secs(2),
+        )
+        .is_ok();
+        // The node deletes its pid file as it exits. Its process can linger
+        // as a zombie until something reaps it, so the file, not the process
+        // table, says when it has stopped.
+        let deadline = Instant::now() + Duration::from_secs(if asked { 5 } else { 0 });
+        while pid_file.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if let Some(pid) = recorded_pid() {
+            if process_alive(pid) {
+                signal(pid, true);
+            }
+        }
+        let _ = std::fs::remove_file(&pid_file);
+
         #[cfg(unix)]
         {
             let _ = Command::new("pkill").args(["-x", "qubitcoind"]).output();
-            for port in [18443_u16, 18444_u16] {
-                if let Ok(output) = Command::new("lsof")
-                    .args(["-t", &format!("-i:{port}")])
-                    .output()
-                {
-                    for pid in String::from_utf8_lossy(&output.stdout).lines() {
-                        if !pid.trim().is_empty() {
-                            let _ = Command::new("kill").args(["-9", pid]).output();
-                        }
-                    }
-                }
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            let _ = Command::new("taskkill")
-                .args(["/F", "/IM", "qubitcoind.exe"])
-                .output();
         }
     }
 
@@ -146,22 +165,18 @@ impl ProcessManager {
         }
     }
 
+    /// The arguments `labcoat node` is started with.
     fn build_args(config: &IsomerConfig) -> Vec<String> {
         vec![
-            "-regtest=1".into(),
-            "-rpcbind=127.0.0.1".into(),
-            format!("-rpcport={}", config.ports.qubitcoin_rpc),
-            format!("-port={}", config.ports.qubitcoin_p2p),
-            format!("-datadir={}", get_qubitcoin_dir().display()),
-            "-synchronous-secondary=1".into(),
-            format!(
-                "-loadindexer=alkanes:{}",
-                get_bin_dir().join("alkanes.wasm").display()
-            ),
-            format!(
-                "-loadindexer=esplora:{}",
-                get_bin_dir().join("esplorashrew.wasm").display()
-            ),
+            "node".into(),
+            "--port".into(),
+            config.ports.rpc.to_string(),
+            "--data-dir".into(),
+            get_network_dir().display().to_string(),
+            "--indexer".into(),
+            get_bin_dir().join(INDEXER_ASSET).display().to_string(),
+            "--cache-dir".into(),
+            get_compiled_dir().display().to_string(),
         ]
     }
 
@@ -173,27 +188,21 @@ impl ProcessManager {
         if self.processes.contains_key(&service) {
             return Err(format!("{} is already running", service.display_name()));
         }
-
-        let binary = get_bin_dir().join(service.binary_name());
-        if !binary.exists() {
+        let indexer = get_bin_dir().join(INDEXER_ASSET);
+        if !indexer.exists() {
             return Err(format!(
-                "Binary not found: {}. Please download binaries first.",
-                binary.display()
+                "Runtime asset not found: {}. Run `labcoat up` without --no-download.",
+                indexer.display()
             ));
         }
-        for asset in ["alkanes.wasm", "esplorashrew.wasm"] {
-            let path = get_bin_dir().join(asset);
-            if !path.exists() {
-                return Err(format!("Runtime asset not found: {}", path.display()));
-            }
-        }
-
-        std::fs::create_dir_all(get_qubitcoin_dir())
-            .map_err(|e| format!("Failed to create Qubitcoin data directory: {e}"))?;
+        std::fs::create_dir_all(get_network_dir())
+            .map_err(|e| format!("Failed to create the network data directory: {e}"))?;
         std::fs::create_dir_all(get_logs_dir())
             .map_err(|e| format!("Failed to create log directory: {e}"))?;
 
-        let mut command = Command::new(&binary);
+        let executable = std::env::current_exe()
+            .map_err(|e| format!("Cannot find the labcoat executable to run the network: {e}"))?;
+        let mut command = Command::new(executable);
         command
             .args(Self::build_args(config))
             .env("RUST_LOG", "info");
@@ -203,7 +212,7 @@ impl ProcessManager {
                 command.stdout(Stdio::piped()).stderr(Stdio::piped());
             }
             LogMode::File => {
-                let log_path = get_logs_dir().join("qubitcoind.log");
+                let log_path = get_logs_dir().join(format!("{}.log", service.id()));
                 let open = || {
                     std::fs::OpenOptions::new()
                         .create(true)
@@ -221,6 +230,13 @@ impl ProcessManager {
                     }
                 }
             }
+        }
+        #[cfg(unix)]
+        {
+            // Its own process group, so Ctrl-C in the terminal that ran
+            // `labcoat up` does not stop the network.
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
         }
 
         let mut child = command
@@ -246,6 +262,15 @@ impl ProcessManager {
         Ok(())
     }
 
+    /// Whether the process this manager started has exited, and how.
+    pub fn exit_status(&mut self, service: ServiceId) -> Option<String> {
+        let info = self.processes.get_mut(&service)?;
+        match info.child.try_wait() {
+            Ok(Some(status)) => Some(status.to_string()),
+            _ => None,
+        }
+    }
+
     fn capture_logs(
         stream: impl std::io::Read + Send + 'static,
         buffer: LogBuffer,
@@ -256,7 +281,7 @@ impl ProcessManager {
                 Self::add_log_entry(
                     &buffer,
                     LogEntry {
-                        service: "qubitcoind".into(),
+                        service: ServiceId::Node.id().into(),
                         timestamp: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
@@ -273,15 +298,11 @@ impl ProcessManager {
         let Some(mut info) = self.processes.remove(&service) else {
             return Ok(());
         };
-
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(info.child.id() as i32, libc::SIGTERM);
+        signal(info.child.id(), false);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while info.child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
         }
-        #[cfg(windows)]
-        let _ = info.child.kill();
-
-        std::thread::sleep(std::time::Duration::from_millis(500));
         if info.child.try_wait().ok().flatten().is_none() {
             let _ = info.child.kill();
         }
@@ -292,17 +313,18 @@ impl ProcessManager {
     }
 
     pub fn start_all(&mut self, config: &IsomerConfig) -> Result<(), String> {
-        self.start_service(ServiceId::Qubitcoind, config)
+        self.start_service(ServiceId::Node, config)
     }
 
     pub fn stop_all(&mut self) -> Result<(), String> {
-        self.stop_service(ServiceId::Qubitcoind)
+        self.stop_service(ServiceId::Node)
     }
 
-    pub fn reset_data(&mut self) -> Result<(), String> {
+    /// Stop the network and delete its chain.
+    pub fn reset_data(&mut self, config: &IsomerConfig) -> Result<(), String> {
         let _ = self.stop_all();
-        Self::kill_orphans();
-        let dir = get_qubitcoin_dir();
+        Self::stop_running(config);
+        let dir = get_network_dir();
         if dir.exists() {
             std::fs::remove_dir_all(&dir)
                 .map_err(|e| format!("Failed to remove {}: {e}", dir.display()))?;
@@ -356,7 +378,7 @@ impl ProcessManager {
     }
 
     pub fn port_for_service(_service: ServiceId, config: &IsomerConfig) -> u16 {
-        config.ports.qubitcoin_rpc
+        config.ports.rpc
     }
 
     pub async fn check_health(&self, service: ServiceId, config: &IsomerConfig) -> bool {
@@ -368,7 +390,7 @@ impl ProcessManager {
             config,
             "getblockchaininfo",
             serde_json::json!([]),
-            std::time::Duration::from_secs(2),
+            Duration::from_secs(2),
         )
         .await
         .is_ok()
@@ -381,31 +403,70 @@ impl Drop for ProcessManager {
     }
 }
 
+fn recorded_pid() -> Option<u32> {
+    std::fs::read_to_string(get_network_dir().join(PID_FILE))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+        .filter(|pid| *pid != std::process::id())
+}
+
+fn process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        // SAFETY: signal 0 only checks that the process exists.
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// Ask a process to stop, or with `force`, end it.
+fn signal(pid: u32, force: bool) {
+    #[cfg(unix)]
+    {
+        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+        // SAFETY: signals a process this crate started or recorded.
+        unsafe {
+            libc::kill(pid as i32, signal);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = force;
+        let _ = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .output();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn qubitcoin_args_load_both_indexers_synchronously() {
+    fn the_network_runs_the_labcoat_node_command() {
         let args = ProcessManager::build_args(&IsomerConfig::default());
-        assert!(args.contains(&"-synchronous-secondary=1".to_string()));
-        assert!(args
-            .iter()
-            .any(|arg| arg.starts_with("-loadindexer=alkanes:")));
-        assert!(args
-            .iter()
-            .any(|arg| arg.starts_with("-loadindexer=esplora:")));
-        assert_eq!(
-            args.iter()
-                .filter(|arg| arg.starts_with("-loadindexer="))
-                .count(),
-            2
-        );
+        assert_eq!(args[0], "node");
+        assert_eq!(args[1..3], ["--port".to_string(), "18443".to_string()]);
+        assert!(args.iter().any(|arg| arg.ends_with(INDEXER_ASSET)));
+        assert!(args.contains(&"--data-dir".to_string()));
+        assert!(args.contains(&"--cache-dir".to_string()));
     }
 
     #[test]
     fn runtime_has_one_service() {
-        assert_eq!(ServiceId::all(), vec![ServiceId::Qubitcoind]);
-        assert_eq!(ServiceId::Qubitcoind.id(), "qubitcoind");
+        assert_eq!(ServiceId::all(), vec![ServiceId::Node]);
+        assert_eq!(ServiceId::Node.id(), "node");
+        assert_eq!(ServiceId::Node.binary_name(), "alkanes.wasm");
+    }
+
+    #[test]
+    fn this_process_is_never_its_own_orphan() {
+        assert!(process_alive(std::process::id()));
     }
 }

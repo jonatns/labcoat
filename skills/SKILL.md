@@ -23,7 +23,7 @@ labcoat up --json          # prepares this CLI version's runtime, boots the stac
 labcoat status --json      # poll until result.is_ready == true
 ```
 
-`up` returns `result.endpoints.qubitcoin_rpc`, the direct local Qubitcoin
+`up` returns `result.endpoints.rpc`, Labcoat Network's local JSON-RPC
 endpoint (`http://127.0.0.1:18443`).
 
 ## 2. Wallet

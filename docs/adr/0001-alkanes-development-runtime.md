@@ -1,20 +1,16 @@
 # ADR 0001: An Alkanes development runtime
 
-- Status: proposed
+- Status: accepted and implemented
 - Date: 2026-11-24
 
-This document records a proposed direction for Labcoat Network and the
-evidence behind it. `docs/RELEASING.md` and `TOOLCHAIN.md` describe the
-runtime that ships.
-
-What exists so far is `crates/labcoat-runtime`, a first building block that
-the CLI does not use: an indexer host that runs `alkanes.wasm` over state in
-memory, a regtest block builder with no transaction validation, and
-snapshots. Neither step below is done.
+Labcoat Network now runs on Labcoat's own runtime, `crates/labcoat-runtime`,
+served by the `labcoat` executable. "What shipped" below records how the
+implementation differs from the plan. `docs/RELEASING.md`, `TOOLCHAIN.md`, and
+the Labcoat Network guide describe the result.
 
 ## Context
 
-### What Labcoat Network is today
+### What Labcoat Network was
 
 `labcoat up` downloads a runtime bundle published with the CLI release and
 starts it as a child process:
@@ -45,7 +41,7 @@ The runtime is the part of the product Labcoat controls least. It depends on
 two third-party repositories staying public, on a C++ toolchain, and on a
 build that only release day exercises.
 
-### What the current design costs users
+### What that design cost users
 
 - A download before the first `labcoat up`, and a node build for only two of
   the four platforms the CLI supports (macOS arm64 and Linux x86_64).
@@ -92,60 +88,79 @@ Checked against the pinned upstream revisions on 2026-11-24:
 
 ## Decision
 
-Labcoat will own its development runtime, in two steps.
+Labcoat owns its development runtime. The plan had two steps: first serve
+wallet and trace lookups from Qubitcoin's own RPC to drop Esplorashrew, then
+replace Qubitcoin. Both were done at once, because the second step removed the
+first's reason to exist.
 
-### Step 1: remove Esplorashrew
+### What shipped
 
-Serve the wallet's UTXO lookups and the trace command's transaction lookups
-from the node's own RPC (`scantxoutset`, `getrawtransaction`, `gettxout`)
-through an adapter in Labcoat. The runtime bundle becomes `qubitcoind` and
-`alkanes.wasm`, both built from public source, and the `prebuilt` entry in
-`runtime-sources.json` goes away.
+`crates/labcoat-runtime` holds the chain and the Alkanes indexer in one Rust
+library:
 
-This step keeps the managed-node design. It is small, it removes the
-dependency that cannot be rebuilt, and it stands on its own if step 2 is
-never taken.
+- **A regtest chain** that starts at Bitcoin's regtest genesis block and
+  mines blocks with BIP 34 heights, witness commitments, and valid proof of
+  work, paying the subsidy and fees to the requested address.
+- **A ledger and mempool**: unspent outputs, a transaction index, spenders, an
+  index of outputs by script, and chains of unconfirmed transactions.
+- **Validation** following Bitcoin Core's consensus rules and default relay
+  policy: signatures and scripts for taproot key-path and tapscript spends,
+  P2WPKH, P2PKH, and P2WPKH nested in P2SH; coinbase maturity; the 1 sat/vB
+  minimum fee; dust; the 400,000 weight-unit limit; locktime; conflicts.
+  Tapscript runs on a small interpreter covering the opcodes envelopes and
+  signature checks use. Unsupported scripts, such as P2WSH, are rejected by
+  name rather than accepted unchecked.
+- **An indexer host** for metashrew-compatible modules. It runs the same
+  `alkanes.wasm` production indexers run, through the module's `env`
+  imports, over an in-memory map. A block's writes apply only if the module
+  finishes, and views cannot write.
+- **Esplora views** answered from the ledger, replacing Esplorashrew, in the
+  byte format Esplorashrew used.
+- **Persistence**: an append-only file of each block and the indexer writes it
+  caused. A restart replays the writes without running WebAssembly; a
+  different module makes the runtime index the blocks again.
+- **A compiled-module cache**, so only the first start of a release compiles
+  `alkanes.wasm`.
+- **A JSON-RPC server** with the subset of Bitcoin Core and Qubitcoin methods
+  Labcoat and the Alkanes client library call, found by recording their
+  traffic against Qubitcoin, plus `labcoat_snapshot` and `labcoat_revert`.
 
-### Step 2: an in-process Alkanes development runtime
+`labcoat up` runs that server as a background `labcoat node` process. The
+plan considered linking the chain into every CLI command instead; a
+long-running process is what lets separate commands, generated web clients,
+and MCP clients share one chain, and it costs nothing in startup time because
+reloading is instant.
 
-Build a Rust library that runs a development chain and the Alkanes indexer
-inside the `labcoat` process, and make it the default Labcoat Network.
+The runtime bundle is now one file, `alkanes.wasm`, built from public source.
+Releases no longer build `qubitcoind` or touch Esplorashrew, and Labcoat
+Network runs on all four platforms the CLI supports.
 
-It has three parts:
+### Measured result
 
-1. **A simulated chain.** Blocks, a UTXO set, a mempool, and transaction
-   validation including script and signature checks. No peer-to-peer network,
-   no proof of work, and no reorganizations unless a test asks for one.
-2. **An indexer host.** The same `alkanes.wasm` that production indexers run,
-   loaded through a metashrew-compatible host over storage the runtime owns.
-3. **A provider.** One in-process interface for the CLI and tests, and the
-   same interface served over HTTP by `labcoat up` for generated web clients,
-   MCP clients, and other tools.
+The release acceptance flow, on the same machine, before and after:
 
-Rules the design holds to:
+| Step | Qubitcoin | Labcoat runtime |
+|---|---|---|
+| First `labcoat up` of a release (compiles the indexer) | 26.4 s | 1.9 s |
+| `labcoat up` on a new chain | 26.4 s | 0.8 s |
+| `labcoat up` resuming a chain | 16.5 s | 0.2 s |
+| `labcoat call` | 4.7 s | 0.2 s |
+| `labcoat fund` | 5.4 s | 0.07 s |
+| `labcoat wallet utxos` | 2.0 s | 0.08 s |
+| `labcoat simulate` | 0.18 s | 0.10 s |
 
-- **Never reimplement Alkanes.** Protocol behavior comes from the upstream
-  indexer module. Labcoat simulates only the chain underneath it.
-- **Keep the public interface.** CLI commands, `labcoat/v1/*` JSON envelopes,
-  MCP tools, and the RPC methods that generated web clients call keep working,
-  or change through a versioned, documented break.
-- **Build everything from pinned public source.** A dependency that cannot be
-  rebuilt does not enter the runtime.
-- **Instances are isolated and cheap.** A test can create its own chain,
-  snapshot it, revert it, and discard it without touching another.
-
-What this is meant to make possible, none of which exists today: no runtime
-download, a runtime on every platform the CLI supports, a private chain per
-network test, in-memory snapshots, and control over block height and time.
+`simulate` and `trace` return the same results on both. Part of the `fund`
+and `call` gains came from reusing one RPC client per command instead of
+building one, with its TLS roots, per request.
 
 ## Options considered
 
 | Option | Summary | Verdict |
 |---|---|---|
 | A. Keep Qubitcoin and Esplorashrew | The 0.3.0 design, with the reused module | Rejected as a resting state: one module can never be rebuilt |
-| B. Qubitcoin with native RPC lookups | Step 1 above | Accepted as step 1 |
+| B. Qubitcoin with native RPC lookups | Serve lookups from Qubitcoin's RPC, drop Esplorashrew | Superseded by D |
 | C. Embed Qubitcoin's crates in the CLI | Link the node as a library instead of shipping a binary | Rejected |
-| D. Simulated chain plus indexer host | Step 2 above | Accepted as the direction |
+| D. Own chain plus indexer host | What shipped | Accepted |
 | E. Write and own an Esplora indexer module | Replace Esplorashrew with a Labcoat-maintained module | Rejected: option B meets the same need with no new module |
 
 Option C was rejected for three reasons. It moves the RocksDB C++ build, the
@@ -156,66 +171,59 @@ policy. And a full node does far more than a development chain needs.
 
 ## Consequences
 
-Expected benefits:
+- Releases depend on no private repository, no C++ toolchain, and no
+  per-platform node build.
+- Labcoat Network runs wherever the CLI does.
+- **Fidelity** is now Labcoat's responsibility. Validation covers what wallets
+  and Alkanes deployments produce, and refuses scripts it cannot check, but it
+  is not Bitcoin Core: package relay, replace-by-fee rules, and other policy
+  details are not modelled. Signet through Subfrost remains the check before
+  mainnet.
+- **Ownership.** Labcoat maintains the chain, validation, and indexer host,
+  and follows changes to the metashrew host interface when it upgrades
+  `alkanes.wasm`.
+- **Migration.** Chains and snapshots from Qubitcoin-based releases are not
+  read. Projects keep their deployment records; the next `labcoat deploy`
+  replaces them on the new chain.
 
-- The release no longer depends on a private repository, and after step 2 not
-  on a C++ toolchain or a per-platform node build.
-- Local development needs no download, background process, or port unless
-  the developer asks for a served network.
-- Each network test can have its own chain.
+## Open questions, as resolved
 
-Costs and risks:
+1. **Script verification**: pure Rust. Sighashes come from the `bitcoin`
+   crate and signatures from `secp256k1`, both already in the tree; tapscript
+   runs on Labcoat's interpreter. No C++ build was added.
+2. **Storage**: memory, saved as an append-only log of blocks and index writes.
+3. **Transport**: the CLI keeps talking JSON-RPC to a local process, so the
+   Alkanes client library needed no change.
+4. **UTXO lookups**: answered natively; Esplora views list confirmed outputs,
+   as Esplorashrew did.
+5. **Forking a public network**: not in scope.
+6. **wasmtime**: the runtime and `labcoat-test` both use wasmtime 51.
+7. **Chain identity**: the network keeps its instance id beside the chain, so
+   `labcoat reset` gives a new chain a new id, as before.
+8. **A Qubitcoin full-node mode**: removed.
+9. **Licensing**: no upstream runtime crate is linked; the indexer host is
+   Labcoat's own code, and `alkanes.wasm` is still downloaded, not linked.
 
-- **Fidelity.** A simulated chain is not Bitcoin Core. Mempool policy, fee and
-  relay rules, and standardness limits may differ, and Alkanes deployments
-  rely on large commit and reveal transactions where those rules matter. A
-  contract flow could pass locally and be rejected on a public network.
-- **Ownership.** Labcoat takes on a chain simulator and an indexer host as
-  code it maintains, including tracking upstream changes to the host ABI.
-- **Client coupling.** The alkanes-rs client library assumes a Qubitcoin or
-  Esplora endpoint. The runtime must present what that library expects, or
-  Labcoat must supply the data another way.
-- **Migration.** Existing chains, snapshots, and recorded deployments on the
-  Qubitcoin-backed network do not carry over without a defined path.
+Still open: the mempool is not saved across `labcoat down`, a chain cannot be
+reorganized on request, and per-test chains in `labcoat test --e2e` would need
+the harness to create them through `labcoat_snapshot`.
 
-Mitigations: keep signet through Subfrost as the check before mainnet, and
-run the release acceptance flow against both runtimes while they coexist.
+## Validation
 
-## Open questions
-
-1. Which script verification implementation: a binding to Bitcoin Core's
-   consensus library, which reintroduces a C++ build, or a pure-Rust
-   implementation such as Qubitcoin's script crate.
-2. Which storage backs a served, persistent network. Tests can stay in memory.
-3. Whether the alkanes-rs client can take an in-process transport, or needs a
-   local HTTP endpoint even for CLI commands.
-4. For step 1, whether to prefetch UTXOs into the client's request or to
-   translate its `esplora_*` calls locally. `scantxoutset` reads confirmed
-   outputs only, so unconfirmed change needs a decision.
-5. Whether forking a public network is in scope. The indexer's views do not
-   expose raw storage, so it is not a simple read-through.
-6. How to align wasmtime versions between `labcoat-test` and the indexer
-   host.
-7. How durable state's chain identity maps onto per-test instances.
-8. Whether the Qubitcoin-backed network stays as an opt-in full-node mode.
-9. License review of each upstream crate before it is linked into the CLI.
-
-## Validation before acceptance
-
-- A prototype of step 1 that passes the release acceptance flow with no
-  Esplorashrew module loaded.
-- A spike of the indexer host that indexes a deploy and a call, and returns
-  the same `simulate` and `trace` results as the Qubitcoin-backed network for
-  the starter Counter project. `crates/labcoat-runtime` covers the first part:
-  its tests run the `alkanes.wasm` published with `cli-v0.3.0` over the genesis
-  block and empty blocks and read back the `sequence`, `getbytecode`, and
-  `getblock` views. Deploys, calls, and the comparison are still to do.
-- A written list of the node behaviors the simulated chain will not model.
+- The release acceptance flow passes with no Qubitcoin or Esplorashrew: up,
+  native tests, deploy, simulate, call, trace, restart, fund, and mine.
+- `labcoat test --e2e` on the starter project passes, including its
+  multi-wallet test.
+- `crates/labcoat-runtime` tests signed spends of every supported script
+  type, the relay rules, the interpreter, persistence, and the RPC server over
+  HTTP. Its `tests/alkanes.rs` runs the released `alkanes.wasm`.
+- A project with deployment records from a Qubitcoin chain deploys again on
+  the new chain.
 
 ## References
 
-- `docs/RELEASING.md` and `TOOLCHAIN.md`: the runtime as shipped, including
-  the prebuilt Esplorashrew module and the pinned build runners.
+- `docs/RELEASING.md`, `TOOLCHAIN.md`, and the Labcoat Network guide: the
+  runtime as shipped.
 - [NomicFoundation/edr](https://github.com/NomicFoundation/edr) and
   [Simulated Networks by EDR](https://hardhat.org/docs/explanations/edr-simulated-networks).
 - [subfrost/qubitcoin](https://github.com/subfrost/qubitcoin),

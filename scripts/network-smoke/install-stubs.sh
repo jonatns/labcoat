@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install protocol stubs into the Labcoat runtime bin dir so `labcoat up
-# --no-download` can exercise Labcoat Network without downloading Qubitcoin.
+# Install a stub indexer module into the Labcoat runtime bin dir so `labcoat
+# up --no-download` can run Labcoat Network without downloading alkanes.wasm.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -21,8 +21,6 @@ fi
 BIN_DIR="$DATA_DIR/runtimes/cli-v$VERSION"
 mkdir -p "$BIN_DIR"
 
-cp "$HERE/stub-qubitcoind" "$BIN_DIR/qubitcoind"
-touch "$BIN_DIR/alkanes.wasm" "$BIN_DIR/esplorashrew.wasm"
-chmod +x "$BIN_DIR/qubitcoind"
+cp "$HERE/stub-indexer.wat" "$BIN_DIR/alkanes.wasm"
 
-echo "Stubs installed to $BIN_DIR"
+echo "Stub indexer installed to $BIN_DIR"

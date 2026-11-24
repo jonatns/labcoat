@@ -575,10 +575,7 @@ fn status_document(command: &str, value: &Value, verbose: bool) -> Document {
             document.blocks.push(Block::Text("Endpoints".into()));
             document.blocks.extend(generic_blocks(endpoints));
         }
-    } else if let Some(endpoint) = value
-        .pointer("/endpoints/qubitcoin_rpc")
-        .and_then(Value::as_str)
-    {
+    } else if let Some(endpoint) = value.pointer("/endpoints/rpc").and_then(Value::as_str) {
         document.fields(vec![("JSON-RPC", endpoint)]);
     }
     document

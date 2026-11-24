@@ -15,7 +15,8 @@ pub mod state;
 
 pub use binary_manager::{BinaryInfo, BinaryManager, BinaryStatus};
 pub use config::{
-    get_bin_dir, get_data_dir, get_logs_dir, get_qubitcoin_dir, get_runtime_dir, IsomerConfig,
+    get_bin_dir, get_compiled_dir, get_data_dir, get_logs_dir, get_network_dir, get_runtime_dir,
+    IsomerConfig,
 };
 pub use instance_id::{instance_id, instance_id_if_exists};
 pub use labcoat_network::LabcoatNetwork;

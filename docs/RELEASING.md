@@ -37,18 +37,15 @@ The **Release Labcoat** workflow runs only for a merged, labeled
 
 1. validates the workspace version, changelog, runtime source pins, and release
    target;
-2. builds the Qubitcoin executable for macOS arm64 and Linux x86_64;
-3. builds the Alkanes and Esplorashrew WASM modules, or, for a source listed
-   under `prebuilt` in `runtime-sources.json`, reuses the module an earlier
-   release built from the same revision after checking that release's manifest
-   and the pinned SHA-256;
-4. generates `runtime-manifest.json` with exact sizes and SHA-256 checksums;
-5. builds the CLI for macOS and Linux on arm64 and x86_64;
-6. runs the Linux runtime, wallet, contract, deployment, simulation, and trace
+2. builds the Alkanes indexer module, `alkanes.wasm`, from its pinned source;
+3. generates `runtime-manifest.json` with its exact size and SHA-256 checksum;
+4. builds the CLI, which contains Labcoat Network, for macOS and Linux on arm64
+   and x86_64;
+5. runs the Linux runtime, wallet, contract, deployment, simulation, and trace
    acceptance flow against the assembled local artifacts;
-7. creates a draft, uploads and attests all thirteen assets, then publishes the
+6. creates a draft, uploads and attests all ten assets, then publishes the
    immutable `cli-vX.Y.Z` release;
-8. installs the published CLI and verifies that generated projects pin
+7. installs the published CLI and verifies that generated projects pin
    `labcoat-deploy` and `labcoat-test` to the same Git tag.
 
 Run **Release Labcoat** manually with `dry_run=true` to build and validate the
@@ -58,11 +55,12 @@ complete product without creating a tag or GitHub release.
 
 - `labcoat --version` matches the release.
 - The installer selects the new `cli-v*` release and verifies its checksum.
-- `labcoat up` downloads `runtime-manifest.json` and assets from that same tag.
+- `labcoat up` downloads `runtime-manifest.json` and `alkanes.wasm` from that
+  same tag.
 - A second `labcoat up` uses the cached versioned bundle without a release
   lookup.
 - `labcoat init` writes the matching `labcoat-deploy` and `labcoat-test` Git tag.
-- All thirteen assets have GitHub build-provenance attestations.
+- All ten assets have GitHub build-provenance attestations.
 - Release notes match the version section in `CHANGELOG.md`.
 
 ## Failure policy

@@ -1,6 +1,6 @@
-//! Persistent Labcoat Network regtest faucet for Qubitcoin.
+//! Persistent Labcoat Network regtest faucet.
 
-use crate::config::{get_qubitcoin_dir, IsomerConfig};
+use crate::config::{get_network_dir, IsomerConfig};
 use bitcoin::absolute;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::hashes::Hash;
@@ -36,7 +36,7 @@ struct FaucetState {
 }
 
 fn state_path() -> std::path::PathBuf {
-    get_qubitcoin_dir().join("labcoat-faucet.json")
+    get_network_dir().join("labcoat-faucet.json")
 }
 
 fn load_or_create() -> Result<FaucetState, String> {
@@ -114,21 +114,19 @@ pub fn address() -> Result<String, String> {
     Ok(key_material(&state)?.2.to_string())
 }
 
-/// Wait for Qubitcoin, then create 101 faucet coinbase outputs when the
-/// persisted faucet has no recorded funding.
+/// Wait for Labcoat Network, then create 101 faucet coinbase outputs when
+/// the persisted faucet has no recorded funding.
 pub fn bootstrap_blocking(config: &IsomerConfig) -> Result<(), String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while std::time::Instant::now() < deadline {
         if crate::rpc::call_blocking(config, "getblockcount", serde_json::json!([])).is_ok() {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(250));
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     let mut state = load_or_create()?;
     if !state.utxos.is_empty() {
-        let address = key_material(&state)?.2.to_string();
-        absorb_first_index_run(config, &address)?;
         return wait_for_indexers(config);
     }
     let address = key_material(&state)?.2.to_string();
@@ -161,45 +159,6 @@ pub fn bootstrap_blocking(config: &IsomerConfig) -> Result<(), String> {
     wait_for_indexers(config)
 }
 
-/// Blocks mined when an existing chain resumes, before any user transaction.
-const RESUME_WARMUP_BLOCKS: u64 = 2;
-
-/// Work around an upstream indexer defect when an existing chain resumes.
-///
-/// Metashrew's runtime grows each indexer's WASM memory to its 4 GB maximum
-/// at startup (`force_initial_memory_commit`), so the first block executed
-/// afterwards traps with an out-of-memory error. Qubitcoin then moves on
-/// without retrying, permanently dropping that block from the alkanes and
-/// esplora indexes. On a fresh chain the genesis block absorbs the failure;
-/// on a resumed chain the first block would be a user's (for example the
-/// funding transaction after `labcoat up`), so its outputs would never be
-/// indexed.
-///
-/// Mine empty blocks before any user activity: the first absorbs the failed
-/// execution and the next one advances the indexers to the chain tip. They
-/// carry only a coinbase to the faucet address, which the faucet never
-/// spends, so nothing of value is lost from the index. Skipped when the
-/// mempool is non-empty, because those transactions would land in the
-/// sacrificial block.
-fn absorb_first_index_run(config: &IsomerConfig, address: &str) -> Result<(), String> {
-    let mempool = crate::rpc::call_blocking(config, "getmempoolinfo", serde_json::json!([]))
-        .ok()
-        .and_then(|info| info.get("size").and_then(serde_json::Value::as_u64));
-    if mempool != Some(0) {
-        tracing::warn!(
-            ?mempool,
-            "skipping indexer warm-up: mempool is not known to be empty"
-        );
-        return Ok(());
-    }
-    crate::rpc::call_blocking(
-        config,
-        "generatetoaddress",
-        serde_json::json!([RESUME_WARMUP_BLOCKS, address]),
-    )?;
-    Ok(())
-}
-
 fn wait_for_indexers(config: &IsomerConfig) -> Result<(), String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while std::time::Instant::now() < deadline {
@@ -217,9 +176,9 @@ fn wait_for_indexers(config: &IsomerConfig) -> Result<(), String> {
                 return Ok(());
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(250));
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    Err("Qubitcoin secondary indexers did not reach chain height within 30 seconds".into())
+    Err("Labcoat Network did not become ready within 30 seconds".into())
 }
 
 pub async fn fund(
@@ -317,7 +276,7 @@ pub async fn fund(
         .ok_or_else(|| "Invalid sendrawtransaction response".to_string())?
         .to_string();
     Txid::from_str(&txid)
-        .map_err(|e| format!("Qubitcoin returned an invalid transaction id: {e}"))?;
+        .map_err(|e| format!("Labcoat Network returned an invalid transaction id: {e}"))?;
     state.utxos.retain(|utxo| {
         !selected
             .iter()

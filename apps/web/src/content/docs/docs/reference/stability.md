@@ -26,7 +26,7 @@ Release notes and the changelog describe changes between versions.
 A `cli-vX.Y.Z` release is one tested compatibility unit containing:
 
 - native CLI executables and checksums;
-- the exact managed Qubitcoin and indexer runtime;
+- the exact Alkanes indexer module Labcoat Network runs;
 - the matching `labcoat-deploy` and `labcoat-test` source tag used by generated projects.
 
 Labcoat does not independently update the runtime. An installed CLI requests
@@ -50,7 +50,7 @@ the first verified download. Updating the CLI is the explicit runtime upgrade.
 Current:
 
 - CLI on macOS and Linux, arm64 and x86_64;
-- Labcoat Network runtime on macOS arm64 and Linux x86_64;
+- Labcoat Network on the same platforms;
 - Rust contract scaffolding, native Wasm tests, and package builds;
 - local wallets, deployment, calls, simulation, traces, JSON, and MCP;
 - deployment scripts with `deploy.rs`, `plan`, `deploy`, and `import`, the

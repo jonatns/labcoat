@@ -37,4 +37,4 @@ transaction_output_count + 1 + i
 
 State-changing operations wait until the Alkanes index height reaches the chain
 height before reading new state. `INDEXER_LAG` means that bounded wait expired;
-inspect `labcoat status` and `labcoat logs --service qubitcoind`.
+inspect `labcoat status` and `labcoat logs --service node`.

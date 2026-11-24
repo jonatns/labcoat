@@ -178,10 +178,10 @@
       {
         "arguments": [
           {
-            "description": "Filter to the Qubitcoin service (qubitcoind)",
+            "description": "Filter to one service (node)",
             "id": "service",
             "possibleValues": [
-              "qubitcoind"
+              "node"
             ],
             "required": false
           },
@@ -1111,13 +1111,13 @@
       },
       {
         "code": "RPC_UNREACHABLE",
-        "meaning": "the configured Qubitcoin endpoint cannot be reached",
+        "meaning": "the configured RPC endpoint cannot be reached",
         "recovery": "run `labcoat status`"
       },
       {
         "code": "INDEXER_LAG",
         "meaning": "indexed height did not catch chain height",
-        "recovery": "inspect `qubitcoind` logs"
+        "recovery": "run `labcoat logs`"
       },
       {
         "code": "INSUFFICIENT_FUNDS",
@@ -1327,7 +1327,7 @@
             },
             "service": {
               "enum": [
-                "qubitcoind"
+                "node"
               ],
               "type": "string"
             }

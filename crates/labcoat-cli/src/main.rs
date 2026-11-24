@@ -142,8 +142,8 @@ enum Commands {
     },
     /// Show recent service logs
     Logs {
-        /// Filter to the Qubitcoin service (qubitcoind)
-        #[arg(long, value_parser = ["qubitcoind"])]
+        /// Filter to one service (node)
+        #[arg(long, value_parser = ["node"])]
         service: Option<String>,
         /// Max entries
         #[arg(long, default_value_t = 200)]
@@ -353,6 +353,23 @@ enum Commands {
     },
     /// Diagnose the environment (toolchain, ports, binaries, project state)
     Doctor,
+    /// Serve Labcoat Network in this process; `labcoat up` runs it in the
+    /// background
+    #[command(hide = true)]
+    Node {
+        /// Local JSON-RPC port
+        #[arg(long)]
+        port: u16,
+        /// Where the chain is saved
+        #[arg(long)]
+        data_dir: std::path::PathBuf,
+        /// The Alkanes indexer module
+        #[arg(long)]
+        indexer: std::path::PathBuf,
+        /// Where compiled indexer modules are cached
+        #[arg(long)]
+        cache_dir: std::path::PathBuf,
+    },
 }
 
 impl Commands {
@@ -442,6 +459,34 @@ async fn run(cli: Cli) -> i32 {
     if let Commands::Upgrade { dry_run } = &cli.command {
         return output::finish_contract(json, "upgrade", upgrade::run(*dry_run), output_options);
     }
+    if let Commands::Node {
+        port,
+        data_dir,
+        indexer,
+        cache_dir,
+    } = &cli.command
+    {
+        let options = labcoat_runtime::daemon::Options {
+            port: *port,
+            data_dir: data_dir.clone(),
+            indexer: indexer.clone(),
+            cache_dir: cache_dir.clone(),
+        };
+        // The server is synchronous; run it off the async runtime.
+        let served =
+            tokio::task::spawn_blocking(move || labcoat_runtime::daemon::run(&options)).await;
+        return match served {
+            Ok(Ok(())) => 0,
+            Ok(Err(message)) => {
+                eprintln!("error: {message}");
+                1
+            }
+            Err(error) => {
+                eprintln!("error: Labcoat Network stopped unexpectedly: {error}");
+                1
+            }
+        };
+    }
     let labcoat_network_command = cli.command.labcoat_network_command_name();
     if let Err(message) = validate_labcoat_network_overrides(&cli) {
         return output::finish_contract(
@@ -495,6 +540,7 @@ async fn run(cli: Cli) -> i32 {
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
         Commands::Upgrade { .. } => unreachable!("upgrade handled before configuration loading"),
+        Commands::Node { .. } => unreachable!("node handled before configuration loading"),
         Commands::New { .. } => {
             unreachable!("contract scaffolding handled before configuration loading")
         }

@@ -1,4 +1,4 @@
-//! Direct Qubitcoin JSON-RPC helpers for Labcoat Network.
+//! JSON-RPC helpers for Labcoat Network.
 
 use crate::config::IsomerConfig;
 use serde::Serialize;
@@ -25,7 +25,7 @@ pub struct BlockDetails {
 }
 
 pub fn rpc_url(config: &IsomerConfig) -> String {
-    format!("http://127.0.0.1:{}", config.ports.qubitcoin_rpc)
+    format!("http://127.0.0.1:{}", config.ports.rpc)
 }
 
 fn request_body(method: &str, params: serde_json::Value) -> serde_json::Value {
@@ -43,12 +43,26 @@ fn result_from_response(response: serde_json::Value) -> Result<serde_json::Value
             .get("message")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("unknown error");
-        return Err(format!("Qubitcoin RPC error: {message}"));
+        return Err(format!("Labcoat Network RPC error: {message}"));
     }
     response
         .get("result")
         .cloned()
-        .ok_or_else(|| "Qubitcoin RPC response is missing result".to_string())
+        .ok_or_else(|| "Labcoat Network RPC response is missing result".to_string())
+}
+
+/// One client for the whole process: building a client loads the TLS root
+/// certificates, which costs tens of milliseconds every time.
+fn client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .map_err(|e| format!("Failed to create Labcoat Network RPC client: {e}"))?;
+    Ok(CLIENT.get_or_init(|| client))
 }
 
 pub async fn call(
@@ -57,24 +71,24 @@ pub async fn call(
     params: serde_json::Value,
     timeout: std::time::Duration,
 ) -> Result<serde_json::Value, String> {
-    let response = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(timeout)
-        .build()
-        .map_err(|e| format!("Failed to create Qubitcoin RPC client: {e}"))?
+    let response = client()?
         .post(rpc_url(config))
+        .timeout(timeout)
         .json(&request_body(method, params))
         .send()
         .await
-        .map_err(|e| format!("Qubitcoin RPC call failed: {e}"))?;
+        .map_err(|e| format!("Labcoat Network RPC call failed: {e}"))?;
     if !response.status().is_success() {
-        return Err(format!("Qubitcoin RPC returned HTTP {}", response.status()));
+        return Err(format!(
+            "Labcoat Network RPC returned HTTP {}",
+            response.status()
+        ));
     }
     result_from_response(
         response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse Qubitcoin RPC response: {e}"))?,
+            .map_err(|e| format!("Failed to parse Labcoat Network RPC response: {e}"))?,
     )
 }
 
@@ -83,38 +97,46 @@ pub fn call_blocking(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    call_blocking_with_timeout(config, method, params, std::time::Duration::from_secs(60))
+}
+
+pub fn call_blocking_with_timeout(
+    config: &IsomerConfig,
+    method: &str,
+    params: serde_json::Value,
+    timeout: std::time::Duration,
+) -> Result<serde_json::Value, String> {
     use std::io::{Read, Write};
 
-    let timeout = std::time::Duration::from_secs(60);
     let mut stream = std::net::TcpStream::connect_timeout(
-        &std::net::SocketAddr::from(([127, 0, 0, 1], config.ports.qubitcoin_rpc)),
+        &std::net::SocketAddr::from(([127, 0, 0, 1], config.ports.rpc)),
         timeout,
     )
-    .map_err(|e| format!("Qubitcoin RPC call failed: {e}"))?;
+    .map_err(|e| format!("Labcoat Network RPC call failed: {e}"))?;
     stream
         .set_read_timeout(Some(timeout))
-        .map_err(|e| format!("Failed to configure Qubitcoin RPC: {e}"))?;
+        .map_err(|e| format!("Failed to configure Labcoat Network RPC: {e}"))?;
     let body = serde_json::to_vec(&request_body(method, params))
-        .map_err(|e| format!("Failed to encode Qubitcoin RPC request: {e}"))?;
+        .map_err(|e| format!("Failed to encode Labcoat Network RPC request: {e}"))?;
     write!(
         stream,
         "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )
     .and_then(|_| stream.write_all(&body))
-    .map_err(|e| format!("Qubitcoin RPC call failed: {e}"))?;
+    .map_err(|e| format!("Labcoat Network RPC call failed: {e}"))?;
     let mut response = Vec::new();
     stream
         .read_to_end(&mut response)
-        .map_err(|e| format!("Failed to read Qubitcoin RPC response: {e}"))?;
+        .map_err(|e| format!("Failed to read Labcoat Network RPC response: {e}"))?;
     let body_start = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .map(|position| position + 4)
-        .ok_or_else(|| "Invalid Qubitcoin HTTP response".to_string())?;
+        .ok_or_else(|| "Invalid Labcoat Network HTTP response".to_string())?;
     result_from_response(
         serde_json::from_slice(&response[body_start..])
-            .map_err(|e| format!("Failed to parse Qubitcoin RPC response: {e}"))?,
+            .map_err(|e| format!("Failed to parse Labcoat Network RPC response: {e}"))?,
     )
 }
 
@@ -162,7 +184,7 @@ pub async fn mine_blocks(config: &IsomerConfig, count: u32, address: &str) -> Re
     )
     .await?
     .as_u64()
-    .ok_or_else(|| "Invalid Qubitcoin block count response".to_string())
+    .ok_or_else(|| "Invalid Labcoat Network block count response".to_string())
 }
 
 pub async fn latest_block(config: &IsomerConfig) -> Result<BlockSummary, String> {
@@ -170,11 +192,11 @@ pub async fn latest_block(config: &IsomerConfig) -> Result<BlockSummary, String>
     let height = call(config, "getblockcount", serde_json::json!([]), timeout)
         .await?
         .as_u64()
-        .ok_or_else(|| "Invalid Qubitcoin block count response".to_string())?;
+        .ok_or_else(|| "Invalid Labcoat Network block count response".to_string())?;
     let hash = call(config, "getblockhash", serde_json::json!([height]), timeout)
         .await?
         .as_str()
-        .ok_or_else(|| "Invalid Qubitcoin block hash response".to_string())?
+        .ok_or_else(|| "Invalid Labcoat Network block hash response".to_string())?
         .to_string();
     let block = call(config, "getblock", serde_json::json!([hash]), timeout).await?;
     Ok(BlockSummary {
@@ -216,7 +238,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn endpoint_is_the_single_qubitcoin_rpc() {
+    fn endpoint_is_the_single_rpc_port() {
         let config = IsomerConfig::default();
         assert_eq!(rpc_url(&config), "http://127.0.0.1:18443");
     }
@@ -228,6 +250,6 @@ mod tests {
             "error": {"message": "boom"}
         }))
         .unwrap_err();
-        assert_eq!(error, "Qubitcoin RPC error: boom");
+        assert_eq!(error, "Labcoat Network RPC error: boom");
     }
 }

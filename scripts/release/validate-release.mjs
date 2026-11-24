@@ -52,31 +52,16 @@ function validateCargo() {
 }
 
 function validateRuntimeSources() {
-  if (runtime.schema !== 1) fail(`${sourcesPath} schema must be 1`);
-  const sources = Object.entries(runtime.sources ?? {});
-  const requiredSources = ['qubitcoin', 'alkanes-wasm', 'esplorashrew-wasm'];
-  if (
-    sources.length !== requiredSources.length
-    || requiredSources.some((name) => !runtime.sources?.[name])
-  ) {
-    fail(`${sourcesPath} must declare ${requiredSources.join(', ')}`);
+  if (runtime.schema !== 2) fail(`${sourcesPath} schema must be 2`);
+  const names = Object.keys(runtime.sources ?? {});
+  if (names.length !== 1 || names[0] !== 'alkanes-wasm') {
+    fail(`${sourcesPath} must declare only alkanes-wasm`);
   }
-  for (const [name, source] of sources) {
-    if (!source.repository || !source.revision) fail(`incomplete runtime source: ${name}`);
-    if (!gitCommit.test(source.revision)) fail(`${name} revision must be an immutable commit`);
-  }
-  for (const [name, prebuilt] of Object.entries(runtime.prebuilt ?? {})) {
-    if (name !== 'esplorashrew-wasm') fail(`${name} has no prebuilt release path`);
-    if (!/^cli-v\d+\.\d+\.\d+$/.test(prebuilt.release ?? '')) {
-      fail(`${name} prebuilt release must be a published cli-vX.Y.Z tag`);
-    }
-    if (!/^[0-9a-f]{64}$/.test(prebuilt.sha256 ?? '')) {
-      fail(`${name} prebuilt sha256 must be a SHA-256 digest`);
-    }
-  }
-  if (!gitCommit.test(runtime.compatibility?.qubitcoin_metashrew_revision ?? '')) {
-    fail('runtime sources must pin the Qubitcoin-compatible Metashrew commit');
-  }
+  const source = runtime.sources['alkanes-wasm'];
+  if (!source.repository || !source.revision) fail('incomplete runtime source: alkanes-wasm');
+  if (!gitCommit.test(source.revision)) fail('alkanes-wasm revision must be an immutable commit');
+  const extra = Object.keys(runtime).filter((key) => !['schema', 'sources'].includes(key));
+  if (extra.length > 0) fail(`${sourcesPath} has unexpected fields: ${extra.join(', ')}`);
 }
 
 function validateReleaseWorkflows() {
@@ -88,9 +73,7 @@ function validateReleaseWorkflows() {
   const release = read('.github/workflows/release-cli.yml');
   for (const required of [
     'runtime-manifest.json',
-    'build-qubitcoind',
     'build-alkanes-wasm',
-    'build-esplorashrew-wasm',
     'runtime-acceptance',
     'actions/attest-build-provenance',
     'scripts/release/build-runtime-manifest.mjs',
