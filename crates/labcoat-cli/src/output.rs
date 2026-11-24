@@ -293,6 +293,7 @@ fn build_document(command: &str, value: &Value, verbose: bool) -> Document {
         "trace" => trace_document(value, verbose),
         "status" | "up" => status_document(command, value, verbose),
         "doctor" => doctor_document(value),
+        "balance" => balance_document(value),
         "binaries" => binaries_document(value, verbose),
         "wallet-addresses" => wallet_addresses_document(value),
         "wallet-utxos" => wallet_utxos_document(value, verbose),
@@ -617,37 +618,58 @@ fn doctor_document(value: &Value) -> Document {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let failed = checks
+    let count = |status: &str| {
+        checks
+            .iter()
+            .filter(|check| check.get("status").and_then(Value::as_str) == Some(status))
+            .count()
+    };
+    let (failed, warned) = (count("fail"), count("warn"));
+    let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+    match (failed, warned) {
+        (0, 0) => document.headline(Tone::Success, "Environment looks good"),
+        (0, _) => document.headline(
+            Tone::Success,
+            format!("Environment looks good, with {}", plural(warned, "note")),
+        ),
+        _ => document.headline(
+            Tone::Error,
+            format!("Environment has {}", plural(failed, "problem")),
+        ),
+    }
+    // One line per check. A table would need a column for hints that most
+    // rows leave empty, and stops fitting the terminal as soon as one path
+    // is long. A hint goes under the check it belongs to.
+    let width = checks
         .iter()
-        .any(|check| check.get("status").and_then(Value::as_str) == Some("fail"));
-    document.headline(
-        if failed { Tone::Error } else { Tone::Success },
-        if failed {
-            "Environment has problems"
-        } else {
-            "Environment looks good"
-        },
-    );
-    let rows = checks
-        .into_iter()
-        .map(|check| {
-            vec![
-                status_mark(
-                    check
-                        .get("status")
-                        .and_then(Value::as_str)
-                        .unwrap_or("unknown"),
-                ),
-                string_at(&check, "name"),
-                string_at(&check, "detail"),
-                string_at(&check, "hint"),
-            ]
-        })
-        .collect();
-    document.blocks.push(Block::Table(
-        vec!["".into(), "Check".into(), "Detail".into(), "Hint".into()],
-        rows,
-    ));
+        .map(|check| string_at(check, "name").chars().count())
+        .max()
+        .unwrap_or(0);
+    let home = std::env::var("HOME").ok().filter(|home| home.len() > 1);
+    let mut lines = Vec::new();
+    for check in &checks {
+        let mark = match check.get("status").and_then(Value::as_str) {
+            Some("ok") => "✓",
+            Some("warn") => "!",
+            Some("fail") => "✗",
+            _ => "?",
+        };
+        let mut detail = string_at(check, "detail");
+        if let Some(home) = &home {
+            detail = detail.replace(home.as_str(), "~");
+        }
+        lines.push(format!(
+            "{mark} {:<width$}  {detail}",
+            string_at(check, "name")
+        ));
+        let hint = string_at(check, "hint");
+        if !hint.is_empty() {
+            lines.push(format!("  {:<width$}  → {hint}", ""));
+        }
+    }
+    document
+        .blocks
+        .push(Block::Text(format!("\n{}", lines.join("\n"))));
     document
 }
 
@@ -1332,12 +1354,91 @@ fn action_or_generic_document(command: &str, value: &Value, verbose: bool) -> Do
         _ => None,
     };
     let fallback = format!("{} succeeded", title(command));
-    document.headline(Tone::Success, action.unwrap_or(&fallback));
-    document.blocks.extend(generic_blocks(value));
+    if action.is_some() {
+        document.headline(Tone::Success, action_headline(command, value));
+        document.fields(action_fields(command, value));
+        if let Some(next) = action_note(command) {
+            document.note(Tone::Info, next);
+        }
+    } else {
+        document.headline(Tone::Success, fallback);
+        document.blocks.extend(generic_blocks(value));
+    }
     if verbose && value.is_object() {
         document.blocks.push(Block::Text(
             serde_json::to_string_pretty(value).unwrap_or_default(),
         ));
+    }
+    document
+}
+
+/// What a Labcoat Network command did, in its own words. The payload also
+/// names the network and repeats the action as `true`, which a person
+/// running `labcoat down` does not need read back to them.
+fn action_headline(command: &str, value: &Value) -> String {
+    let count = |key: &str| value.get(key).and_then(Value::as_u64);
+    match command {
+        "down" => "Labcoat Network stopped".into(),
+        "reset" => "Labcoat Network reset".into(),
+        "mine" => match count("mined") {
+            Some(1) => "Mined 1 block".into(),
+            Some(blocks) => format!("Mined {blocks} blocks"),
+            None => "Blocks mined".into(),
+        },
+        "fund" => "Faucet payment sent".into(),
+        "snapshot" => format!("Snapshot `{}` created", string_at(value, "snapshot")),
+        "restore" => format!("Snapshot `{}` restored", string_at(value, "restored")),
+        _ => format!("{} succeeded", title(command)),
+    }
+}
+
+fn action_fields(command: &str, value: &Value) -> Vec<(String, String)> {
+    match command {
+        "mine" => fields(value, &[("Height", "height")]),
+        "fund" => fields(value, &[("Transaction", "txid")]),
+        "snapshot" => fields(value, &[("Path", "path")]),
+        _ => Vec::new(),
+    }
+}
+
+/// What the command left for the developer to do, when that is not obvious.
+fn action_note(command: &str) -> Option<&'static str> {
+    match command {
+        "down" => Some("The chain is kept. `labcoat up` resumes it."),
+        "reset" => Some("The chain is gone. `labcoat up` starts a new one."),
+        "fund" => Some("Run `labcoat mine 1` to confirm it."),
+        "snapshot" | "restore" => Some("Labcoat Network is stopped. `labcoat up` starts it."),
+        _ => None,
+    }
+}
+
+fn balance_document(value: &Value) -> Document {
+    let mut document = Document::default();
+    document.headline(Tone::Info, "Alkanes balances");
+    document.fields(fields(value, &[("Address", "address")]));
+    let rows: Vec<Vec<String>> = value
+        .get("balances")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|entry| {
+            let id = entry.get("alkane_id").cloned().unwrap_or(Value::Null);
+            vec![
+                format!(
+                    "{}:{}",
+                    value_string(id.get("block").unwrap_or(&Value::Null)),
+                    value_string(id.get("tx").unwrap_or(&Value::Null))
+                ),
+                value_string(entry.get("balance").unwrap_or(&Value::Null)),
+            ]
+        })
+        .collect();
+    if rows.is_empty() {
+        document.note(Tone::Info, "This address holds no Alkanes.");
+    } else {
+        document
+            .blocks
+            .push(Block::Table(vec!["Alkane".into(), "Balance".into()], rows));
     }
     document
 }

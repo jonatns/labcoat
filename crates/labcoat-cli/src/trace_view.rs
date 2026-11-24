@@ -76,7 +76,7 @@ fn event_summary(value: &Value) -> String {
             let inputs = value
                 .get("inputs")
                 .and_then(Value::as_array)
-                .map(|values| values.iter().map(compact).collect::<Vec<_>>().join(", "))
+                .map(|values| call_inputs(values))
                 .unwrap_or_default();
             let fuel = value
                 .get("fuel_allocated")
@@ -204,6 +204,22 @@ pub fn decode_return(value: &str) -> String {
     format!("0x{hex}")
 }
 
+/// A call's inputs without the zeros a cellpack is padded with: the opcode
+/// and its arguments, then `…` where padding was left out.
+fn call_inputs(values: &[Value]) -> String {
+    let is_zero = |value: &Value| compact(value) == "0";
+    let meaningful = values
+        .iter()
+        .rposition(|value| !is_zero(value))
+        .map_or(1, |last| last + 1)
+        .min(values.len());
+    let mut shown: Vec<String> = values[..meaningful].iter().map(compact).collect();
+    if meaningful < values.len() {
+        shown.push("…".into());
+    }
+    shown.join(", ")
+}
+
 fn compact(value: &Value) -> String {
     match value {
         Value::String(value) => value.clone(),
@@ -218,6 +234,21 @@ mod tests {
     #[test]
     fn decodes_little_endian_trace_return() {
         assert_eq!(decode_return("03000000000000000000000000000000"), "3");
+    }
+
+    #[test]
+    fn padding_zeros_are_left_out_of_call_inputs() {
+        let values = |list: &[u64]| {
+            list.iter()
+                .map(|n| serde_json::json!(n))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(call_inputs(&values(&[1, 0, 0, 0])), "1, …");
+        assert_eq!(call_inputs(&values(&[2, 41, 0, 0])), "2, 41, …");
+        assert_eq!(call_inputs(&values(&[2, 0, 7])), "2, 0, 7");
+        assert_eq!(call_inputs(&values(&[0, 0])), "0, …");
+        assert_eq!(call_inputs(&values(&[1])), "1");
+        assert_eq!(call_inputs(&[]), "");
     }
 
     #[test]

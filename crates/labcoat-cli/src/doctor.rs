@@ -320,25 +320,22 @@ pub async fn run() -> Vec<Check> {
             "install it (`brew install protobuf` on macOS, `apt install protobuf-compiler` on Debian or Ubuntu); contracts do not build without it",
         )),
     }
-    // Ports
+    // Port
     let config = IsomerConfig::load();
-    let mut busy = Vec::new();
-    for service in ServiceId::all() {
-        let port = ProcessManager::port_for_service(service, &config);
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_err() {
-            busy.push(format!("{} :{}", service.id(), port));
-        }
-    }
-    if busy.is_empty() {
-        checks.push(ok("ports", "all Labcoat Network ports are free"));
-    } else {
-        // Occupied ports are fine when they belong to Labcoat Network — report as warn.
-        checks.push(warn(
-            "ports",
-            format!("in use: {}", busy.join(", ")),
-            "if this isn't Labcoat Network, stop the other process or change the Labcoat Network ports",
-        ));
-    }
+    let port = ProcessManager::port_for_service(ServiceId::Node, &config);
+    checks.push(
+        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            ok("ports", format!("{port} is free"))
+        } else if ProcessManager::probe_health(ServiceId::Node, &config).await {
+            ok("ports", format!("Labcoat Network is running on {port}"))
+        } else {
+            warn(
+                "ports",
+                format!("{port} is in use by another program"),
+                "stop the other program, or set LABCOAT_RPC_PORT to run Labcoat Network on another port",
+            )
+        },
+    );
 
     // Binaries
     let infos = BinaryManager::new().check_all();
