@@ -205,6 +205,38 @@ fn runtime_bundle_check<'a>(
     }
 }
 
+/// Who holds Labcoat Network's port, said the way `labcoat up` would say
+/// it: this data home's network, another data home's, or something else.
+fn port_check(
+    port: u16,
+    free: bool,
+    identify: impl FnOnce() -> isomer_core::rpc::NodeIdentity,
+) -> Check {
+    use isomer_core::rpc::NodeIdentity;
+    const NAME: &str = "ports";
+    if free {
+        return ok(NAME, format!("{port} is free"));
+    }
+    match identify() {
+        NodeIdentity::Own => ok(NAME, format!("Labcoat Network is running on {port}")),
+        NodeIdentity::OwnOtherRelease => warn(
+            NAME,
+            format!("{port} serves this data directory's network from another Labcoat release"),
+            "run `labcoat up`; it replaces it with this release's",
+        ),
+        NodeIdentity::OtherDataHome(data_dir) => warn(
+            NAME,
+            format!("{port} serves a Labcoat Network for another data directory ({data_dir})"),
+            "stop it with `labcoat down` under that LABCOAT_DATA_HOME, or set LABCOAT_RPC_PORT to run this one on another port",
+        ),
+        _ => warn(
+            NAME,
+            format!("{port} is in use by another program"),
+            "stop the other program, or set LABCOAT_RPC_PORT to run Labcoat Network on another port",
+        ),
+    }
+}
+
 fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Option<bool>) -> Check {
     const NAME: &str = "project toolchain";
     match pinned {
@@ -323,19 +355,11 @@ pub async fn run() -> Vec<Check> {
     // Port
     let config = IsomerConfig::load();
     let port = ProcessManager::port_for_service(ServiceId::Node, &config);
-    checks.push(
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
-            ok("ports", format!("{port} is free"))
-        } else if ProcessManager::probe_health(ServiceId::Node, &config).await {
-            ok("ports", format!("Labcoat Network is running on {port}"))
-        } else {
-            warn(
-                "ports",
-                format!("{port} is in use by another program"),
-                "stop the other program, or set LABCOAT_RPC_PORT to run Labcoat Network on another port",
-            )
-        },
-    );
+    checks.push(port_check(
+        port,
+        std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
+        || isomer_core::rpc::identify_blocking(&config, std::time::Duration::from_secs(2)),
+    ));
 
     // Binaries
     let infos = BinaryManager::new().check_all();
@@ -429,6 +453,25 @@ mod tests {
         std::fs::write(root.join("labcoat.toml"), "mnemonic = \"never\"\n").unwrap();
         assert_eq!(project_config_check(&root).status, "fail");
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_port_check_names_who_holds_the_port() {
+        use isomer_core::rpc::NodeIdentity;
+        assert_eq!(port_check(18443, true, || unreachable!()).status, "ok");
+        let own = port_check(18443, false, || NodeIdentity::Own);
+        assert_eq!(own.status, "ok");
+        assert!(own.detail.contains("running on 18443"));
+
+        let other = port_check(18443, false, || {
+            NodeIdentity::OtherDataHome("/elsewhere/network".into())
+        });
+        assert_eq!(other.status, "warn");
+        assert!(other.detail.contains("/elsewhere/network"));
+        assert!(other.hint.unwrap().contains("LABCOAT_RPC_PORT"));
+
+        let foreign = port_check(18443, false, || NodeIdentity::Foreign);
+        assert!(foreign.detail.contains("another program"));
     }
 
     #[test]
