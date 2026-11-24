@@ -18,7 +18,7 @@
 //! deploys a new `counter_logic` and points the beacon at it. `counter`
 //! keeps its id and its storage.
 
-use labcoat_deploy::{run, Deployment};
+use labcoat::{run, Deployment};
 
 fn main() {
     run(|d: &Deployment| {

@@ -70,7 +70,7 @@ pub fn load_graph(root: &Path, network: &str) -> Result<Graph, LabcoatError> {
     let text = std::fs::read_to_string(&graph_path).map_err(|e| {
         script_error(
             format!("deploy.rs ran but wrote no deployment graph: {e}"),
-            "call `labcoat_deploy::run(|d| { ... })` from deploy.rs's `main`",
+            "call `labcoat::run(|d| { ... })` from deploy.rs's `main`",
         )
     })?;
     let _ = std::fs::remove_file(&graph_path);

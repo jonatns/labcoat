@@ -21,7 +21,7 @@
 //! Upgradeable contracts: d.implementation, d.beacon, d.beacon_proxy, and
 //! d.proxy. See `labcoat docs --llm` for the full API.
 
-use labcoat_deploy::{run, Deployment};
+use labcoat::{run, Deployment};
 
 fn main() {
     run(|d: &Deployment| {

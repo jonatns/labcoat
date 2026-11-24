@@ -8,7 +8,7 @@
 //! Reserve numbers are fixed: `labcoat test --e2e` resets the chain before
 //! applying, so every reserve is free again.
 
-use labcoat_deploy::{run, Deployment};
+use labcoat::{run, Deployment};
 
 fn main() {
     run(|d: &Deployment| {

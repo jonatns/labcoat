@@ -4,7 +4,7 @@
 //! at the resulting artifact directory through `LABCOAT_TEST_ARTIFACT_DIR`.
 
 /// Compatibility import for deployment scripts written against the test harness.
-pub use labcoat_deploy as deploy;
+pub use labcoat as deploy;
 pub mod e2e;
 
 use serde::Deserialize;

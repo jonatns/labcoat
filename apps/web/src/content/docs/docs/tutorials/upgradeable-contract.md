@@ -62,7 +62,7 @@ labcoat test
 Replace `deploy.rs`:
 
 ```rust
-use labcoat_deploy::{run, Deployment};
+use labcoat::{run, Deployment};
 
 fn main() {
     run(|d: &Deployment| {

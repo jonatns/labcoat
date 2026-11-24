@@ -1,9 +1,9 @@
 //! The contract between the two halves of a deployment: every graph the
-//! script API (`labcoat_deploy`) can emit must be one the engine
+//! script API (`labcoat`) can emit must be one the engine
 //! (`labcoat_core::deployment`) accepts.
 
+use labcoat::Deployment;
 use labcoat_core::deployment::{self, Field, Lifecycle, Source, Step, Value};
-use labcoat_deploy::Deployment;
 
 fn parse(d: &Deployment) -> deployment::Graph {
     deployment::parse(&d.graph().to_string(), &d.network()).unwrap()
@@ -117,8 +117,8 @@ fn every_builder_emits_a_graph_the_engine_accepts() {
 }
 
 /// An edict built from a handle: `block:tx:amount:target`.
-fn edict(token: &labcoat_deploy::Contract) -> labcoat_deploy::Value {
-    labcoat_deploy::Value::concat([token.id(), labcoat_deploy::Value::lit(":5:v0")])
+fn edict(token: &labcoat::Contract) -> labcoat::Value {
+    labcoat::Value::concat([token.id(), labcoat::Value::lit(":5:v0")])
 }
 
 #[test]

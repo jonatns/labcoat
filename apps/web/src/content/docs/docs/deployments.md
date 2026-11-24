@@ -38,10 +38,10 @@ includes a `deploy.rs` that deploys its Counter contract.
 
 ## Write the script
 
-`deploy.rs` is ordinary Rust, built on the `labcoat-deploy` crate:
+`deploy.rs` uses the `labcoat` Rust library from the `labcoat-deploy` Cargo package.
 
 ```rust
-use labcoat_deploy::{run, Deployment};
+use labcoat::{run, Deployment};
 
 fn main() {
     run(|d: &Deployment| {

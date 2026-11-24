@@ -1,7 +1,7 @@
 //! The deployment graph — what a project's `deploy.rs` script declares and
 //! `labcoat plan` / `labcoat apply` reconcile.
 //!
-//! The script (see `labcoat_deploy`) never executes anything: it
+//! The script (see `labcoat`) never executes anything: it
 //! emits this graph as JSON and the CLI validates, plans, and applies it.
 //! Steps run in declaration order, and a step may reference only steps
 //! declared before it, so the declaration order is always a valid

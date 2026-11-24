@@ -10,7 +10,7 @@
 //! application.
 //!
 //! ```no_run
-//! use labcoat_deploy::{run, Deployment};
+//! use labcoat::{run, Deployment};
 //!
 //! fn main() {
 //!     run(|d: &Deployment| {
