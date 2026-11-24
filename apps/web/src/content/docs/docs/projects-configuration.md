@@ -41,7 +41,24 @@ CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
 `labcoat.toml` supports `network`, `rpc_url`, `wallet_file`, `fee_rate`,
 `signer`, and `environment` (the durable-state environment, default
 `default`). The default network is `labcoat` and the default Labcoat Network
-RPC endpoint is `http://127.0.0.1:18443`.
+RPC endpoint is `http://127.0.0.1:18443`, or the port `LABCOAT_RPC_PORT`
+names.
+
+Commands work from any directory inside the project. Labcoat finds the
+project root, the nearest directory above the working directory that holds
+`labcoat.toml`, and reads settings, `deploy.rs`, build artifacts, and
+deployment records from there. A relative `wallet_file` in `labcoat.toml` is
+relative to that file, and relative `--out-dir` and `--build-dir` values are
+relative to the project root. Other paths typed on the command line are
+relative to the working directory.
+
+Before `deploy`, `import`, `call`, and the exchange commands write anything,
+they print the network and endpoint they resolved, such as
+`network: labcoat (http://127.0.0.1:18443)`.
+
+If `labcoat.toml` cannot be parsed, commands stop with `CONFIG_INVALID`.
+`labcoat doctor` and `labcoat docs` still run: `doctor` reports the problem
+as its `project config` check, beside the toolchain and runtime checks.
 
 ## Signet and mainnet through Subfrost
 

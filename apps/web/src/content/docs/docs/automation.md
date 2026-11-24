@@ -32,6 +32,21 @@ labcoat deploy --json
 An envelope being printed produces exit code 0, even when `ok` is false. Read
 the envelope rather than inferring application success from the process code.
 
+Two commands also report through the exit code, so a pipeline can gate on
+them directly:
+
+- `labcoat up --ci` always prints one envelope, and exits non-zero unless
+  Labcoat Network is ready and its built-in wallet is funded.
+- `labcoat doctor` exits non-zero when any check fails. Its envelope is still
+  `ok: true`, because the diagnosis itself succeeded; the failures are the
+  entries of `result.checks` whose `status` is `fail`.
+
+```bash
+labcoat up --ci && labcoat test --json | jq -e .ok
+```
+
+For every other command, check `.ok`, for example with `jq -e .ok`.
+
 ## MCP mode
 
 ```bash

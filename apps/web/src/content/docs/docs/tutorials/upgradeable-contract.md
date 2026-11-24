@@ -293,8 +293,8 @@ and the plan is clean again.
 
 ## Test the deployment
 
-`labcoat test --e2e` resets Labcoat Network, deploys `deploy.rs` from scratch,
-and runs `tests/e2e.rs`. Replace that file:
+`labcoat test --e2e` deploys `deploy.rs` from scratch on the project's own
+e2e network and runs `tests/e2e.rs`. Replace that file:
 
 ```rust
 use labcoat_test::e2e::{Call, E2e};

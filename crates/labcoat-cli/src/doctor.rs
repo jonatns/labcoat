@@ -143,6 +143,30 @@ fn project_pins_check(root: &Path) -> Check {
     }
 }
 
+/// Whether the project's `labcoat.toml` can be used. Every other command
+/// stops on a broken file; this one says what is wrong with it and goes on
+/// to check the toolchain and runtime.
+fn project_config_check(root: &Path) -> Check {
+    const NAME: &str = "project config";
+    let path = root.join("labcoat.toml");
+    match crate::settings::resolve_at(root) {
+        Ok(settings) => ok(
+            NAME,
+            format!(
+                "{} targets {} at {}",
+                path.display(),
+                settings.network.id(),
+                settings.rpc_url
+            ),
+        ),
+        Err(error) => fail(
+            NAME,
+            error,
+            "fix labcoat.toml; allowed keys are network, rpc_url, wallet_file, fee_rate, signer, and environment",
+        ),
+    }
+}
+
 fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Option<bool>) -> Check {
     const NAME: &str = "project toolchain";
     match pinned {
@@ -189,6 +213,9 @@ pub async fn run() -> Vec<Check> {
         )),
     }
     let project = project_root(&std::env::current_dir().unwrap_or_default());
+    if let Some(root) = project.as_deref() {
+        checks.push(project_config_check(root));
+    }
     let pinned = project
         .as_deref()
         .map(|root| toolchain_channel(&root.join("rust-toolchain.toml")));
@@ -238,7 +265,21 @@ pub async fn run() -> Vec<Check> {
         None => checks.push(fail(
             "wasm C compiler",
             "no LLVM clang with a wasm32 backend found",
-            "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Linux)",
+            "install LLVM (`brew install llvm` on macOS, `apt install clang wasi-libc` on Debian or Ubuntu)",
+        )),
+    }
+    // The Alkanes support crates every project depends on generate code
+    // with it at build time.
+    match std::env::var("PROTOC")
+        .ok()
+        .filter(|path| std::path::Path::new(path).is_file())
+        .or_else(|| version_of("protoc", "--version"))
+    {
+        Some(found) => checks.push(ok("protoc", found)),
+        None => checks.push(fail(
+            "protoc",
+            "the Protocol Buffers compiler was not found on PATH",
+            "install it (`brew install protobuf` on macOS, `apt install protobuf-compiler` on Debian or Ubuntu); contracts do not build without it",
         )),
     }
     // Ports
@@ -308,7 +349,7 @@ pub async fn run() -> Vec<Check> {
     }
 
     // Project state
-    if std::path::Path::new("labcoat.lock").exists() {
+    if labcoat_core::lockfile::path(&crate::project::root()).exists() {
         checks.push(ok("labcoat.lock", "present"));
     }
     match crate::settings::resolve(crate::settings::Overrides::default()) {
@@ -325,7 +366,9 @@ pub async fn run() -> Vec<Check> {
                 "labcoat wallet init"
             },
         )),
-        Err(message) => checks.push(warn("wallet", message, "fix labcoat.toml")),
+        // The project config check has already reported why.
+        Err(_) if project.is_some() => {}
+        Err(message) => checks.push(warn("wallet", message, "fix the LABCOAT_* settings")),
     }
 
     checks
@@ -349,6 +392,28 @@ mod tests {
         let pending = project_toolchain_check(Some("1.100.0"), "1.100.0", Some(false));
         assert_eq!(pending.status, "ok");
         assert!(pending.detail.contains("first build"));
+    }
+
+    #[test]
+    fn a_broken_labcoat_toml_is_a_failed_check_not_a_stopped_command() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-doctor-config-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("labcoat.toml"), "network = \"labcoat\"\n").unwrap();
+        let valid = project_config_check(&root);
+        assert_eq!(valid.status, "ok");
+        assert!(valid
+            .detail
+            .contains("targets labcoat at http://127.0.0.1:"));
+
+        std::fs::write(root.join("labcoat.toml"), "network = [not toml\n").unwrap();
+        let broken = project_config_check(&root);
+        assert_eq!(broken.status, "fail");
+        assert!(broken.detail.contains("labcoat.toml"));
+
+        std::fs::write(root.join("labcoat.toml"), "mnemonic = \"never\"\n").unwrap();
+        assert_eq!(project_config_check(&root).status, "fail");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

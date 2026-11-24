@@ -140,13 +140,15 @@ pub fn now_millis() -> u64 {
 }
 
 pub fn path(root: &Path, network: &str) -> PathBuf {
-    root.join(RUN_DIR).join(format!("{network}.json"))
+    crate::records::dir(root)
+        .join(RUN_DIR)
+        .join(format!("{network}.json"))
 }
 
 /// Hold this file open for the full read/execute/write cycle. The OS releases
 /// the advisory lock on exit, including after a crash.
 pub(crate) fn lock(root: &Path) -> Result<std::fs::File> {
-    let dir = root.join(".labcoat");
+    let dir = crate::records::dir(root).join(".labcoat");
     let path = dir.join("deployment.lock");
     let io_err = |error: std::io::Error| {
         LabcoatError::new(

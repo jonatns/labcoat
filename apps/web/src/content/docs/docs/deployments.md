@@ -438,10 +438,25 @@ labcoat test --e2e
 labcoat test --e2e covered_call --no-reset
 ```
 
-`labcoat test --e2e` resets Labcoat Network, deploys `deploy.rs`, and runs the
-`#[ignore]`d tests in `tests/e2e.rs`. Pass a test-name filter to run a
-subset, and `--no-reset` to keep the current chain. E2e runs only target
-Labcoat Network and refuse any shared network.
+`labcoat test --e2e` starts the project's e2e network on a fresh chain,
+deploys `deploy.rs`, runs the `#[ignore]`d tests in `tests/e2e.rs`, and stops
+the network again. Pass a test-name filter to run a subset, and `--no-reset`
+to keep the chain the previous run left. E2e runs refuse any shared network.
+
+The e2e network is the project's own, apart from the Labcoat Network that
+`labcoat up` starts. It lives under the project's ignored `.labcoat/e2e/`
+directory with its own chain, port, wallet, and deployment records
+(`labcoat.lock`, `deployments/`, and durable state), so a run never resets
+the chain you are working on or replaces the record of what you deployed
+there, and two projects can run their e2e tests at the same time. The tests,
+and every `labcoat` command they run, reach it through `LABCOAT_DATA_HOME`,
+`LABCOAT_RPC_PORT`, `LABCOAT_RPC_URL`, and `LABCOAT_RECORDS_DIR`, which
+`labcoat test --e2e` sets. `labcoat test --e2e --json` reports the paths
+under `result.network`.
+
+The tests are built, and the filter is checked, before the network starts. A
+filter that matches no test fails with `TEST_FAILED` instead of passing with
+nothing run.
 
 ```rust
 use labcoat_test::e2e::{Call, E2e};

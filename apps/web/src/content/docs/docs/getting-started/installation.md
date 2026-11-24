@@ -3,8 +3,27 @@ title: Installation
 description: Install the Labcoat CLI and its matching managed runtime.
 ---
 
-Labcoat publishes CLI executables for macOS and Linux on arm64 and x86_64, and
-Labcoat Network runs on all of them. Windows is not supported.
+Labcoat publishes CLI executables for macOS and Linux on arm64 and x86_64.
+Windows is not supported.
+
+## Platform support
+
+The CLI builds, tests, and deploys contracts on every platform below. Whether
+`labcoat up` can run Labcoat Network locally depends on the release:
+
+| Platform | CLI | Labcoat Network, 0.3.0 and earlier | Labcoat Network, later releases |
+| --- | --- | --- | --- |
+| macOS arm64 | Yes | Yes | Yes |
+| macOS x86_64 | Yes | No | Yes |
+| Linux x86_64 | Yes | Yes | Yes |
+| Linux arm64 | Yes | No | Yes |
+
+Releases up to 0.3.0 run Labcoat Network on a downloaded `qubitcoind`, which is
+published for two platforms. Later releases run it inside the `labcoat`
+executable. This page describes the later releases; run `labcoat --version` to
+see which one you have, and `labcoat docs --llm` for the reference that matches
+it. Moving between the two is covered in
+[Upgrading from a Qubitcoin-based release](/docs/labcoat-network/#upgrading-from-a-qubitcoin-based-release).
 
 ## Inspect and install
 
@@ -104,15 +123,16 @@ to match the installed CLI. Commit the result with the updated
 
 ## Compilation prerequisites
 
-Contract compilation requires [rustup](https://rustup.rs) and LLVM Clang with
-a WebAssembly backend.
+Contract compilation requires [rustup](https://rustup.rs), LLVM Clang with a
+WebAssembly backend, and the Protocol Buffers compiler, `protoc`, which the
+Alkanes support crates run at build time.
 
 ```bash
 # macOS
-brew install llvm
+brew install llvm protobuf
 
 # Debian or Ubuntu
-sudo apt install clang wasi-libc
+sudo apt install clang wasi-libc protobuf-compiler
 ```
 
 You do not need to install a particular Rust version or WebAssembly target.

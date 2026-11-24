@@ -19,7 +19,9 @@ the Rust toolchain and WebAssembly targets this Labcoat release is tested with;
 rustup installs them automatically. Change it only together with a Labcoat
 upgrade, and run `labcoat doctor` to check it. Run `labcoat test`, then
 `labcoat up` (which comes with a funded wallet), `labcoat plan`, and
-`labcoat deploy`.
+`labcoat deploy`. The first `labcoat test` builds every dependency and can
+take up to 20 minutes; start it once and wait. `SKILL.md` has the step by
+step workflow, including what to check in each command's JSON output.
 Use `labcoat simulate counter get_count` and `labcoat call counter increment`
 for the starter contract. Use `--json` for machine-readable envelopes and
 `labcoat docs --llm` for the full command reference. Simulation targets the

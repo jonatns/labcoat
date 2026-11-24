@@ -13,8 +13,11 @@ Run integration tests with `labcoat test`.
 
 Every command supports `--json` and then emits exactly one envelope on
 stdout (`{ok, command, schema, result | error{code, message, hint}}`),
-logs on stderr, exit 0 whenever an envelope was printed. On any error,
-`error.hint` names the next command to run — follow it.
+logs on stderr, exit 0 whenever an envelope was printed. Two commands also
+use the exit code: `labcoat up --ci` exits non-zero when the network or its
+wallet is not ready, and `labcoat doctor` when a check fails. On any
+error, `error.hint` names the next command to run — follow it. Commands work
+from any directory inside the project.
 
 ## 1. Boot infrastructure
 
@@ -171,9 +174,11 @@ proxy with `--abi <implementation>` (`labcoat call counter increment --abi
 counter_logic`): the proxy's own ABI lists only proxy methods.
 
 Imperative multi-step flows belong in `tests/e2e.rs` (`labcoat test --e2e`),
-which resets the chain, deploys `deploy.rs`, and runs `#[ignore]`d Rust
-tests using `labcoat_test::e2e::E2e` (disposable wallets, calls, balances,
-mining).
+which deploys `deploy.rs` on the project's own e2e network and runs
+`#[ignore]`d Rust tests using `labcoat_test::e2e::E2e` (disposable wallets,
+calls, balances, mining). That network has its own chain, port, wallet, and
+deployment records under `.labcoat/e2e/`; a run never resets the chain
+`labcoat up` started. A filter that matches no test fails.
 
 Swap two Alkane assets atomically between two wallets in one transaction.
 On Labcoat Network one command signs with both keystores (the project

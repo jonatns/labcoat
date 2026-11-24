@@ -66,7 +66,7 @@
             "required": false
           },
           {
-            "description": "Run tests/e2e.rs against Labcoat Network: reset the chain, run the deploy.rs deployment, then execute the ignored e2e tests",
+            "description": "Run tests/e2e.rs on the project's own e2e network, apart from the one `labcoat up` starts: start it on a fresh chain, run the deploy.rs deployment, execute the ignored e2e tests, and stop it",
             "id": "e2e",
             "possibleValues": [
               "true",
@@ -75,7 +75,7 @@
             "required": false
           },
           {
-            "description": "With --e2e: keep the current chain state instead of resetting",
+            "description": "With --e2e: keep the chain the previous e2e run left instead of starting a fresh one",
             "id": "no_reset",
             "possibleValues": [
               "true",
@@ -102,7 +102,7 @@
             "required": false
           },
           {
-            "description": "CI mode: wait (bounded) for full readiness, then emit the machine-readable endpoint manifest; non-zero exit if the stack never becomes ready",
+            "description": "CI mode: wait (bounded) for full readiness, then print one JSON envelope with the endpoint manifest; exits non-zero unless the network and its funded wallet are ready",
             "id": "ci",
             "possibleValues": [
               "true",
@@ -1143,6 +1143,11 @@
         "code": "COMPILE_FAILED",
         "meaning": "Rust or WebAssembly compilation failed",
         "recovery": "read stderr and run `labcoat doctor`"
+      },
+      {
+        "code": "TOOLCHAIN_MISSING",
+        "meaning": "Cargo, a Rust WebAssembly target, a C toolchain for WebAssembly, or protoc is not installed",
+        "recovery": "install the prerequisite the message names, then run `labcoat doctor`"
       },
       {
         "code": "PACKAGE_NOT_FOUND",

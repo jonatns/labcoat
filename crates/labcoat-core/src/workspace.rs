@@ -57,24 +57,31 @@ pub fn discover(cwd: &Path) -> Result<WorkspaceInfo> {
         .args(["metadata", "--format-version", "1", "--no-deps"])
         .current_dir(cwd)
         .output()
-        .map_err(|e| {
-            LabcoatError::new(
-                "CONFIG_INVALID",
-                format!("failed to run cargo metadata: {e}"),
-                "run Labcoat from a Cargo workspace",
-            )
-        })?;
+        .map_err(|e| LabcoatError::cargo_unavailable(&e, "read the Cargo workspace"))?;
     if !output.status.success() {
-        return Err(LabcoatError::new(
-            "CONFIG_INVALID",
-            format!(
-                "cargo metadata failed:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            ),
-            "fix the workspace Cargo.toml and retry",
+        return Err(metadata_failure(
+            cwd,
+            &String::from_utf8_lossy(&output.stderr),
         ));
     }
     classify_json(&output.stdout)
+}
+
+/// Why `cargo metadata` failed in `cwd`: outside any Cargo project, or
+/// inside one whose manifest Cargo rejects.
+fn metadata_failure(cwd: &Path, stderr: &str) -> LabcoatError {
+    if stderr.contains("could not find `Cargo.toml`") {
+        return LabcoatError::new(
+            "CONFIG_INVALID",
+            format!("{} is not inside a Labcoat project", cwd.display()),
+            "run the command from a project created by `labcoat init`",
+        );
+    }
+    LabcoatError::new(
+        "CONFIG_INVALID",
+        format!("cargo metadata failed:\n{stderr}"),
+        "fix the workspace Cargo.toml and retry",
+    )
 }
 
 fn classify_json(json: &[u8]) -> Result<WorkspaceInfo> {
@@ -226,6 +233,38 @@ pub fn host_test_for_package<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_directory_outside_any_project_is_told_apart_from_a_broken_manifest() {
+        let outside = metadata_failure(
+            Path::new("/tmp/elsewhere"),
+            "error: could not find `Cargo.toml` in `/tmp/elsewhere` or any parent directory",
+        );
+        assert_eq!(outside.code, "CONFIG_INVALID");
+        assert!(outside.message.contains("not inside a Labcoat project"));
+        assert!(outside.hint.contains("labcoat init"));
+
+        let broken = metadata_failure(Path::new("/p"), "error: failed to parse manifest");
+        assert!(broken.message.contains("failed to parse manifest"));
+        assert!(broken.hint.contains("Cargo.toml"));
+    }
+
+    #[test]
+    fn cargo_missing_from_path_names_the_toolchain_not_the_project() {
+        let missing = LabcoatError::cargo_unavailable(
+            &std::io::Error::from(std::io::ErrorKind::NotFound),
+            "read the Cargo workspace",
+        );
+        assert_eq!(missing.code, "TOOLCHAIN_MISSING");
+        assert!(missing.message.contains("`cargo` was not found on PATH"));
+        assert!(missing.hint.contains("rustup"));
+
+        let denied = LabcoatError::cargo_unavailable(
+            &std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            "read the Cargo workspace",
+        );
+        assert_eq!(denied.code, "TOOLKIT_ERROR");
+    }
 
     fn metadata(packages: &str, members: &str) -> Vec<u8> {
         format!(

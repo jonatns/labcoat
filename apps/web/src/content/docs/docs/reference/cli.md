@@ -33,7 +33,7 @@ labcoat down
 
 Human-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.
 
-Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code.
+Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code. Two commands also use the exit code: `labcoat up --ci` exits non-zero unless Labcoat Network and its funded wallet are ready, and `labcoat doctor` exits non-zero when a check fails.
 
 ```json
 {"ok":true,"command":"status","schema":"labcoat/v1/status","result":{}}
@@ -92,8 +92,8 @@ test [OPTIONS] [PACKAGE]
 Arguments and options:
 
 - `package` (optional): Optional Cargo contract package whose host test should run (with --e2e: a test-name filter instead)
-- `e2e` (optional): Run tests/e2e.rs against Labcoat Network: reset the chain, run the deploy.rs deployment, then execute the ignored e2e tests Values: `true`, `false`.
-- `no_reset` (optional): With --e2e: keep the current chain state instead of resetting Values: `true`, `false`.
+- `e2e` (optional): Run tests/e2e.rs on the project's own e2e network, apart from the one `labcoat up` starts: start it on a fresh chain, run the deploy.rs deployment, execute the ignored e2e tests, and stop it Values: `true`, `false`.
+- `no_reset` (optional): With --e2e: keep the chain the previous e2e run left instead of starting a fresh one Values: `true`, `false`.
 
 ### `labcoat up`
 
@@ -106,7 +106,7 @@ up [OPTIONS]
 Arguments and options:
 
 - `no_download` (optional): Skip runtime bundle verification and download Values: `true`, `false`.
-- `ci` (optional): CI mode: wait (bounded) for full readiness, then emit the machine-readable endpoint manifest; non-zero exit if the stack never becomes ready Values: `true`, `false`.
+- `ci` (optional): CI mode: wait (bounded) for full readiness, then print one JSON envelope with the endpoint manifest; exits non-zero unless the network and its funded wallet are ready Values: `true`, `false`.
 
 ### `labcoat down`
 
@@ -661,6 +661,7 @@ doctor
 | `TRACE_TIMEOUT` | a decoded trace did not arrive in time | retry `labcoat trace --wait` |
 | `ENVELOPE_INVALID` | an Alkanes transaction envelope is invalid | check the contract and arguments |
 | `COMPILE_FAILED` | Rust or WebAssembly compilation failed | read stderr and run `labcoat doctor` |
+| `TOOLCHAIN_MISSING` | Cargo, a Rust WebAssembly target, a C toolchain for WebAssembly, or protoc is not installed | install the prerequisite the message names, then run `labcoat doctor` |
 | `PACKAGE_NOT_FOUND` | the requested Cargo contract package was not discovered | run `labcoat build` or pass a package listed in the error |
 | `ABI_MISMATCH` | local and deployed __meta output differ | build the deployed source revision and verify the contract ID |
 | `CONTRACT_NOT_FOUND` | a contract name or ID could not be resolved | run `labcoat lock show` |

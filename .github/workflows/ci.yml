@@ -124,6 +124,12 @@ jobs:
             | tee "$RUNNER_TEMP/labcoat-build-counter.json"
           grep -q '"ok": true' "$RUNNER_TEMP/labcoat-build-counter.json"
           cmp build/counter.abi.json .labcoat/test-artifacts/counter.abi.json
+          # A command run below the project root acts on the same project.
+          rm -rf build
+          (cd contracts/counter && "$GITHUB_WORKSPACE/target/debug/labcoat" \
+            build counter --json | grep -q '"ok": true')
+          cmp build/counter.abi.json .labcoat/test-artifacts/counter.abi.json
+          test ! -e contracts/counter/build
           "$GITHUB_WORKSPACE/target/debug/labcoat" \
             deploy --wasm build/counter.wasm --dry-run --json \
             | tee "$RUNNER_TEMP/labcoat-deploy.json"

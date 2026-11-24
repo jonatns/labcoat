@@ -29,6 +29,25 @@ impl LabcoatError {
         }
     }
 
+    /// Why a `cargo` command could not be started. Cargo missing from
+    /// `PATH` is its own error: every other message would send the
+    /// developer looking at their project instead of their toolchain.
+    pub fn cargo_unavailable(error: &std::io::Error, action: &str) -> Self {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Self::new(
+                "TOOLCHAIN_MISSING",
+                format!("cannot {action}: `cargo` was not found on PATH"),
+                "install Rust with rustup (https://rustup.rs), open a new shell, then run `labcoat doctor`",
+            )
+        } else {
+            Self::new(
+                "TOOLKIT_ERROR",
+                format!("cannot {action}: failed to run cargo: {error}"),
+                "run `labcoat doctor`",
+            )
+        }
+    }
+
     /// Best-effort classification of upstream (anyhow / AlkanesError)
     /// failures into stable codes.
     pub fn classify(err: anyhow::Error) -> Self {

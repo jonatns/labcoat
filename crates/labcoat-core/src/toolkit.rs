@@ -118,7 +118,7 @@ pub async fn deploy(
     signer: &SignerSpec,
     request: DeployRequest<'_>,
 ) -> Result<ExecuteOutcome> {
-    let deployment_root = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let deployment_root = config.project_root();
     deploy_in(config, signer, &deployment_root, request).await
 }
 
@@ -450,9 +450,8 @@ pub async fn chain_instance_id(config: &ToolkitConfig) -> Option<String> {
 
 /// Resolve a contract's alkanes id from the lockfile.
 pub fn resolve_contract(config: &ToolkitConfig, name: &str) -> Result<(u128, u128)> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let network = config.network_id();
-    let dep = lockfile::get(&cwd, network, name)?.ok_or_else(|| {
+    let dep = lockfile::get(&config.project_root(), network, name)?.ok_or_else(|| {
         LabcoatError::new(
             "CONTRACT_NOT_FOUND",
             format!("no deployment of '{name}' on {network} in labcoat.lock"),

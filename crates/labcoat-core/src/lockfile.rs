@@ -45,8 +45,13 @@ pub fn is_stale(deployment: &Deployment, current_chain_id: &str) -> bool {
 /// Load the lockfile. A missing file is an empty ledger; an unreadable or
 /// corrupt file is an error — silently starting empty would overwrite the
 /// deployment history on the next save.
+/// Where the lockfile of the project at `dir` is.
+pub fn path(dir: &Path) -> std::path::PathBuf {
+    crate::records::dir(dir).join(LOCKFILE)
+}
+
 pub fn load(dir: &Path) -> Result<Lockfile> {
-    let path = dir.join(LOCKFILE);
+    let path = path(dir);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -75,11 +80,13 @@ pub fn load(dir: &Path) -> Result<Lockfile> {
 /// Atomically replace the lockfile (temp file + rename in the same
 /// directory), so a crash mid-write never leaves a truncated ledger.
 pub fn save(dir: &Path, lockfile: &Lockfile) -> Result<()> {
+    let dir = &crate::records::dir(dir);
     let path = dir.join(LOCKFILE);
     let tmp = dir.join(format!(".{}.tmp-{}", LOCKFILE, std::process::id()));
     let io_err =
         |e: std::io::Error| LabcoatError::new("TOOLKIT_ERROR", e.to_string(), "check permissions");
     let write = (|| {
+        std::fs::create_dir_all(dir)?;
         let mut file = std::fs::File::create(&tmp)?;
         use std::io::Write;
         file.write_all(serde_json::to_string_pretty(lockfile).unwrap().as_bytes())?;

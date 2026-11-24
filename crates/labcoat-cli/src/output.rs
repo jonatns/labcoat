@@ -196,6 +196,35 @@ fn render_plain(command: &str, value: &Value, verbose: bool, width: usize) -> St
     render(&build_document(command, value, verbose), width, false)
 }
 
+/// Say which network and endpoint a state-changing command is about to
+/// write to, so a write to the wrong one is visible before it lands.
+pub fn print_target(network: &str, rpc_url: &str, color: ColorMode) {
+    write_stderr(
+        &format!(
+            "{}network:{} {network} ({})\n",
+            style(Tone::Info),
+            reset(),
+            display_endpoint(rpc_url)
+        ),
+        color,
+    );
+}
+
+/// An endpoint without the credentials a URL can carry: userinfo and the
+/// query string, where hosted RPC providers put API keys.
+fn display_endpoint(url: &str) -> String {
+    let url = url.split(['?', '#']).next().unwrap_or(url);
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let (authority, path) = match rest.find('/') {
+        Some(index) => rest.split_at(index),
+        None => (rest, ""),
+    };
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    format!("{scheme}://{host}{path}")
+}
+
 pub fn print_warning(message: &str, color: ColorMode) {
     write_stderr(
         &format!("{}warning:{} {message}\n", style(Tone::Warning), reset()),
@@ -787,6 +816,21 @@ fn build_document_report(command: &str, value: &Value, verbose: bool) -> Documen
             headers.extend(["Wasm".into(), "ABI".into(), "SHA-256".into()]);
         }
         document.blocks.push(Block::Table(headers, rows));
+    }
+    if value.get("e2e").and_then(Value::as_bool) == Some(true) {
+        document.fields(fields(value, &[("E2E tests", "tests")]));
+        if verbose {
+            if let Some(network) = value.get("network") {
+                document.fields(fields(
+                    network,
+                    &[
+                        ("E2E network", "rpcUrl"),
+                        ("Chain data", "dataHome"),
+                        ("Deployment records", "recordsDir"),
+                    ],
+                ));
+            }
+        }
     }
     if verbose {
         document.fields(fields(value, &[("Artifact directory", "artifactDir")]));
@@ -1600,6 +1644,19 @@ fn indent(value: &str, depth: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_announced_endpoint_never_shows_credentials() {
+        assert_eq!(
+            display_endpoint("http://127.0.0.1:18443"),
+            "http://127.0.0.1:18443"
+        );
+        assert_eq!(
+            display_endpoint("https://user:secret@rpc.example.com/v4/jsonrpc?api_key=abc#frag"),
+            "https://rpc.example.com/v4/jsonrpc"
+        );
+        assert_eq!(display_endpoint("subfrost"), "subfrost");
+    }
 
     #[test]
     fn plan_renders_steps_arguments_and_conflicts_within_the_width() {

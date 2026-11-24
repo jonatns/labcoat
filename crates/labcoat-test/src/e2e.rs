@@ -1,15 +1,23 @@
-//! End-to-end test context: drives contracts deployed on the developer's
-//! Labcoat Network through the `labcoat` CLI's `--json` envelopes.
+//! End-to-end test context: drives contracts deployed on the project's e2e
+//! network through the `labcoat` CLI's `--json` envelopes.
 //!
 //! Tests live in `tests/e2e.rs`, are marked `#[ignore]` (so plain
-//! `cargo test` skips them), and run via `labcoat test --e2e`, which
-//! resets the network, runs the `deploy.rs` deployment, and executes them
-//! with the environment this context reads:
+//! `cargo test` skips them), and run via `labcoat test --e2e`. Each project
+//! has an e2e network of its own, with its own chain, port, wallet, and
+//! deployment records, so a run never touches the Labcoat Network the
+//! developer works on. The run resets that network, runs the `deploy.rs`
+//! deployment, and executes the tests with the environment this context
+//! reads:
 //!
 //! ```text
-//! LABCOAT_E2E_BIN   absolute path of the labcoat binary driving the run
-//! LABCOAT_E2E_ROOT  the project root (where labcoat.lock lives)
+//! LABCOAT_E2E_BIN      absolute path of the labcoat binary driving the run
+//! LABCOAT_E2E_ROOT     the project root
+//! LABCOAT_RECORDS_DIR  where the run's labcoat.lock and deployments/ are
 //! ```
+//!
+//! `labcoat test --e2e` also sets `LABCOAT_DATA_HOME`, `LABCOAT_RPC_PORT`,
+//! and `LABCOAT_RPC_URL`, which every command this context runs inherits:
+//! that is what points them at the e2e network.
 //!
 //! ```no_run
 //! use labcoat_test::e2e::{Call, E2e};
@@ -192,6 +200,9 @@ impl Outcome {
 pub struct E2e {
     bin: PathBuf,
     root: PathBuf,
+    /// Where the run's deployment records are: the project root unless the
+    /// run keeps them apart.
+    records: PathBuf,
 }
 
 impl E2e {
@@ -203,9 +214,14 @@ impl E2e {
         let root = std::env::var_os("LABCOAT_E2E_ROOT").ok_or_else(|| {
             anyhow!("LABCOAT_E2E_ROOT is not set — run e2e tests with `labcoat test --e2e`")
         })?;
+        let root = PathBuf::from(root);
+        let records = std::env::var_os("LABCOAT_RECORDS_DIR")
+            .filter(|dir| !dir.is_empty())
+            .map_or_else(|| root.clone(), |dir| root.join(dir));
         Ok(Self {
             bin: PathBuf::from(bin),
-            root: PathBuf::from(root),
+            root,
+            records,
         })
     }
 
@@ -248,7 +264,7 @@ impl E2e {
     /// The step record `deploy.rs` left for `name` in the Labcoat Network
     /// run file, when there is one.
     fn step_record(&self, name: &str) -> Option<Value> {
-        let text = std::fs::read_to_string(self.root.join("deployments/labcoat.json")).ok()?;
+        let text = std::fs::read_to_string(self.records.join("deployments/labcoat.json")).ok()?;
         let run: Value = serde_json::from_str(&text).ok()?;
         run.get("steps")?.get(name).cloned()
     }
@@ -263,7 +279,7 @@ impl E2e {
         {
             return Ok(id);
         }
-        let path = self.root.join("labcoat.lock");
+        let path = self.records.join("labcoat.lock");
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("cannot read {} — did deploy run?", path.display()))?;
         let lockfile: Value = serde_json::from_str(&text)?;
