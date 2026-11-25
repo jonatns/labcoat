@@ -6,7 +6,7 @@ description: Labcoat is the Rust-native CLI for building, testing, and operating
 # Labcoat: the Alkanes contract workflow
 
 Setting Labcoat up from nothing? Run the preflight at
-https://labcoat.sh/docs/getting-started/agent-onboarding/ first: platform,
+https://labcoat.sh/docs/getting-started/agent-onboarding.md.txt first: platform,
 installation, prerequisites, and local network settings. Inside a project,
 its generated `AGENTS.md` and `SKILL.md` match the installed release and
 take precedence over this file.

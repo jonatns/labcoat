@@ -8,7 +8,9 @@ Hand a coding agent that has a terminal the prompt on the
 [`/agent-prompt.txt`](/agent-prompt.txt). It sets up Labcoat, creates a
 project, and takes the Counter starter through one increment.
 
-The rest of this page is for the agent. It covers what happens before
+The rest of this page is for the agent, which should read it as plain text
+at [`/docs/getting-started/agent-onboarding.md.txt`](/docs/getting-started/agent-onboarding.md.txt)
+rather than as this HTML page. It covers what happens before
 `labcoat init`. After that, the project's own `AGENTS.md` and `SKILL.md`
 take over, because they match the installed release.
 
@@ -129,9 +131,10 @@ reference for the installed release.
 Two things to carry over:
 
 - The first `labcoat test` installs the pinned Rust toolchain and builds
-  every dependency. Allow up to 20 minutes. If your command timeout is
-  shorter, start it once in the background and poll it; never start a
-  second build beside it.
+  every dependency, which can take up to 20 minutes. Do not ask your tools
+  for one long wait: most cap a single command or wait at a few minutes and
+  reject a longer one. Start the test once in the background and check on
+  it in short intervals. Never start a second build beside it.
 - After `labcoat up --ci`, confirm that `result.endpoints.rpc` is a
   `127.0.0.1` address and that the `project config` check of
   `labcoat doctor --json` reads `targets labcoat at` that address, before
