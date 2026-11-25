@@ -8,7 +8,9 @@ Hand a coding agent that has a terminal the prompt on the
 [`/agent-prompt.txt`](/agent-prompt.txt). It sets up Labcoat, creates a
 project, and takes the Counter starter through one increment.
 
-The rest of this page is for the agent, which should read it as plain text
+The rest of this page is for the agent. Read all of it before you run
+anything else, including a check for whether Labcoat is installed; step 2
+has one that does not fail when it is missing. Read the page as plain text
 at [`/docs/getting-started/agent-onboarding.md.txt`](/docs/getting-started/agent-onboarding.md.txt)
 rather than as this HTML page. It covers what happens before
 `labcoat init`. After that, the project's own `AGENTS.md` and `SKILL.md`
@@ -30,8 +32,12 @@ uname -sm
 ## 2. Install the CLI
 
 ```bash
-command -v labcoat && labcoat --version
+command -v labcoat >/dev/null && labcoat --version || echo "labcoat is not installed"
 ```
+
+Run it exactly like that. A bare `labcoat --version` or `which labcoat`
+fails when Labcoat is missing, which is the normal starting point and not
+an error.
 
 - **0.4.0 or later is installed:** use it. Do not reinstall or upgrade.
 - **An earlier version is installed:** stop. Report the version and that
