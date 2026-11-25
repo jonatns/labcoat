@@ -117,12 +117,12 @@ labcoat plan
 ```text
 › Plan for deploy.rs — 6 pending step(s)
 
-Kind      Name                           Status            Id/Target
+Kind      Name                           Status            Id
 contract  auth_token                     pending (create)  4:65517
-contract  counter_logic                  pending (create)  1:0
-contract  counter_beacon                 pending (create)  1:0
+contract  counter_logic                  pending (create)  assigned at deploy
+contract  counter_beacon                 pending (create)  assigned at deploy
 setting   counter_beacon_implementation  pending (check)   -
-contract  counter                        pending (create)  1:0
+contract  counter                        pending (create)  assigned at deploy
 call      init_counter                   pending (call)    -
 
 Step                           Arguments
@@ -212,9 +212,9 @@ labcoat plan
 ```text
 › Plan for deploy.rs — 2 pending step(s)
 
-Kind      Name                           Status             Id/Target
+Kind      Name                           Status             Id
 contract  auth_token                     complete           4:65517
-contract  counter_logic                  pending (replace)  1:0
+contract  counter_logic                  pending (replace)  assigned at deploy
 contract  counter_beacon                 complete           2:2
 setting   counter_beacon_implementation  pending (update)   2:2
 contract  counter                        complete           2:4

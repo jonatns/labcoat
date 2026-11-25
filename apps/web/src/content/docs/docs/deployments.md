@@ -207,7 +207,7 @@ report a `conflict`, and `labcoat deploy` stops with `DEPLOYMENT_CONFLICT` befor
 ```text
 ! Plan for deploy.rs — 0 pending, 1 in conflict
 
-Kind      Name            Status    Id/Target
+Kind      Name            Status    Id
 contract  counter_beacon  conflict  2:2
 
 counter_beacon: its definition changed since it ran — restore it, or pass
@@ -334,9 +334,9 @@ When the logic changes, one `labcoat deploy` deploys the new code
 and repoints the beacon:
 
 ```text
-Kind      Name                           Status             Id/Target
+Kind      Name                           Status             Id
 contract  auth_token                     complete           4:65517
-contract  counter_logic                  pending (replace)  1:0
+contract  counter_logic                  pending (replace)  assigned at deploy
 contract  counter_beacon                 complete           2:2
 setting   counter_beacon_implementation  pending (update)   2:2
 contract  counter                        complete           2:4

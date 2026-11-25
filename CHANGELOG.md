@@ -4,6 +4,10 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+### Changed
+
+- show `assigned at deploy` in `labcoat plan` for a contract that has no id yet, under a column headed `Id`. The plan used to print `1:0`, the instruction that asks the protocol for the next free id, under `Id/Target`, which read as a prediction that `labcoat deploy` then contradicted with `2:n`. JSON output is unchanged
+
 ## [0.4.0](https://github.com/jonatns/labcoat/compare/cli-v0.3.0...cli-v0.4.0) - 2026-11-25
 
 ### Breaking changes

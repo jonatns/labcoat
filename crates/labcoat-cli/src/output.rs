@@ -1012,6 +1012,23 @@ fn state_migrate_document(value: &Value) -> Document {
     document
 }
 
+/// The id a plan row shows: the contract's id once it exists, or the id it
+/// will get when that is known in advance (a reserved number, a call's
+/// target). A contract deployed without a reserved number is created
+/// through `1:0`, which asks the protocol for the next free id; that is an
+/// instruction, not an id, and printing it reads as a wrong prediction when
+/// the deploy then reports `2:n`.
+fn planned_id(action: &Value) -> String {
+    if let Some(id) = action.get("id").and_then(Value::as_str) {
+        return id.to_string();
+    }
+    match action.get("target").and_then(Value::as_str) {
+        Some("1:0") => "assigned at deploy".into(),
+        Some(target) => target.to_string(),
+        None => "-".into(),
+    }
+}
+
 fn plan_document(value: &Value) -> Document {
     let mut document = Document::default();
     let pending = value.get("pending").and_then(Value::as_u64).unwrap_or(0);
@@ -1077,12 +1094,7 @@ fn plan_document(value: &Value) -> Document {
             } else {
                 status
             },
-            action
-                .get("id")
-                .or_else(|| action.get("target"))
-                .and_then(Value::as_str)
-                .unwrap_or("-")
-                .to_string(),
+            planned_id(action),
         ]);
         if let Some(detail) = action.get("detail").and_then(Value::as_str) {
             details.push((
@@ -1093,12 +1105,7 @@ fn plan_document(value: &Value) -> Document {
     }
     if !rows.is_empty() {
         document.blocks.push(Block::Table(
-            vec![
-                "Kind".into(),
-                "Name".into(),
-                "Status".into(),
-                "Id/Target".into(),
-            ],
+            vec!["Kind".into(), "Name".into(), "Status".into(), "Id".into()],
             rows,
         ));
     }
@@ -1786,7 +1793,10 @@ mod tests {
         assert!(output.contains("Plan for deploy.rs — 2 pending, 1 in conflict"));
         // The step table stays a table at the default width.
         assert!(output.contains("Kind      Name"));
-        assert!(output.contains("counter_logic                  pending (replace)  1:0"));
+        assert!(
+            output.contains("counter_logic                  pending (replace)  assigned at deploy")
+        );
+        assert!(!output.contains("1:0"));
         assert!(output.contains("counter_beacon                 conflict           2:2"));
         // Arguments are listed for steps that will run or need a decision…
         assert!(output.contains("implementation=2:1, auth_token_units=2"));
