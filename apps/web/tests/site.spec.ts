@@ -172,14 +172,19 @@ test('the agent guide and its plain-text forms serve the same prompt the homepag
   // In the sidebar's Start here group (a drawer on small screens).
   await expect(page.locator('nav.sidebar a[href="/docs/getting-started/agent-onboarding/"]')).toHaveCount(1);
 
+  // The prompt sends agents to the plain-text page: fetched with curl, the
+  // HTML page is mostly navigation markup.
+  const preflight = agentPrompt.match(/https:\/\/labcoat\.sh(\/\S+) for preflight/)?.[1];
+  expect(preflight).toBe('/docs/getting-started/agent-onboarding.md.txt');
   const raw = await (await request.get('/docs/getting-started/agent-onboarding.md.txt')).text();
+  expect(raw).not.toContain('<html');
   // The preflight stops at init and hands over to the project's own files.
   expect(raw).toContain('labcoat init');
   expect(raw).toContain('AGENTS.md');
   expect(raw).not.toContain('labcoat deploy');
 
   for (const route of ['/llms.txt', '/skill.md']) {
-    expect(await (await request.get(route)).text(), route).toContain('/docs/getting-started/agent-onboarding/');
+    expect(await (await request.get(route)).text(), route).toContain('/docs/getting-started/agent-onboarding.md.txt');
   }
 });
 

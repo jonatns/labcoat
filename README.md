@@ -25,7 +25,7 @@ access. It sets up Labcoat, creates a project, and takes the Counter starter
 through one increment:
 
 ```text
-Set up Labcoat in a fresh project in my workspace and run the Counter starter through one increment. Use https://labcoat.sh/docs/getting-started/agent-onboarding/ for preflight. If Labcoat is missing, I authorize the official user-local installer, subject to your tool approvals. If a system package is missing, stop and tell me which package is needed and why.
+Set up Labcoat in a fresh project in my workspace and run the Counter starter through one increment. Use https://labcoat.sh/docs/getting-started/agent-onboarding.md.txt for preflight. If Labcoat is missing, I authorize the official user-local installer, subject to your tool approvals. If a system package is missing, stop and tell me which package is needed and why.
 
 After labcoat init, follow the project’s generated AGENTS.md and SKILL.md and the installed labcoat docs --llm. Use Labcoat Network, the local Bitcoin regtest, and preserve existing projects, wallets, and chains. Run the workflow yourself and allow time for the first Rust build.
 
