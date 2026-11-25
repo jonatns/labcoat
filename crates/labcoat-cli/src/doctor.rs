@@ -167,6 +167,76 @@ fn project_config_check(root: &Path) -> Check {
     }
 }
 
+/// Whether this release's runtime is installed. A runtime that has not been
+/// downloaded yet is how every machine starts, and the first `labcoat up`
+/// fetches it: that is a note, not a problem. One that is present but does
+/// not verify is a problem.
+fn runtime_bundle_check<'a>(
+    statuses: impl Iterator<Item = &'a isomer_core::BinaryStatus>,
+    release_tag: &str,
+) -> Check {
+    const NAME: &str = "runtime bundle";
+    let mut missing = false;
+    let mut invalid = Vec::new();
+    for status in statuses {
+        match status {
+            isomer_core::BinaryStatus::Installed { .. } => {}
+            isomer_core::BinaryStatus::NotInstalled => missing = true,
+            isomer_core::BinaryStatus::Invalid { reason } => invalid.push(reason.clone()),
+        }
+    }
+    if !invalid.is_empty() {
+        fail(
+            NAME,
+            format!(
+                "{release_tag} is installed but invalid: {}",
+                invalid.join("; ")
+            ),
+            "run `labcoat binaries --download` to replace it",
+        )
+    } else if missing {
+        warn(
+            NAME,
+            format!("{release_tag} is not installed yet"),
+            "run `labcoat up`; it downloads the runtime the first time",
+        )
+    } else {
+        ok(NAME, format!("{release_tag} is installed"))
+    }
+}
+
+/// Who holds Labcoat Network's port, said the way `labcoat up` would say
+/// it: this data home's network, another data home's, or something else.
+fn port_check(
+    port: u16,
+    free: bool,
+    identify: impl FnOnce() -> isomer_core::rpc::NodeIdentity,
+) -> Check {
+    use isomer_core::rpc::NodeIdentity;
+    const NAME: &str = "ports";
+    if free {
+        return ok(NAME, format!("{port} is free"));
+    }
+    match identify() {
+        NodeIdentity::Own => ok(NAME, format!("Labcoat Network is running on {port}")),
+        NodeIdentity::OwnOtherRelease => warn(
+            NAME,
+            format!("{port} serves this data directory's network from another Labcoat release"),
+            "run `labcoat up`; it replaces it with this release's",
+        ),
+        NodeIdentity::OtherDataHome(data_dir) => warn(
+            NAME,
+            format!("{port} serves a Labcoat Network for another data directory ({data_dir})"),
+            "stop it with `labcoat down` under that LABCOAT_DATA_HOME, or set LABCOAT_RPC_PORT to run this one on another port",
+        ),
+        _ => warn(
+            NAME,
+            format!("{port} is in use by another program"),
+            "stop the other program, or set LABCOAT_RPC_PORT to run Labcoat Network on another port",
+        ),
+    }
+}
+
 fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Option<bool>) -> Check {
     const NAME: &str = "project toolchain";
     match pinned {
@@ -282,52 +352,21 @@ pub async fn run() -> Vec<Check> {
             "install it (`brew install protobuf` on macOS, `apt install protobuf-compiler` on Debian or Ubuntu); contracts do not build without it",
         )),
     }
-    // Ports
+    // Port
     let config = IsomerConfig::load();
-    let mut busy = Vec::new();
-    for service in ServiceId::all() {
-        let port = ProcessManager::port_for_service(service, &config);
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_err() {
-            busy.push(format!("{} :{}", service.id(), port));
-        }
-    }
-    if busy.is_empty() {
-        checks.push(ok("ports", "all Labcoat Network ports are free"));
-    } else {
-        // Occupied ports are fine when they belong to Labcoat Network — report as warn.
-        checks.push(warn(
-            "ports",
-            format!("in use: {}", busy.join(", ")),
-            "if this isn't Labcoat Network, stop the other process or change the Labcoat Network ports",
-        ));
-    }
+    let port = ProcessManager::port_for_service(ServiceId::Node, &config);
+    checks.push(port_check(
+        port,
+        std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
+        || isomer_core::rpc::identify_blocking(&config, std::time::Duration::from_secs(2)),
+    ));
 
     // Binaries
     let infos = BinaryManager::new().check_all();
-    let problems: Vec<String> = infos
-        .iter()
-        .filter_map(|binary| match &binary.status {
-            isomer_core::BinaryStatus::Installed { .. } => None,
-            isomer_core::BinaryStatus::NotInstalled => {
-                Some(format!("{} is not installed", binary.service))
-            }
-            isomer_core::BinaryStatus::Invalid { reason } => {
-                Some(format!("{} is invalid: {reason}", binary.service))
-            }
-        })
-        .collect();
-    if problems.is_empty() {
-        checks.push(ok(
-            "runtime bundle",
-            format!("{} is installed", BinaryManager::release_tag()),
-        ));
-    } else {
-        checks.push(fail(
-            "runtime bundle",
-            problems.join("; "),
-            "run `labcoat binaries --download`",
-        ));
-    }
+    checks.push(runtime_bundle_check(
+        infos.iter().map(|binary| &binary.status),
+        &BinaryManager::release_tag(),
+    ));
 
     // Disk space in the data dir
     let data_dir = isomer_core::get_data_dir();
@@ -414,6 +453,44 @@ mod tests {
         std::fs::write(root.join("labcoat.toml"), "mnemonic = \"never\"\n").unwrap();
         assert_eq!(project_config_check(&root).status, "fail");
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_port_check_names_who_holds_the_port() {
+        use isomer_core::rpc::NodeIdentity;
+        assert_eq!(port_check(18443, true, || unreachable!()).status, "ok");
+        let own = port_check(18443, false, || NodeIdentity::Own);
+        assert_eq!(own.status, "ok");
+        assert!(own.detail.contains("running on 18443"));
+
+        let other = port_check(18443, false, || {
+            NodeIdentity::OtherDataHome("/elsewhere/network".into())
+        });
+        assert_eq!(other.status, "warn");
+        assert!(other.detail.contains("/elsewhere/network"));
+        assert!(other.hint.unwrap().contains("LABCOAT_RPC_PORT"));
+
+        let foreign = port_check(18443, false, || NodeIdentity::Foreign);
+        assert!(foreign.detail.contains("another program"));
+    }
+
+    #[test]
+    fn a_runtime_that_is_not_downloaded_yet_is_not_a_problem() {
+        use isomer_core::BinaryStatus;
+        let missing = runtime_bundle_check([BinaryStatus::NotInstalled].iter(), "cli-v1.2.3");
+        assert_eq!(missing.status, "warn");
+        assert!(missing.hint.unwrap().contains("labcoat up"));
+
+        let invalid = runtime_bundle_check(
+            [BinaryStatus::Invalid {
+                reason: "checksum mismatch".into(),
+            }]
+            .iter(),
+            "cli-v1.2.3",
+        );
+        assert_eq!(invalid.status, "fail");
+        assert!(invalid.detail.contains("checksum mismatch"));
+        assert!(invalid.hint.unwrap().contains("binaries --download"));
     }
 
     #[test]

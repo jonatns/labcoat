@@ -425,11 +425,16 @@ fn main() {
 
 /// Log directives used when `RUST_LOG` is unset. Human output stays quiet
 /// apart from warnings; `-v/--verbose` adds Labcoat's own progress logs.
+///
+/// The upstream Alkanes client warns on every wallet query that Labcoat
+/// Network has no batched fetch or ord indexer, and falls back as designed.
+/// That is how the local network always works, so by default only its
+/// errors are shown; `--verbose` brings the warnings back.
 fn default_tracing_directives(verbose: bool) -> &'static str {
     if verbose {
         "warn,labcoat=info,labcoat_core=info,labcoat_test=info,isomer_core=info"
     } else {
-        "warn"
+        "warn,alkanes_cli_common=error"
     }
 }
 
@@ -587,6 +592,11 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
     .with_assume_yes(cli.assume_yes)
     .with_environment(&resolved.environment)
     .with_color(cli.color);
+    // A spinner shares stderr with logs and prompts, and garbles both. With
+    // `--verbose` the logs are the progress, and a command that signs on a
+    // public network prints what it signs and may ask for approval.
+    let spinner = !json && !cli.verbose;
+    let signing_spinner = spinner && ctx.config.network.uses_regtest();
     match cli.command {
         Commands::Init { .. } => unreachable!("init handled before configuration loading"),
         Commands::Upgrade { .. } => unreachable!("upgrade handled before configuration loading"),
@@ -605,7 +615,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 } else {
                     "Building contracts and running tests…"
                 },
-                !json,
+                spinner,
             );
             let result = if e2e {
                 test_command::run_e2e(&ctx, package.as_deref(), no_reset).await
@@ -620,7 +630,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             output::finish_contract(json, name, res, output_options)
         }
         Commands::Build { package, out_dir } => {
-            let progress = output::Progress::new("Building contract artifacts…", !json);
+            let progress = output::Progress::new("Building contract artifacts…", spinner);
             let (cmd_name, res) = contract::build(package.as_deref(), &out_dir);
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
@@ -630,7 +640,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Plan { replace } => {
-            let progress = output::Progress::new("Planning the deployment…", !json);
+            let progress = output::Progress::new("Planning the deployment…", spinner);
             let (cmd_name, res) = contract::plan(&ctx, &replace).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
@@ -669,7 +679,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 } else {
                     "Deploying…"
                 },
-                !json,
+                signing_spinner,
             );
             let (cmd_name, res) = contract::deploy(&ctx, request, dry_run).await;
             progress.finish();
@@ -679,7 +689,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             if !json {
                 ctx.announce_target();
             }
-            let progress = output::Progress::new("Verifying the deployed contract…", !json);
+            let progress = output::Progress::new("Verifying the deployed contract…", spinner);
             let (cmd_name, res) = contract::import(&ctx, &name, &id, txid.as_deref()).await;
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
@@ -701,7 +711,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 } else {
                     "Calling contract…"
                 },
-                !json,
+                signing_spinner,
             );
             let (cmd_name, res) = if dry_run {
                 contract::call_dry_run(&ctx, &contract, &selector, &args, &tx, abi.as_deref()).await
@@ -722,7 +732,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 ctx.announce_target();
             }
             let progress =
-                output::Progress::new("Signing and broadcasting atomic exchange…", !json);
+                output::Progress::new("Signing and broadcasting atomic exchange…", signing_spinner);
             let (cmd_name, res) = contract::exchange(
                 &ctx,
                 &offered,
@@ -746,7 +756,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             plan_out,
             psbt_out,
         } => {
-            let progress = output::Progress::new("Building exchange plan…", !json);
+            let progress = output::Progress::new("Building exchange plan…", spinner);
             let source = match request {
                 Some(path) => contract::ExchangeRequestSource::File { path },
                 // Clap enforces required_unless_present, so the flag form is complete here.
@@ -778,7 +788,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 } else {
                     "Validating and signing exchange…"
                 },
-                !json,
+                signing_spinner,
             );
             let (cmd_name, res) =
                 contract::exchange_settle(&ctx, &plan, &psbt, &seller_wallet_file, broadcast).await;
@@ -806,7 +816,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 } else {
                     "Fetching transaction trace…"
                 },
-                !json,
+                spinner,
             );
             let (cmd_name, res) = contract::trace(&ctx, &txid, wait).await;
             progress.finish();
@@ -842,7 +852,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 }
             };
             let mut network = LabcoatNetwork::new();
-            let progress = output::Progress::new("Preparing Labcoat Network…", !json);
+            let progress = output::Progress::new("Preparing Labcoat Network…", spinner && !ci);
             if !no_download {
                 if let Err(e) = network.ensure_binaries(progress_logger(!json)).await {
                     progress.finish();
@@ -1136,7 +1146,7 @@ mod envelope_tests {
     fn default_tracing_is_quiet_unless_verbose() {
         use tracing_subscriber::EnvFilter;
         let quiet = default_tracing_directives(false);
-        assert_eq!(quiet, "warn");
+        assert_eq!(quiet, "warn,alkanes_cli_common=error");
         // `labcoat test` used to print `INFO labcoat_core::compile: building
         // contract packages` on every run.
         assert_eq!(

@@ -46,13 +46,17 @@ and read it before you run it:
 ```bash
 tag=$(curl -fsSL https://api.github.com/repos/jonatns/labcoat/releases/latest \
   | sed -n 's/.*"tag_name"[^"]*"\(cli-v[^"]*\)".*/\1/p')
-echo "$tag"                                   # expect cli-v0.4.0 or later
+echo "$tag"                                   # must be cli-v0.4.0 or later
 dir=$(mktemp -d)
 curl -fsSL "https://raw.githubusercontent.com/jonatns/labcoat/$tag/install-labcoat.sh" \
   -o "$dir/install-labcoat.sh"
 cat "$dir/install-labcoat.sh"
 sh "$dir/install-labcoat.sh" --version "$tag"
 ```
+
+If the tag is earlier than `cli-v0.4.0`, stop here: the release this page
+describes is not published yet. Report the tag you found and install
+nothing.
 
 The script downloads one executable for this platform from that release,
 checks it against the release's published SHA-256, and writes it to

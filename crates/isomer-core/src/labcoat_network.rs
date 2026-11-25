@@ -233,7 +233,7 @@ impl LabcoatNetwork {
     }
 
     fn snapshots_dir() -> PathBuf {
-        crate::config::get_data_dir().join("snapshots-v3")
+        crate::config::get_data_dir().join("snapshots")
     }
 
     /// Snapshot the Labcoat Network data directory under the given name.

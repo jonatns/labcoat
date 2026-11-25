@@ -115,11 +115,31 @@ The wallet works only on Labcoat Network; see
 The wallet derives BIP-86, BIP-84, BIP-49, and BIP-44 addresses. P2TR is the
 primary address for Alkanes operations.
 
+## Where Labcoat keeps its data
+
+Everything Labcoat writes outside a project is in one directory:
+
+- macOS: `~/Library/Application Support/Labcoat/`
+- Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/labcoat/`
+
+```text
+network/               the chain, its index, and the faucet
+snapshots/             chains saved by `labcoat snapshot`
+logs/                  `labcoat logs` reads these
+wallets/               one keystore per network
+runtimes/cli-vX.Y.Z/   the indexer module for each installed release
+config.json            the network's port, when you change it
+```
+
+`LABCOAT_DATA_HOME` moves the directory. `labcoat doctor` prints where it
+is.
+
 ## Reset carefully
 
-`labcoat reset -y` stops Labcoat Network and permanently removes its chain,
-index, and faucet data. Data and snapshots from releases that ran Qubitcoin
-are left untouched and are not read.
+`labcoat reset -y` stops Labcoat Network and permanently removes `network/`:
+its chain, index, and faucet data. Wallets and snapshots are kept. Data and
+snapshots from releases that ran Qubitcoin are in a separate `Isomer` folder;
+they are left untouched and are not read.
 
 ## Upgrading from a Qubitcoin-based release
 
@@ -130,8 +150,8 @@ Nothing from the old chain is converted, and nothing of it is deleted:
 | What | After upgrading |
 | --- | --- |
 | Wallets | Kept. Keystores, including the built-in Labcoat Network wallet, stay where they are, and the next `labcoat up` funds the built-in wallet on the new chain. |
-| Chain data | Not read. The old chain stays under `Isomer/runtime-v2/` in Labcoat's data directory; the new one is created under `Isomer/runtime-v3/`. |
-| Snapshots | Not read. `labcoat snapshot` and `labcoat restore` use `Isomer/snapshots-v3/`; snapshots from the old chain stay under `Isomer/snapshots-v2/`. |
+| Chain data | Not read. Earlier releases kept the chain in a folder named `Isomer`, beside Labcoat's data directory, and it stays there. The new chain is created in the data directory itself, under `network/`. |
+| Snapshots | Not read. `labcoat snapshot` and `labcoat restore` use `snapshots/` in the data directory; snapshots from the old chain stay under `Isomer/snapshots-v2/`. |
 | Deployment records | `deployments/labcoat.json` and the `labcoat` entries of `labcoat.lock` name contracts on the old chain. The next `labcoat deploy` replaces them. |
 | Durable state | An environment created by `labcoat state migrate` for the old chain refuses to deploy with `STATE_CHAIN_MISMATCH`. Archive `.labcoat/state/<environment>/` or pass a new `--environment`. |
 

@@ -158,8 +158,14 @@ pub fn compile_packages(
     let output = command
         .output()
         .map_err(|e| LabcoatError::cargo_unavailable(&e, "build the contracts"))?;
-    if !output.stderr.is_empty() {
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    // Cargo's progress ("Compiling…", "Finished…") is not the command's
+    // result. A failed build returns it in the error; a successful one logs
+    // it for `--verbose`.
+    if output.status.success() && !output.stderr.is_empty() {
+        tracing::info!(
+            "cargo build:\n{}",
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        );
     }
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

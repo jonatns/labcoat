@@ -162,8 +162,11 @@ rm "$HOME/.local/bin/labcoat"
 ```
 
 This does not remove projects, wallets, chain data, logs, or versioned runtime
-directories. Review `labcoat binaries --verbose` and your platform’s Labcoat
-data directory before removing that data manually.
+directories. All of those are in
+[one directory](/docs/labcoat-network/#where-labcoat-keeps-its-data); check
+its `wallets/` folder for keystores you still need before deleting it. Releases
+up to 0.3.0 also wrote a folder named `Isomer` beside it, which can be deleted
+too.
 
 ## Runtime and security boundaries
 

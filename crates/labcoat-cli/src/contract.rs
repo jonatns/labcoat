@@ -175,8 +175,13 @@ impl Ctx {
         crate::output::print_warning(message, self.color);
     }
 
-    /// Name the resolved network and endpoint before a command writes to it.
+    /// Name the resolved network and endpoint before a command writes to
+    /// it, unless it is the local network on its own machine: the line is
+    /// there to catch a write headed somewhere unexpected.
     pub fn announce_target(&self) {
+        if is_local_default(&self.config) {
+            return;
+        }
         crate::output::print_target(self.config.network_id(), &self.config.rpc_url, self.color);
     }
 
@@ -485,6 +490,14 @@ async fn resolve_invocation(
         }
     };
     Ok((block, tx, invocation))
+}
+
+/// Whether commands go to Labcoat Network on a loopback address.
+fn is_local_default(config: &ToolkitConfig) -> bool {
+    config.network == NetworkTarget::Labcoat
+        && ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"]
+            .iter()
+            .any(|prefix| config.rpc_url.starts_with(prefix))
 }
 
 fn named_deployment(
