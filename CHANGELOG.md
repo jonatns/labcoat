@@ -4,6 +4,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/jonatns/labcoat/compare/cli-v0.3.0...cli-v0.4.0) - 2026-11-25
+
 ### Breaking changes
 
 - run Labcoat Network inside the `labcoat` executable instead of a downloaded `qubitcoind`: `labcoat up` starts it as a background `labcoat node` process, and the runtime bundle is just `alkanes.wasm`. The service is now `node` (`labcoat logs --service node`), `up` reports its endpoint as `endpoints.rpc` instead of `endpoints.qubitcoin_rpc`, and chains, snapshots, and network settings from Qubitcoin-based releases are not read: the next `labcoat up` starts a new chain. Projects keep their deployment records, which name the old chain and are replaced on the next `labcoat deploy`
