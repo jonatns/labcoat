@@ -3,6 +3,7 @@ use alkanes_support::response::CallResponse;
 use anyhow::Result;
 use metashrew_support::compat::to_arraybuffer_layout;
 
+// `MessageDispatch` finds this struct by name: `{{CONTRACT_RUST_NAME}}Message` minus `Message`.
 #[derive(Default)]
 pub struct {{CONTRACT_RUST_NAME}}(());
 

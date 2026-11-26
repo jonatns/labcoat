@@ -17,6 +17,7 @@ use metashrew_support::{
 
 const COUNT_KEY: &str = "/count";
 
+// `MessageDispatch` finds this struct by name: `CounterMessage` minus `Message`.
 #[derive(Default)]
 pub struct Counter(());
 
