@@ -186,6 +186,18 @@ A call takes the same transaction options as `labcoat call`: `inputs`, `to`,
 decimal opcode. Contract steps take the same options for their deploy
 transaction.
 
+A call can also pay bitcoin in its transaction, as `labcoat call --pay` does:
+
+```rust
+d.call("buy", &mint, "mint").pay("bcrt1q...", 10_000);
+```
+
+`pay(address, sats)` is repeatable and only a call has it. Payment outputs
+follow the outputs the pointer, refund, and edicts address, so the first is
+`v1` by default; see [Paying bitcoin in a call](/docs/contracts/#paying-bitcoin-in-a-call).
+`labcoat plan` lists what a pending call pays and rejects an address of another
+network or an amount under 546 sats.
+
 ## Steps run once
 
 Alkanes deployments cannot be changed or deleted. So a contract, clone, or

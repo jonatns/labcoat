@@ -634,6 +634,25 @@ pub struct Call {
 tx_shape!(Call);
 
 impl Call {
+    /// Add an output paying `sats` of bitcoin to `address` in the call's
+    /// transaction. Repeatable; payments land in the order declared, after
+    /// the outputs the pointer, refund, and edicts address — the first is
+    /// `v1` unless one of those names a higher output.
+    pub fn pay(self, address: impl Into<Value>, sats: u64) -> Self {
+        let payment = Value::concat([address.into(), Value::lit(format!(":{sats}"))]);
+        update(&self.shared, &self.name, |step| {
+            let tx = step["tx"].as_object_mut().expect("tx object");
+            tx.entry("payments")
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+                .expect("payments")
+                .push(payment.0);
+        });
+        self
+    }
+}
+
+impl Call {
     /// A named argument, matched to the ABI parameter name.
     pub fn arg(self, name: &str, value: impl Into<Value>) -> Self {
         let value = value.into();
@@ -761,6 +780,27 @@ mod tests {
             steps[3]["tx"]["inputs"][0],
             json!({ "concat": [{ "ref": { "step": "fire", "field": "id" } }, { "lit": ":100" }] })
         );
+    }
+
+    #[test]
+    fn a_call_declares_payment_outputs_in_order() {
+        let d = Deployment::for_network("labcoat");
+        let mint = d.contract("mint", "mint");
+        d.call("buy", &mint, "mint")
+            .pay("bcrt1qpayee", 10_000)
+            .pay("bcrt1qother", 546);
+        d.call("plain", &mint, "mint");
+
+        let steps = d.graph()["steps"].clone();
+        assert_eq!(
+            steps[1]["tx"]["payments"],
+            json!([
+                { "concat": [{ "lit": "bcrt1qpayee" }, { "lit": ":10000" }] },
+                { "concat": [{ "lit": "bcrt1qother" }, { "lit": ":546" }] }
+            ])
+        );
+        // A call that pays nothing keeps the graph it always had.
+        assert!(steps[2]["tx"].get("payments").is_none());
     }
 
     #[test]

@@ -55,7 +55,7 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("abi_verify", "Compare a deployed ABI with a locally built contract package.",
             json!({"contract": {"type": "string"}, "package": {"type": "string"}}), &["contract"]),
         tool("call", "Execute a state-changing contract call and wait for its trace.",
-            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone(), "abi": {"type": "string", "description": "resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id); for a proxy, name the implementation"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}}), &["contract", "opcode"]),
+            json!({"contract": {"type": "string", "description": "labcoat.lock name or block:tx id"}, "opcode": {"type": "string", "description": "exact ABI method name or decimal opcode"}, "args": arg_array.clone(), "abi": {"type": "string", "description": "resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id); for a proxy, name the implementation"}, "inputs": {"type": "string", "description": "comma-separated extra inputs: alkanes block:tx:amount (0 = all) or bitcoin B:sats"}, "to": {"type": "string", "description": "recipient address for protostone outputs (default: wallet primary address)"}, "pointer": {"type": "string", "description": "protostone pointer target vN or pN (default v0)"}, "refund": {"type": "string", "description": "protostone refund target (default: pointer)"}, "edicts": {"type": "array", "items": {"type": "string"}, "description": "edicts block:tx:amount:target appended to the protostone"}, "pay": {"type": "array", "items": {"type": "string"}, "description": "bitcoin payment outputs address:sats added to the transaction, placed after the outputs pointer, refund, and edicts address (first is v1 by default); at least 546 sats each"}}), &["contract", "opcode"]),
         tool("exchange_plan", "Build an owner-partitioned atomic exchange plan and return its base64 PSBT.",
             json!({"offered": {"type": "string"}, "offeredAmount": {"type": "integer", "minimum": 1}, "payment": {"type": "string"}, "paymentAmount": {"type": "integer", "minimum": 1}, "sellerAddress": {"type": "string"}, "buyerAddress": {"type": "string"}}), &["offered", "offeredAmount", "payment", "paymentAmount", "sellerAddress", "buyerAddress"]),
         tool("exchange_settle", "Validate a buyer-signed PSBT, sign seller inputs, and optionally broadcast. broadcast must be true to transact.",
@@ -105,6 +105,7 @@ fn tx_flags(args: &Value) -> contract::TxFlags {
         pointer: string("pointer"),
         refund: string("refund"),
         edicts: str_args(args.get("edicts")),
+        pay: str_args(args.get("pay")),
     }
 }
 
@@ -677,6 +678,11 @@ mod tests {
             named("call")["inputSchema"]["properties"]["opcode"]["description"],
             "exact ABI method name or decimal opcode"
         );
+        assert_eq!(
+            named("call")["inputSchema"]["properties"]["pay"]["type"],
+            "array"
+        );
+        assert!(named("deploy")["inputSchema"]["properties"]["pay"].is_null());
         assert_eq!(
             named("simulate")["inputSchema"]["properties"]["opcode"]["description"],
             "exact ABI method name or decimal opcode"

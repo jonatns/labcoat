@@ -187,6 +187,10 @@ pub struct TxShape {
     pub refund: Option<String>,
     #[serde(default)]
     pub edicts: Vec<Value>,
+    /// Bitcoin payment outputs, each `address:sats` (calls only). Left out
+    /// when empty so steps declared before payments keep their definition.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payments: Vec<Value>,
 }
 
 impl TxShape {
@@ -195,6 +199,7 @@ impl TxShape {
             .iter()
             .chain(self.to.iter())
             .chain(self.edicts.iter())
+            .chain(self.payments.iter())
     }
 }
 
@@ -514,6 +519,15 @@ fn render_args(args: &Args) -> String {
 }
 
 fn render_tx(tx: &TxShape) -> String {
+    let mut rendered = render_tx_routing(tx);
+    if !tx.payments.is_empty() {
+        let payments: Vec<String> = tx.payments.iter().map(Value::render).collect();
+        rendered.push_str(&format!("|payments={}", payments.join(",")));
+    }
+    rendered
+}
+
+fn render_tx_routing(tx: &TxShape) -> String {
     format!(
         "inputs={}|to={}|pointer={}|refund={}|edicts={}",
         tx.inputs
@@ -637,6 +651,17 @@ fn validate(graph: &Graph) -> Result<()> {
                     )))
                 }
             }
+        }
+
+        let pays = match step {
+            Step::Contract(contract) => !contract.tx.payments.is_empty(),
+            Step::Setting(setting) => !setting.tx.payments.is_empty(),
+            Step::External(_) | Step::Call(_) => false,
+        };
+        if pays {
+            return Err(invalid(format!(
+                "{context} declares a payment output — only a call can pay; add a `d.call(..).pay(address, sats)` step"
+            )));
         }
 
         match step {
@@ -790,6 +815,45 @@ mod tests {
         );
         let error = parse(&graph(&reserved), "labcoat").unwrap_err();
         assert!(error.message.contains("cannot take a reserve"));
+    }
+
+    const CALL: &str = r#"{"kind":"call","name":"buy","contract":{"lit":"2:1"},"call":{"method":"mint","args":{}},"tx":{TX}}"#;
+
+    #[test]
+    fn payments_are_part_of_a_call_and_only_of_a_call() {
+        let plain: Step = serde_json::from_str(&CALL.replace("TX", "")).unwrap();
+        let empty: Step = serde_json::from_str(&CALL.replace("TX", r#""payments":[]"#)).unwrap();
+        let paying: Step = serde_json::from_str(
+            &CALL.replace("TX", r#""payments":[{"lit":"bcrt1qpayee:10000"}]"#),
+        )
+        .unwrap();
+        // A step declared before payments existed keeps its definition…
+        assert_eq!(definition_hash(&plain, None), definition_hash(&empty, None));
+        assert_eq!(
+            legacy_definition_hash(&plain, None),
+            legacy_definition_hash(&empty, None)
+        );
+        assert!(!serde_json::to_string(&TxShape::default())
+            .unwrap()
+            .contains("payments"));
+        // …and adding or changing a payment changes it.
+        assert_ne!(
+            definition_hash(&plain, None),
+            definition_hash(&paying, None)
+        );
+
+        let Step::Call(call) = &paying else {
+            panic!("a call");
+        };
+        assert_eq!(call.tx.payments[0].render(), "bcrt1qpayee:10000");
+
+        let contract = TOKEN.replace(
+            r#""tx":{}"#,
+            r#""tx":{"payments":[{"lit":"bcrt1qpayee:10000"}]}"#,
+        );
+        let error = parse(&graph(&contract), "labcoat").unwrap_err();
+        assert_eq!(error.code, "DEPLOY_SCRIPT_INVALID");
+        assert!(error.message.contains("only a call can pay"));
     }
 
     #[test]

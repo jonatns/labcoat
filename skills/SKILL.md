@@ -112,6 +112,13 @@ block:tx:amount` (incoming alkanes; `B:sats` for bitcoin), `--to <address>`
 (protostone recipient), `--pointer`/`--refund` (`vN`/`pN` routing), repeated
 `--edict block:tx:amount:target`, and `deploy --wasm --reserve N` targets
 `[3,N]`. A `deploy.rs` step declares the same options in the script.
+`call` also takes repeated `--pay <address>:<sats>` to pay bitcoin in the same
+transaction (a paid mint that checks its transaction's outputs). Output order:
+`v0` the protostone recipient, any higher `vN` a pointer, refund, or edict
+names, then the payments in the order given, then change, then the
+`OP_RETURN`; the first payment is `v1` by default. `result.payments` (and
+`--dry-run`) lists each with its `output`. A wrong-network address or an
+amount under 546 sats is `CONFIG_INVALID`.
 `labcoat balance <address> --json` lists alkanes token balances.
 
 Declare the deployment in `deploy.rs`, the project's `deploy` Cargo
@@ -145,7 +152,7 @@ fn main() {
   block, tx)` or `.id_everywhere(block, tx)`); plan fails fast on a network
   with no binding.
 - `d.call(name, &contract, method)` runs once, with `.arg`, `.inputs`, `.to`,
-  `.pointer`, `.refund`, `.edict`. Reserve calls for configuration that
+  `.pointer`, `.refund`, `.edict`, `.pay(address, sats)`. Reserve calls for configuration that
   completes the deployment; value-moving, actor-specific operations (funding,
   transfers, exercising) belong in `tests/e2e.rs` or application flows.
 - Values: `step.id()`, `.block()`, `.tx()`, `.amount(n)`,

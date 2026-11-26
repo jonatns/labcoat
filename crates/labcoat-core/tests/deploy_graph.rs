@@ -46,7 +46,8 @@ fn every_builder_emits_a_graph_the_engine_accepts() {
         .to("bcrt1qexample")
         .pointer("v1")
         .refund("v0")
-        .edict(edict(&token));
+        .edict(edict(&token))
+        .pay("bcrt1qpayee", 10_000);
     d.call("poke", &clone, 1)
         .positional(7)
         .positional(d.height() - 1);
@@ -103,6 +104,13 @@ fn every_builder_emits_a_graph_the_engine_accepts() {
     setting.tx.inputs[0].references(&mut references);
     assert_eq!(references[0].field, Field::Created);
     assert_eq!(references[0].index, Some(1));
+
+    // A call's payment reaches the engine as `address:sats`.
+    let Some(Step::Call(init)) = graph.steps.iter().find(|step| step.name() == "init") else {
+        panic!("missing init call");
+    };
+    assert_eq!(init.tx.payments.len(), 1);
+    assert_eq!(init.tx.payments[0].render(), "bcrt1qpayee:10000");
 
     // The plain proxy exposes no view, so its setting has no read.
     let Some(Step::Setting(setting)) = graph

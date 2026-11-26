@@ -8,6 +8,7 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 - test contracts that call other contracts in `labcoat-test`: `ContractHarness::deploy(id, name)` makes another built contract callable at an Alkane id, with `storage_value_of` and `set_storage_of` to inspect and seed its storage. `call`, `staticcall`, and `delegatecall` run the callee, a failed call leaves every contract's storage as it was, and `block_header()` answers from the context's block. Balances and fuel are still not modelled
 - set the chain a contract observes in `labcoat-test` through `ChainContext::height`, `block`, and `transaction`. The harness used to report height 0 and an empty block and transaction, so nothing that depends on block height could be tested without a network
+- pay bitcoin in the transaction that makes a call: `labcoat call --pay <address>:<sats>` (repeatable), `.pay(address, sats)` on a `d.call(..)` step in deploy.rs, and `pay` on the MCP `call` tool. A contract that checks its transaction's outputs for a payment, such as a paid mint, could not be called on a network. Payment outputs follow the outputs the pointer, refund, and edicts address, so the first is `v1` by default; `--dry-run`, the JSON result, and `labcoat plan` list them. An address of another network or an amount under 546 sats is `CONFIG_INVALID`. Deploys do not take payments
 - mine up to 100,000 blocks with one `labcoat mine`, requested from the node in batches of 1,000. The limit was 1,000
 
 ### Changed
