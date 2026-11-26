@@ -150,6 +150,7 @@ impl LabcoatNetwork {
             block_height: 0,
             mempool_size: 0,
             is_ready,
+            dev_signer: None,
         };
 
         let running = status
@@ -163,6 +164,7 @@ impl LabcoatNetwork {
             if let Some(size) = crate::rpc::try_mempool_size(&self.config).await {
                 status.mempool_size = size;
             }
+            status.dev_signer = Some(crate::rpc::dev_signer(&self.config).await);
         }
 
         status

@@ -106,7 +106,7 @@ up [OPTIONS]
 Arguments and options:
 
 - `no_download` (optional): Skip runtime bundle verification and download Values: `true`, `false`.
-- `ci` (optional): CI mode: wait (bounded) for full readiness, then print one JSON envelope with the endpoint manifest; exits non-zero unless the network and its funded wallet are ready Values: `true`, `false`.
+- `ci` (optional): CI mode: wait (bounded) for full readiness, then print one JSON envelope with the endpoint manifest, including the dev signer; exits non-zero unless the network and its funded wallet are ready Values: `true`, `false`.
 
 ### `labcoat down`
 
@@ -118,7 +118,7 @@ down
 
 ### `labcoat status`
 
-Show Labcoat Network status (services, block height, mempool)
+Show Labcoat Network status (services, block height, mempool, dev signer)
 
 ```text
 status
@@ -696,6 +696,7 @@ doctor
 - **Durable state**: .labcoat/state/<environment>/state.json is the version-2 per-environment operational state (lineage, serial, chain identity, append-only instance history), created by `labcoat state migrate` and guarded by an OS lease (state.lock). Deploys append instances when it exists and refuse a reset or foreign chain before broadcasting. The deployment run file (deployments/<network>.json) is separate.
 - **Contract ABI**: Named calls use the generated local ABI when its Wasm hash matches labcoat.lock; otherwise they use deployed __meta metadata. Execution always targets deployed code, and numeric opcodes remain the raw cellpack escape hatch.
 - **Generated web client**: `labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. The client is read-only — indexed height, Alkanes balances, ABI-typed simulate — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.
+- **Dev signer**: While Labcoat Network is up, its JSON-RPC endpoint signs for the built-in wallet, so a page or a headless test needs no wallet extension: `labcoat_dev_addresses` (params `[]`) returns the primary P2TR address with its `internalKey`, `outputKey`, and `scriptPubKey`, and `labcoat_dev_sign_psbt` (params `[psbtBase64, {"finalize": true}]`) signs the wallet's taproot key-path inputs with SIGHASH_DEFAULT, leaves every other input untouched, and returns `psbt`, `signedInputs`, `complete`, and, once every input is final, `hex` and `txid`. Broadcast `hex` with `sendrawtransaction`, then mine it with `generatetoaddress`: nothing is mined automatically. It exists only on Labcoat Network, signs only with the built-in wallet, and answers only callers on this machine (error -32000 otherwise). `labcoat up --ci` and `labcoat status --json` report it as `dev_signer`.
 
 ## alkanes-rs pin
 

@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 
-use crate::node::Node;
+use crate::node::{Caller, Node};
 
 /// The largest request body accepted: a few maximum-weight transactions.
 const MAX_BODY: usize = 32 * 1024 * 1024;
@@ -54,6 +54,7 @@ fn connection(node: &Node, stream: TcpStream) -> std::io::Result<()> {
         let version = parts.nth(1).unwrap_or("HTTP/1.1").to_owned();
 
         let mut length = 0usize;
+        let mut caller = Caller::default();
         let mut close = version == "HTTP/1.0";
         loop {
             let mut header = String::new();
@@ -72,6 +73,10 @@ fn connection(node: &Node, stream: TcpStream) -> std::io::Result<()> {
                 length = value.parse().unwrap_or(0);
             } else if name.eq_ignore_ascii_case("connection") {
                 close = value.eq_ignore_ascii_case("close");
+            } else if name.eq_ignore_ascii_case("host") {
+                caller.host = Some(value.to_owned());
+            } else if name.eq_ignore_ascii_case("origin") {
+                caller.origin = Some(value.to_owned());
             }
         }
 
@@ -82,7 +87,7 @@ fn connection(node: &Node, stream: TcpStream) -> std::io::Result<()> {
             let mut body = vec![0; length];
             reader.read_exact(&mut body)?;
             match method.as_str() {
-                "POST" => ("200 OK", node.handle_body(&body)),
+                "POST" => ("200 OK", node.handle_body_from(&body, &caller)),
                 "GET" => ("200 OK", br#"{"name":"Labcoat Network"}"#.to_vec()),
                 _ => ("405 Method Not Allowed", b"{}".to_vec()),
             }

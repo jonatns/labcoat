@@ -13,11 +13,13 @@
 //! - indexers: `secondaryheight` and `secondaryview` for `alkanes` and
 //!   `esplora`, and `metashrew_height` and `metashrew_view`;
 //! - development: `labcoat_snapshot`, `labcoat_revert`, `labcoat_info`, and
-//!   `stop`.
+//!   `stop`;
+//! - the dev signer, when the serving process provides one:
+//!   `labcoat_dev_addresses` and `labcoat_dev_sign_psbt`.
 
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use bitcoin::consensus::{deserialize, serialize};
@@ -42,20 +44,115 @@ pub struct RpcError {
 }
 
 impl RpcError {
-    fn new(code: i64, message: impl Into<String>) -> Self {
+    /// The dev signer refused the caller: the request did not come from
+    /// this machine. JSON-RPC's range for server-defined errors; Bitcoin
+    /// Core has no code for it.
+    pub const FORBIDDEN: i64 = -32000;
+
+    pub fn new(code: i64, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
         }
     }
 
-    fn params(message: impl Into<String>) -> Self {
+    /// Bitcoin Core's `RPC_INVALID_PARAMETER`.
+    pub fn params(message: impl Into<String>) -> Self {
         Self::new(-8, message)
     }
 
     fn misc(message: impl Into<String>) -> Self {
         Self::new(-1, message)
     }
+}
+
+/// Signs for the wallet Labcoat Network comes with.
+///
+/// The runtime only routes requests to it: which key it holds, and the
+/// refusal to hold any other, belong to the process that provides it.
+pub trait DevSigner: Send + Sync {
+    /// The wallet's addresses and public keys, as `labcoat_dev_addresses`
+    /// returns them.
+    fn addresses(&self) -> std::result::Result<Value, RpcError>;
+    /// Sign the wallet's inputs of a base64 PSBT, as `labcoat_dev_sign_psbt`
+    /// returns it.
+    fn sign_psbt(&self, psbt: &str, finalize: bool) -> std::result::Result<Value, RpcError>;
+}
+
+/// Where an HTTP request says it came from. A request made in-process, or
+/// by a client that is not a browser, carries neither header.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Caller {
+    /// The `Host` header: the name the client used to reach this server.
+    pub host: Option<String>,
+    /// The `Origin` header: the page a browser made the request for.
+    pub origin: Option<String>,
+}
+
+impl Caller {
+    /// Why the dev signer will not answer this caller, if it will not.
+    ///
+    /// The port is bound to loopback, but a browser on this machine can
+    /// still be made to reach it by a page from anywhere. Two headers the
+    /// page cannot forge say when that is happening:
+    ///
+    /// - `Origin` names the page. Only pages served from this machine may
+    ///   sign, which is where an app's dev server and its same-origin
+    ///   proxy are.
+    /// - `Host` names what the browser thinks it is talking to. A DNS
+    ///   rebinding attack reaches this port under the attacker's own
+    ///   domain name, so any name that is not this machine's is refused.
+    fn dev_signer_refusal(&self) -> Option<String> {
+        if let Some(origin) = &self.origin {
+            let local = origin
+                .strip_prefix("http://")
+                .or_else(|| origin.strip_prefix("https://"))
+                .is_some_and(is_loopback_authority);
+            if !local {
+                return Some(format!(
+                    "the dev signer only answers pages served from this machine, not origin '{origin}'"
+                ));
+            }
+        }
+        if let Some(host) = &self.host {
+            if !is_loopback_authority(host) {
+                return Some(format!(
+                    "the dev signer only answers requests addressed to this machine, not host '{host}'"
+                ));
+            }
+        }
+        None
+    }
+}
+
+/// Whether `authority` (`host` or `host:port`) names this machine:
+/// `localhost`, a name under `.localhost`, or a loopback IP address.
+fn is_loopback_authority(authority: &str) -> bool {
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        // An IPv6 literal: `[::1]` or `[::1]:port`.
+        match rest.split_once(']') {
+            Some((address, port)) if port.is_empty() || is_port(port.strip_prefix(':')) => address,
+            _ => return false,
+        }
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) if is_port(Some(port)) => host,
+            Some(_) => return false,
+            None => authority,
+        }
+    };
+    let host = host.to_ascii_lowercase();
+    host == "localhost"
+        || host
+            .strip_suffix(".localhost")
+            .is_some_and(|name| !name.is_empty())
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+fn is_port(port: Option<&str>) -> bool {
+    port.is_some_and(|port| !port.is_empty() && port.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 impl From<RuntimeError> for RpcError {
@@ -106,6 +203,7 @@ pub struct Node {
     stopping: AtomicBool,
     started: Instant,
     data_dir: Option<String>,
+    dev_signer: Option<Arc<dyn DevSigner>>,
 }
 
 impl Node {
@@ -116,7 +214,15 @@ impl Node {
             stopping: AtomicBool::new(false),
             started: Instant::now(),
             data_dir: None,
+            dev_signer: None,
         }
+    }
+
+    /// Serve `labcoat_dev_addresses` and `labcoat_dev_sign_psbt` with
+    /// `signer`. Without one, a node has no such methods.
+    pub fn with_dev_signer(mut self, signer: Arc<dyn DevSigner>) -> Self {
+        self.dev_signer = Some(signer);
+        self
     }
 
     /// Name the directory the chain is saved in, for `labcoat_info`.
@@ -130,16 +236,21 @@ impl Node {
         self.stopping.load(Ordering::SeqCst)
     }
 
-    /// Answer an HTTP request body: one JSON-RPC request or a batch.
+    /// Answer a request body from a caller with no HTTP headers.
     pub fn handle_body(&self, body: &[u8]) -> Vec<u8> {
+        self.handle_body_from(body, &Caller::default())
+    }
+
+    /// Answer an HTTP request body: one JSON-RPC request or a batch.
+    pub fn handle_body_from(&self, body: &[u8], caller: &Caller) -> Vec<u8> {
         let response = match serde_json::from_slice::<Value>(body) {
             Ok(Value::Array(requests)) => Value::from(
                 requests
                     .iter()
-                    .map(|request| self.handle_request(request))
+                    .map(|request| self.handle_request_from(request, caller))
                     .collect::<Vec<_>>(),
             ),
-            Ok(request) => self.handle_request(&request),
+            Ok(request) => self.handle_request_from(&request, caller),
             Err(error) => json!({
                 "jsonrpc": "2.0",
                 "error": { "code": -32700, "message": format!("Parse error: {error}") },
@@ -149,8 +260,14 @@ impl Node {
         response.to_string().into_bytes()
     }
 
-    /// Answer one JSON-RPC request object.
+    /// Answer one JSON-RPC request object from a caller with no HTTP
+    /// headers.
     pub fn handle_request(&self, request: &Value) -> Value {
+        self.handle_request_from(request, &Caller::default())
+    }
+
+    /// Answer one JSON-RPC request object.
+    pub fn handle_request_from(&self, request: &Value, caller: &Caller) -> Value {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let Some(method) = request.get("method").and_then(Value::as_str) else {
             return json!({
@@ -160,7 +277,7 @@ impl Node {
             });
         };
         let params = request.get("params").cloned().unwrap_or(Value::Null);
-        match self.call(method, &params) {
+        match self.call_from(method, &params, caller) {
             Ok(result) => json!({ "jsonrpc": "2.0", "result": result, "id": id }),
             Err(error) => {
                 tracing::debug!(method, code = error.code, "{}", error.message);
@@ -173,8 +290,26 @@ impl Node {
         }
     }
 
-    /// Run one method.
+    /// Run one method for a caller with no HTTP headers.
     pub fn call(&self, method: &str, params: &Value) -> Result<Value> {
+        self.call_from(method, params, &Caller::default())
+    }
+
+    /// The dev signer, for a caller it may answer. A node without one has
+    /// no dev signer methods at all.
+    fn dev_signer(&self, method: &str, caller: &Caller) -> Result<&dyn DevSigner> {
+        let signer = self
+            .dev_signer
+            .as_deref()
+            .ok_or_else(|| RpcError::new(-32601, format!("Method not found: {method}")))?;
+        match caller.dev_signer_refusal() {
+            Some(reason) => Err(RpcError::new(RpcError::FORBIDDEN, reason)),
+            None => Ok(signer),
+        }
+    }
+
+    /// Run one method.
+    pub fn call_from(&self, method: &str, params: &Value, caller: &Caller) -> Result<Value> {
         match method {
             "getblockcount" => Ok(self.read().height().into()),
             "getbestblockhash" => Ok(self.read().chain().tip().block_hash().to_string().into()),
@@ -459,7 +594,29 @@ impl Node {
                 "name": "Labcoat Network",
                 "version": env!("CARGO_PKG_VERSION"),
                 "dataDir": self.data_dir,
+                "devSigner": self.dev_signer.is_some(),
             })),
+            // Neither takes the runtime lock: signing needs the wallet's
+            // key and the PSBT, not the chain.
+            "labcoat_dev_addresses" => self.dev_signer(method, caller)?.addresses(),
+            "labcoat_dev_sign_psbt" => {
+                let signer = self.dev_signer(method, caller)?;
+                let psbt = param(params, 0)
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| RpcError::params("Expected a base64 PSBT at position 0"))?;
+                let finalize = match param(params, 1) {
+                    None => true,
+                    Some(Value::Object(options)) => match options.get("finalize") {
+                        None | Some(Value::Null) => true,
+                        Some(Value::Bool(finalize)) => *finalize,
+                        Some(_) => return Err(RpcError::params("finalize must be a boolean")),
+                    },
+                    Some(_) => {
+                        return Err(RpcError::params("Expected an options object at position 1"))
+                    }
+                };
+                signer.sign_psbt(psbt, finalize)
+            }
             "uptime" => Ok(self.started.elapsed().as_secs().into()),
             "ping" => Ok(Value::Null),
             "stop" => {
@@ -704,4 +861,78 @@ fn script_json(script: &Script) -> Value {
         value["address"] = address.to_string().into();
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn caller(host: Option<&str>, origin: Option<&str>) -> Caller {
+        Caller {
+            host: host.map(str::to_owned),
+            origin: origin.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn names_for_this_machine_are_loopback_and_nothing_else_is() {
+        for local in [
+            "localhost",
+            "LocalHost:5173",
+            "app.localhost:3000",
+            "127.0.0.1",
+            "127.0.0.1:18443",
+            "127.8.9.1:80",
+            "[::1]",
+            "[::1]:18443",
+        ] {
+            assert!(is_loopback_authority(local), "{local}");
+        }
+        for remote in [
+            "",
+            "example.com",
+            "example.com:18443",
+            "localhost.example.com",
+            "127.0.0.1.example.com",
+            "notlocalhost",
+            ".localhost",
+            "192.168.1.10:5173",
+            "0.0.0.0",
+            "[::1]evil.example",
+            "[2001:db8::1]:80",
+            "localhost:80@example.com",
+            "user@localhost",
+            "localhost:",
+            "localhost:80:80",
+        ] {
+            assert!(!is_loopback_authority(remote), "{remote}");
+        }
+    }
+
+    #[test]
+    fn the_dev_signer_answers_local_callers_only() {
+        let allowed = [
+            caller(None, None),
+            caller(Some("127.0.0.1:18443"), None),
+            caller(Some("localhost:5173"), Some("http://localhost:5173")),
+            caller(Some("127.0.0.1:18443"), Some("https://app.localhost")),
+            caller(Some("[::1]:18443"), Some("http://[::1]:5173")),
+        ];
+        for caller in allowed {
+            assert_eq!(caller.dev_signer_refusal(), None, "{caller:?}");
+        }
+        let refused = [
+            caller(Some("127.0.0.1:18443"), Some("https://example.com")),
+            caller(Some("127.0.0.1:18443"), Some("null")),
+            caller(Some("127.0.0.1:18443"), Some("file://")),
+            caller(Some("127.0.0.1:18443"), Some("localhost:5173")),
+            caller(Some("example.com:18443"), None),
+            caller(Some("example.com:18443"), Some("http://example.com:18443")),
+            caller(Some("192.168.1.10:5173"), Some("http://localhost:5173")),
+            caller(None, Some("http://192.168.1.10:5173")),
+        ];
+        for caller in refused {
+            assert!(caller.dev_signer_refusal().is_some(), "{caller:?}");
+        }
+    }
 }

@@ -6,6 +6,7 @@
 
 mod contract;
 mod deploy_script;
+mod dev_signer;
 mod docs;
 mod doctor;
 mod e2e_instance;
@@ -118,14 +119,14 @@ enum Commands {
         #[arg(long)]
         no_download: bool,
         /// CI mode: wait (bounded) for full readiness, then print one JSON
-        /// envelope with the endpoint manifest; exits non-zero unless the
-        /// network and its funded wallet are ready
+        /// envelope with the endpoint manifest, including the dev signer;
+        /// exits non-zero unless the network and its funded wallet are ready
         #[arg(long)]
         ci: bool,
     },
     /// Stop all Labcoat Network services
     Down,
-    /// Show Labcoat Network status (services, block height, mempool)
+    /// Show Labcoat Network status (services, block height, mempool, dev signer)
     Status,
     /// Mine blocks on Labcoat Network
     Mine {
@@ -532,6 +533,11 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             data_dir: data_dir.clone(),
             indexer: indexer.clone(),
             cache_dir: cache_dir.clone(),
+            // Always the built-in wallet on Labcoat Network: no flag or
+            // `LABCOAT_*` setting reaches this choice.
+            dev_signer: Some(std::sync::Arc::new(
+                dev_signer::DevSigner::for_labcoat_network(),
+            )),
         };
         // The server is synchronous; run it off the async runtime.
         let served =

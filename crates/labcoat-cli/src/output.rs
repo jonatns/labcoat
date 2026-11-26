@@ -575,6 +575,17 @@ fn status_document(command: &str, value: &Value, verbose: bool) -> Document {
             ]),
         }
     }
+    if let Some(signer) = status.get("dev_signer") {
+        let available = signer.get("available").and_then(Value::as_bool) == Some(true);
+        document.fields(vec![(
+            "Dev signer",
+            if available {
+                "signs PSBTs for the built-in wallet (labcoat_dev_sign_psbt)".to_string()
+            } else {
+                format!("not available: {}", string_at(signer, "reason"))
+            },
+        )]);
+    }
     if let Some(services) = status.get("services").and_then(Value::as_array) {
         let rows = services
             .iter()

@@ -21,4 +21,4 @@ pub use config::{
 pub use instance_id::{instance_id, instance_id_if_exists};
 pub use labcoat_network::LabcoatNetwork;
 pub use process_manager::{LogEntry, ProcessManager, ServiceId};
-pub use state::{ServiceInfo, ServiceStatus, SystemStatus};
+pub use state::{DevSignerInfo, ServiceInfo, ServiceStatus, SystemStatus};

@@ -40,7 +40,8 @@ labcoat down
 ```
 
 `status` reports the network's `labcoat` identity, underlying Bitcoin `regtest`
-mode, the `node` service, chain height, mempool size, and overall readiness.
+mode, the `node` service, chain height, mempool size, overall readiness, and
+whether the [dev signer](#dev-signer) can sign.
 
 Every project on the machine shares one Labcoat Network, its chain, and its
 wallet. `labcoat test --e2e` is the exception: each project has an
@@ -80,6 +81,8 @@ Labcoat Network answers Bitcoin Core-style JSON-RPC at
   id returns the chain, mempool, and index to that moment in memory. Reverting
   uses the snapshot and every later one, as Hardhat's `evm_revert` does. Ids
   are never reused, so retrying a used id returns `false` and changes nothing;
+- signing: `labcoat_dev_addresses` and `labcoat_dev_sign_psbt` sign with the
+  built-in wallet; see [Dev signer](#dev-signer);
 - identity: `labcoat_info` names the serving release and data directory.
   Labcoat only reuses a node whose answer matches it, and only stops what it
   can identify as this data home's: an earlier release's node that answers
@@ -95,6 +98,160 @@ curl -s -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"labcoat_revert\",\"params
 ```
 
 `labcoat snapshot` and `labcoat restore` save whole chains to disk instead.
+
+## Dev signer
+
+While Labcoat Network is up, its JSON-RPC endpoint signs transactions for the
+built-in wallet. A web page or a headless test builds an unsigned PSBT, posts
+it, and gets it back signed, with no wallet extension and no key in the app.
+
+`labcoat up --ci` and `labcoat status --json` say whether it can sign and
+where, and `labcoat doctor` has a `dev signer` check:
+
+```json
+"dev_signer": {
+  "available": true,
+  "rpc": "http://127.0.0.1:18443",
+  "methods": ["labcoat_dev_addresses", "labcoat_dev_sign_psbt"],
+  "address": "bcrt1p..."
+}
+```
+
+`dev_signer` is at `result.status.dev_signer` for `up` and
+`result.dev_signer` for `status`. When `available` is `false`, `reason` says
+why, and `address` is absent. `labcoat_info` also answers
+`"devSigner": true` on a network that serves the methods.
+
+### `labcoat_dev_addresses`
+
+Parameters: `[]`. Result:
+
+```json
+{
+  "network": "regtest",
+  "fingerprint": "a6de2bdb",
+  "addresses": [
+    {
+      "address": "bcrt1p...",
+      "type": "p2tr",
+      "derivationPath": "m/86'/1'/0'/0/0",
+      "internalKey": "<32-byte x-only key, hex>",
+      "outputKey": "<32-byte x-only key, hex>",
+      "scriptPubKey": "5120<outputKey>"
+    }
+  ]
+}
+```
+
+`addresses[0]` is the wallet's primary address, the one `labcoat up` funds
+and the CLI spends from. `internalKey` is the BIP-86 internal key, a PSBT
+input's `tapInternalKey`; `outputKey` is that key tweaked, which
+`scriptPubKey` pays to. `fingerprint` is the BIP-32 master fingerprint, or
+`null`.
+
+### `labcoat_dev_sign_psbt`
+
+Parameters: `[psbt, options]`.
+
+- `psbt`: a BIP-174 (version 0) PSBT, base64. Every input needs its
+  `witnessUtxo`, including inputs the wallet does not own: a taproot
+  signature commits to the output each input spends.
+- `options`: optional, `{ "finalize": boolean }`. `finalize` defaults to
+  `true`.
+
+Result:
+
+```json
+{
+  "psbt": "<base64>",
+  "signedInputs": [0],
+  "complete": true,
+  "hex": "<raw transaction, hex>",
+  "txid": "<transaction id>"
+}
+```
+
+- `psbt` is the same PSBT with the wallet's inputs signed. With `finalize`
+  they carry `finalScriptWitness`; without it, `tapKeySig`.
+- `signedInputs` lists the input indexes this call signed. It is empty, and
+  `psbt` is unchanged, when none of the inputs are the wallet's.
+- `complete` is `true` when every input is final. `hex` and `txid` are
+  present only then, so with `finalize: false` they never are.
+
+The wallet signs taproot key-path inputs (BIP-86, no script tree) of its
+first 1,000 receive and change addresses, with `SIGHASH_DEFAULT`. Everything
+else is left exactly as it was sent: inputs of other wallets, inputs already
+signed or finalized, script-path spends, and P2WPKH, P2SH, and P2PKH inputs.
+An input of the wallet's that asks for another sighash type is an error
+rather than a signature the PSBT did not ask for.
+
+### Errors
+
+Errors are JSON-RPC error objects with HTTP status 200, like the rest of the
+endpoint, and use Bitcoin Core's codes where it has one:
+
+| Code | Meaning |
+| --- | --- |
+| `-32601` | Method not found: the endpoint is not a Labcoat Network with a dev signer, such as an earlier release or another network's RPC |
+| `-32000` | The request did not come from this machine; see [who can call it](#who-can-call-it) |
+| `-18` | The built-in wallet does not exist yet; run `labcoat up` |
+| `-4` | The built-in wallet could not be opened or could not sign |
+| `-22` | `psbt` is not a base64 PSBT |
+| `-8` | Invalid parameters: no `psbt`, `options` is not an object, an input has no `witnessUtxo`, or an input of the wallet's asks for a sighash type other than `SIGHASH_DEFAULT` |
+
+### Broadcast and confirm
+
+The same endpoint broadcasts and mines:
+
+1. `sendrawtransaction` with `[hex]` validates the transaction, adds it to
+   the mempool, and returns its txid. A rejection is an error with Bitcoin
+   Core's code and reason, such as `-26` with `min relay fee not met`.
+2. Nothing is mined automatically: the transaction stays in the mempool until
+   someone asks for a block. `generatetoaddress` with `[1, address]` mines
+   one holding every mempool transaction and returns its hash. The Alkanes
+   index includes the block by the time the call returns.
+3. `getrawtransaction` with `[txid, true]` then reports `confirmations: 1`.
+   Before the block it has no `confirmations` field.
+
+```bash
+rpc() { curl -s -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":$2}" http://127.0.0.1:18443; }
+address=$(rpc labcoat_dev_addresses '[]' | jq -r '.result.addresses[0].address')
+signed=$(rpc labcoat_dev_sign_psbt "[\"$PSBT\"]")
+rpc sendrawtransaction "[\"$(echo "$signed" | jq -r .result.hex)\"]"
+rpc generatetoaddress "[1, \"$address\"]"
+```
+
+### Who can call it
+
+The dev signer signs anything it is asked to, without a prompt, so what it
+signs with is restricted instead:
+
+- It exists only on Labcoat Network. No other network has a Labcoat process
+  to serve it, and no flag or `LABCOAT_*` setting moves it.
+- It signs only with the built-in wallet: a random key that `labcoat up`
+  generated under a public passphrase, which
+  [cannot be used on another network](/docs/projects-configuration/#wallets)
+  and cannot have a mnemonic imported into it. A keystore named by
+  `--wallet-file`, `LABCOAT_WALLET_FILE`, or `labcoat.toml` is never used,
+  and neither is a link placed at the built-in wallet's path.
+- The endpoint listens on `127.0.0.1` only.
+- A browser can still be sent to a local port by a page from anywhere, so the
+  signing methods check where a request came from. A request with an `Origin`
+  header is answered only when the origin is `localhost`, a name under
+  `.localhost`, or a loopback address, and a request whose `Host` header names
+  anything else is refused, which is what a DNS rebinding attack looks like.
+  Scripts and tests send no `Origin` and are answered.
+
+A web app reaches the endpoint through its own dev server's same-origin
+proxy, so open the app at `http://localhost:<port>`. Opened through a LAN
+address or a tunnel, the page's origin is no longer this machine and signing
+fails with `-32000`.
+
+What is left exposed is the built-in wallet's regtest coins, to programs
+running on this machine and to pages they serve. Those coins are worthless,
+and the wallet's passphrase is public already. Keep it that way: never send
+anything of value to the built-in wallet's addresses on another network,
+because a taproot key signs the same on every network.
 
 ## Wallet workflow
 
