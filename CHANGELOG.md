@@ -7,6 +7,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 ### Added
 
 - test contracts that call other contracts in `labcoat-test`: `ContractHarness::deploy(id, name)` makes another built contract callable at an Alkane id, with `storage_value_of` and `set_storage_of` to inspect and seed its storage. `call`, `staticcall`, and `delegatecall` run the callee, a failed call leaves every contract's storage as it was, and `block_header()` answers from the context's block. Balances and fuel are still not modelled
+- test factories in `labcoat-test`: a call to `[5, n]` or `[6, n]` creates a clone of the contract deployed at `2:n` or `4:n`, as on chain. The clone gets the id `2:<sequence>`, the template's code, and storage of its own; the sequence advances, a contract reads it through `sequence()`, and a call that fails keeps no clone. Clones stay on the harness, so later calls reach them by id and `storage_value_of` reads their storage. `ChainContext::sequence` sets where ids start: 1 by default, or just past the highest `2:n` id in use. The harness used to run whatever was deployed at `5:n` under that id, and `sequence()` read 0, so a test had to deploy the template at `5:n`, saw an id no chain assigns, and could clone only once
+- assert on why a call reverted in `labcoat-test` with `assert_revert_with(result, "already initialized")` or `HarnessError::revert_reason`
 - set the chain a contract observes in `labcoat-test` through `ChainContext::height`, `block`, and `transaction`. The harness used to report height 0 and an empty block and transaction, so nothing that depends on block height could be tested without a network
 - mine up to 100,000 blocks with one `labcoat mine`, requested from the node in batches of 1,000. The limit was 1,000
 
@@ -17,6 +19,7 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 ### Fixed
 
 - report the fuel each call used in `labcoat trace` and in the trace a `labcoat call` returns. Every `return` and `revert` event said `fuel_used: 0`, although the indexer had recorded the figure
+- report the reason of a reverted top-level call in `labcoat-test`. `call_method` returned a runtime error reading `WASM abort at 0:0`; it now returns `HarnessError::Revert` with the message of the error the contract returned, such as `already initialized`. A contract that reads the revert data of a call it made now finds the indexer's text, `ALKANES: revert: <message>`, where the harness used to write `contract trapped or reverted: <message>`
 - explain a contract whose struct is not named after its message enum. The compiler reports the mismatch at `derive(MessageDispatch)` without naming the cause; `COMPILE_FAILED` now carries a hint, and generated contracts note the rule beside the struct
 
 ## [0.4.0](https://github.com/jonatns/labcoat/compare/cli-v0.3.0...cli-v0.4.0) - 2026-11-25

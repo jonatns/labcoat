@@ -53,6 +53,12 @@ pub struct ChainContext {
     /// Consensus-encoded transaction the contract reads through
     /// `transaction()`.
     pub transaction: Vec<u8>,
+    /// The `tx` of the next Alkane id the chain hands out: what a contract
+    /// reads through `sequence()`, and where the next clone is created
+    /// (`2:<sequence>`). A call that creates clones advances it. The harness
+    /// raises it past every `2:n` id already in use, as on chain, where
+    /// every such id is below the sequence.
+    pub sequence: u128,
 }
 
 impl ChainContext {
@@ -60,6 +66,8 @@ impl ChainContext {
         Self {
             myself: (1, 1),
             caller: (2, 2),
+            // What genesis leaves: `2:0` is taken.
+            sequence: 1,
             ..Self::default()
         }
     }
@@ -97,6 +105,17 @@ pub enum HarnessError {
     Json(#[from] serde_json::Error),
 }
 
+impl HarnessError {
+    /// Why the contract reverted: the message of the error it returned, or
+    /// the trap that stopped it. `None` for an error that is not a revert.
+    pub fn revert_reason(&self) -> Option<&str> {
+        match self {
+            Self::Revert(reason) => Some(reason),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ContractAbi {
     methods: Vec<AbiMethod>,
@@ -119,14 +138,70 @@ const BLOCK_HEADER_LEN: usize = 80;
 /// Prefix of the return data of a reverted call, followed by its message.
 const REVERT_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
 
+/// What a call can change, and a failed call puts back.
+#[derive(Clone, Default)]
+struct Ledger {
+    storage: BTreeMap<AlkaneId, Storage>,
+    /// Clones, by id, and the Alkane each one takes its code from.
+    clones: BTreeMap<AlkaneId, AlkaneId>,
+    /// The `tx` of the next id a clone gets.
+    sequence: u128,
+}
+
 /// Every contract a call can reach, and the chain it observes.
 #[derive(Clone, Default)]
 struct World {
     modules: BTreeMap<AlkaneId, Module>,
-    storage: BTreeMap<AlkaneId, Storage>,
+    ledger: Ledger,
     height: u64,
     block: Vec<u8>,
     transaction: Vec<u8>,
+}
+
+/// The Alkane a call to `target` clones, if it is a factory target: `[5, n]`
+/// clones `2:n` and `[6, n]` clones `4:n`.
+fn factory_template(target: AlkaneId) -> Option<AlkaneId> {
+    match target {
+        (5, tx) => Some((2, tx)),
+        (6, tx) => Some((4, tx)),
+        _ => None,
+    }
+}
+
+impl World {
+    /// The code that runs at `id`, following a clone to its template.
+    fn module(&self, id: AlkaneId) -> Option<&Module> {
+        let mut current = id;
+        // A clone of a clone is a chain; it cannot be longer than this.
+        for _ in 0..=self.ledger.clones.len() {
+            if let Some(module) = self.modules.get(&current) {
+                return Some(module);
+            }
+            current = *self.ledger.clones.get(&current)?;
+        }
+        None
+    }
+
+    /// Where a call to `target` runs. A factory target creates a clone of
+    /// its template at `2:<sequence>`, with empty storage, and advances the
+    /// sequence; any other target is the Alkane itself.
+    fn resolve(&mut self, target: AlkaneId) -> Result<AlkaneId, String> {
+        let Some(template) = factory_template(target) else {
+            return Ok(target);
+        };
+        if self.module(template).is_none() {
+            let ((block, tx), (template_block, template_tx)) = (target, template);
+            return Err(format!(
+                "a call to {block}:{tx} clones {template_block}:{template_tx}, \
+                 and no contract is deployed there in this harness"
+            ));
+        }
+        let clone = (2, self.ledger.sequence);
+        self.ledger.sequence += 1;
+        self.ledger.clones.insert(clone, template);
+        self.ledger.storage.insert(clone, Storage::new());
+        Ok(clone)
+    }
 }
 
 /// One contract execution: a top-level call or a call one contract makes.
@@ -157,11 +232,13 @@ struct HostState {
     depth: usize,
     /// What the most recent call this frame made returned.
     returndata: Vec<u8>,
+    /// Set when the contract calls `abort`: whatever it returns is a revert.
+    aborted: bool,
 }
 
 impl HostState {
     fn storage(&self) -> Option<&Storage> {
-        self.world.storage.get(&self.account)
+        self.world.ledger.storage.get(&self.account)
     }
 }
 
@@ -174,6 +251,8 @@ pub struct ContractHarness {
     /// Other contracts this one can call, by Alkane id.
     deployed: BTreeMap<AlkaneId, Module>,
     deployed_storage: BTreeMap<AlkaneId, Storage>,
+    /// Clones earlier calls created, and the Alkane each takes its code from.
+    clones: BTreeMap<AlkaneId, AlkaneId>,
 }
 
 fn artifact_dir() -> PathBuf {
@@ -214,6 +293,7 @@ impl ContractHarness {
             storage: BTreeMap::new(),
             deployed: BTreeMap::new(),
             deployed_storage: BTreeMap::new(),
+            clones: BTreeMap::new(),
         })
     }
 
@@ -223,6 +303,11 @@ impl ContractHarness {
     /// `delegatecall`. Alkane balances are not tracked: a call hands its
     /// outgoing transfers to the callee and receives the callee's in return,
     /// and `balance()` always reads zero.
+    ///
+    /// A contract deployed at `2:n` or `4:n` is also a template: a call to
+    /// `[5, n]` or `[6, n]` creates a clone of it at `2:<sequence>`, with the
+    /// template's code and storage of its own, and runs there. The clone
+    /// stays on the harness, so a later call can target it by its id.
     pub fn deploy(&mut self, id: (u128, u128), name: &str) -> Result<&mut Self, HarnessError> {
         self.deploy_file(id, artifact_dir().join(format!("{name}.wasm")))
     }
@@ -240,10 +325,12 @@ impl ContractHarness {
         let module = Module::from_file(&self.engine, wasm_path).map_err(runtime_error)?;
         self.deployed.insert(id, module);
         self.deployed_storage.insert(id, BTreeMap::new());
+        self.clones.remove(&id);
         Ok(self)
     }
 
-    /// Return a raw storage value of a contract added with [`Self::deploy`].
+    /// Return a raw storage value of a contract added with [`Self::deploy`],
+    /// or of a clone a call created.
     pub fn storage_value_of(&self, id: (u128, u128), key: impl AsRef<[u8]>) -> Option<&[u8]> {
         self.deployed_storage
             .get(&id)?
@@ -252,7 +339,7 @@ impl ContractHarness {
     }
 
     /// Seed or replace a raw storage value of a contract added with
-    /// [`Self::deploy`].
+    /// [`Self::deploy`], or of a clone a call created.
     pub fn set_storage_of(
         &mut self,
         id: (u128, u128),
@@ -323,35 +410,59 @@ impl ContractHarness {
         // The contract under test is deployed last, so it wins its own id.
         let mut world = World {
             modules: self.deployed.clone(),
-            storage: self.deployed_storage.clone(),
+            ledger: Ledger {
+                storage: self.deployed_storage.clone(),
+                clones: self.clones.clone(),
+                sequence: self.sequence(),
+            },
             height: self.context.height,
             block: self.context.block.clone(),
             transaction: self.context.transaction.clone(),
         };
         world.modules.insert(myself, self.module.clone());
-        world.storage.insert(myself, self.storage.clone());
+        world.ledger.storage.insert(myself, self.storage.clone());
+        // A context whose `myself` is a factory target is a transaction that
+        // clones a deployed template and calls the clone.
+        let target = world.resolve(myself).map_err(HarnessError::Revert)?;
 
         let frame = Frame {
-            code: myself,
-            account: myself,
-            myself,
+            code: target,
+            account: target,
+            myself: target,
             caller: self.context.caller,
             vout: self.context.vout,
             incoming: self.context.incoming.clone(),
             inputs: serialize_inputs(opcode, args)?,
             depth: 0,
         };
-        let (mut world, result) = run_frame(&self.engine, world, frame);
+        let (world, result) = run_frame(&self.engine, world, frame);
         // A failed call changes nothing: the world it ran in is dropped.
         let decoded = result?;
-        world
+        let mut ledger = world.ledger;
+        ledger
             .storage
-            .entry(myself)
+            .entry(target)
             .or_default()
             .extend(decoded.storage);
-        self.storage = world.storage.remove(&myself).unwrap_or_default();
-        self.deployed_storage = world.storage;
+        self.storage = ledger.storage.remove(&myself).unwrap_or_default();
+        self.deployed_storage = ledger.storage;
+        self.clones = ledger.clones;
+        self.context.sequence = ledger.sequence;
         Ok(decoded.result)
+    }
+
+    /// The sequence the next call starts from: the context's, raised past
+    /// every `2:n` id this harness already uses.
+    fn sequence(&self) -> u128 {
+        self.deployed
+            .keys()
+            .chain(self.clones.keys())
+            .chain([&self.context.myself])
+            .filter(|(block, _)| *block == 2)
+            .map(|(_, tx)| tx.saturating_add(1))
+            .chain([self.context.sequence])
+            .max()
+            .unwrap_or_default()
     }
 }
 
@@ -362,7 +473,7 @@ fn run_frame(
     world: World,
     frame: Frame,
 ) -> (World, Result<DecodedResponse, HarnessError>) {
-    let Some(module) = world.modules.get(&frame.code).cloned() else {
+    let Some(module) = world.module(frame.code).cloned() else {
         let (block, tx) = frame.code;
         return (
             world,
@@ -382,6 +493,7 @@ fn run_frame(
         vout: frame.vout,
         depth: frame.depth,
         returndata: Vec::new(),
+        aborted: false,
     };
     let mut store = Store::new(engine, state);
     let result = execute(&mut store, &module);
@@ -409,7 +521,21 @@ fn execute(store: &mut Store<HostState>, module: &Module) -> Result<DecodedRespo
     let memory = instance
         .get_memory(&mut *store, "memory")
         .ok_or_else(|| HarnessError::InvalidResponse("missing memory export".into()))?;
-    decode_response(memory.data(&*store), pointer)
+    let response = decode_response(memory.data(&*store), pointer);
+    if store.data().aborted {
+        // alkanes-runtime reports an error by calling `abort` and then
+        // returning a response whose data is the revert selector followed by
+        // the message.
+        let reason = response
+            .ok()
+            .and_then(|decoded| {
+                let message = decoded.result.data.strip_prefix(&REVERT_SELECTOR)?;
+                Some(String::from_utf8_lossy(message).into_owned())
+            })
+            .unwrap_or_else(|| "the contract aborted without a message".into());
+        return Err(HarnessError::Revert(reason));
+    }
+    response
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -458,54 +584,72 @@ fn extcall(
             None => Err("no block is set; assign ChainContext::block".into()),
         }
     } else {
-        let before = world.storage.clone();
+        let before = world.ledger.clone();
         // The callee sees what its caller has written so far.
         world
+            .ledger
             .storage
             .entry(state.account)
             .or_default()
             .extend(pending);
-        let frame = Frame {
-            code: target,
-            account: if kind == CallKind::Delegate {
-                state.account
-            } else {
-                target
-            },
-            myself: if kind == CallKind::Delegate {
-                state.myself
-            } else {
-                target
-            },
-            caller: if kind == CallKind::Delegate {
-                state.caller
-            } else {
-                state.myself
-            },
-            vout: state.vout,
-            incoming: transfers,
-            inputs: cellpack[32..].to_vec(),
-            depth: state.depth + 1,
-        };
-        let account = frame.account;
-        let (returned, result) = run_frame(&engine, world, frame);
-        world = returned;
-        match result {
-            Ok(decoded) if kind == CallKind::Static => {
-                world.storage = before;
-                Ok(decoded.result)
+        // A factory target creates the clone this call runs at. A
+        // delegatecall still creates it, but runs its code as the caller.
+        match world.resolve(target) {
+            Err(message) => {
+                world.ledger = before;
+                Err(message)
             }
-            Ok(decoded) => {
-                world
-                    .storage
-                    .entry(account)
-                    .or_default()
-                    .extend(decoded.storage);
-                Ok(decoded.result)
-            }
-            Err(error) => {
-                world.storage = before;
-                Err(error.to_string())
+            Ok(target) => {
+                let frame = Frame {
+                    code: target,
+                    account: if kind == CallKind::Delegate {
+                        state.account
+                    } else {
+                        target
+                    },
+                    myself: if kind == CallKind::Delegate {
+                        state.myself
+                    } else {
+                        target
+                    },
+                    caller: if kind == CallKind::Delegate {
+                        state.caller
+                    } else {
+                        state.myself
+                    },
+                    vout: state.vout,
+                    incoming: transfers,
+                    inputs: cellpack[32..].to_vec(),
+                    depth: state.depth + 1,
+                };
+                let account = frame.account;
+                let (returned, result) = run_frame(&engine, world, frame);
+                world = returned;
+                match result {
+                    Ok(decoded) if kind == CallKind::Static => {
+                        world.ledger = before;
+                        Ok(decoded.result)
+                    }
+                    Ok(decoded) => {
+                        world
+                            .ledger
+                            .storage
+                            .entry(account)
+                            .or_default()
+                            .extend(decoded.storage);
+                        Ok(decoded.result)
+                    }
+                    Err(error) => {
+                        // Nothing the callee did survives: no storage, no
+                        // clone, and the sequence is where it was.
+                        world.ledger = before;
+                        Err(match error {
+                            // The text the Alkanes indexer hands the caller.
+                            HarnessError::Revert(reason) => format!("ALKANES: revert: {reason}"),
+                            other => other.to_string(),
+                        })
+                    }
+                }
             }
         }
     };
@@ -558,8 +702,14 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
         .func_wrap(
             "env",
             "abort",
-            |_message: i32, _file: i32, line: i32, column: i32| -> wasmtime::Result<()> {
-                wasmtime::bail!("WASM abort at {line}:{column}")
+            // As on chain, `abort` marks the call failed and returns; the
+            // reason is in the response the contract goes on to return.
+            |mut caller: Caller<'_, HostState>,
+             _message: i32,
+             _file: i32,
+             _line: i32,
+             _column: i32| {
+                caller.data_mut().aborted = true;
             },
         )
         .map_err(runtime_error)?;
@@ -651,7 +801,8 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
             "env",
             "__sequence",
             |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
-                write_arraybuffer(&mut caller, output, &0u128.to_le_bytes())?;
+                let sequence = caller.data().world.ledger.sequence;
+                write_arraybuffer(&mut caller, output, &sequence.to_le_bytes())?;
                 Ok(())
             },
         )
@@ -943,6 +1094,19 @@ pub fn assert_revert<T: std::fmt::Debug>(result: Result<T, HarnessError>) {
     result.expect_err("expected contract call to revert");
 }
 
+/// Assert that a call reverted and that its reason contains `expected`, for
+/// example the message of the error the contract returned.
+pub fn assert_revert_with<T: std::fmt::Debug>(result: Result<T, HarnessError>, expected: &str) {
+    let error = result.expect_err("expected contract call to revert");
+    let Some(reason) = error.revert_reason() else {
+        panic!("expected contract call to revert, but it failed with: {error}");
+    };
+    assert!(
+        reason.contains(expected),
+        "expected a revert containing `{expected}`, but the reason was `{reason}`"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1068,6 +1232,296 @@ mod tests {
     }
 
     const CALLEE: AlkaneId = (2, 9);
+
+    /// Calls the Alkane named by its opcode and first argument with opcode
+    /// 7, and returns what the callee returned, or `no` if it reverted.
+    fn forwarder_wat() -> String {
+        caller_wat("__call", (0, 0))
+            .replace(
+                r#"(memory (export "memory") 1)"#,
+                r#"(import "env" "__load_context" (func $load (param i32) (result i32)))
+                (memory (export "memory") 1)"#,
+            )
+            .replace(
+                "(local.set $length",
+                "(drop (call $load (i32.const 2000)))
+                (memory.copy (i32.const 4) (i32.const 2096) (i32.const 32))
+                (local.set $length",
+            )
+    }
+
+    /// Like [`caller_wat`], but returns the callee's revert data instead of
+    /// `no`.
+    fn revert_reader_wat(target: AlkaneId) -> String {
+        caller_wat("__call", target).replace(
+            "(then (i32.const 404))",
+            "(then
+                (local.set $length (i32.sub (i32.const 0) (local.get $length)))
+                (call $copy (i32.const 220))
+                (i32.store (i32.const 1000) (i32.add (i32.const 4) (local.get $length)))
+                (memory.copy
+                    (i32.const 1024)
+                    (i32.const 236)
+                    (i32.sub (local.get $length) (i32.const 16)))
+                (i32.const 1004))",
+        )
+    }
+
+    /// Stores `init = 1` and returns `ok`; once that is stored, reverts with
+    /// `already initialized` the way alkanes-runtime reports an error.
+    const INIT_ONCE: &str = r#"(module
+        (import "env" "abort" (func $abort (param i32 i32 i32 i32)))
+        (import "env" "__request_storage" (func $request (param i32) (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "\04\00\00\00init")
+        (data (i32.const 100) "\23\00\00\00")
+        (data (i32.const 120) "\01\00\00\00\04\00\00\00init\01\00\00\001ok")
+        (data (i32.const 200) "\2b\00\00\00")
+        (data (i32.const 224) "\08\c3\79\a0already initialized")
+        (func (export "__execute") (result i32)
+            (if (result i32) (call $request (i32.const 4))
+                (then
+                    (call $abort (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0))
+                    (i32.const 204))
+                (else (i32.const 104)))))"#;
+
+    /// Returns the sequence it reads.
+    const SEQUENCE: &str = r#"(module
+        (import "env" "__sequence" (func $sequence (param i32)))
+        (memory (export "memory") 1)
+        (func (export "__execute") (result i32)
+            (call $sequence (i32.const 24))
+            (i32.store (i32.const 100) (i32.const 36))
+            (memory.copy (i32.const 124) (i32.const 24) (i32.const 16))
+            (i32.const 104)))"#;
+
+    const TEMPLATE: AlkaneId = (2, 9);
+    const RESERVED_TEMPLATE: AlkaneId = (4, 9);
+
+    #[test]
+    fn a_call_to_a_factory_target_runs_a_clone_at_the_next_sequence() {
+        let contracts = Contracts::new("clone");
+        let mut harness = contracts.harness("factory", &forwarder_wat());
+        let echo = contracts.wasm("echo", ECHO_CONTEXT);
+        harness.deploy_file(TEMPLATE, &echo).unwrap();
+        harness.deploy_file(RESERVED_TEMPLATE, &echo).unwrap();
+
+        // The sequence starts past the highest `2:n` id in use.
+        let context = harness.call_opcode(5, &[Value::U128(9)]).unwrap().data;
+        assert_eq!(words(&context), vec![2, 10, 1, 1, 0, 0, 7]);
+        assert_eq!(harness.context().sequence, 11);
+
+        harness.context_mut().sequence = 100;
+        let context = harness.call_opcode(6, &[Value::U128(9)]).unwrap().data;
+        assert_eq!(words(&context), vec![2, 100, 1, 1, 0, 0, 7]);
+        assert_eq!(harness.context().sequence, 101);
+    }
+
+    #[test]
+    fn each_clone_has_its_own_storage_and_stays_callable() {
+        let contracts = Contracts::new("clones");
+        let mut harness = contracts.harness("factory", &forwarder_wat());
+        harness
+            .deploy_file(TEMPLATE, contracts.wasm("init", INIT_ONCE))
+            .unwrap();
+        harness
+            .deploy_file(RESERVED_TEMPLATE, contracts.wasm("init", INIT_ONCE))
+            .unwrap();
+        harness.context_mut().sequence = 100;
+
+        // A second clone would revert if it shared the first one's storage.
+        for target in [5, 6, 5] {
+            let result = harness.call_opcode(target, &[Value::U128(9)]).unwrap();
+            assert_eq!(result.data_text(), "ok");
+        }
+        assert_eq!(harness.context().sequence, 103);
+        for clone in 100..103 {
+            assert_eq!(
+                harness.storage_value_of((2, clone), b"init"),
+                Some(&b"1"[..])
+            );
+        }
+        assert_eq!(harness.storage_value_of(TEMPLATE, b"init"), None);
+        assert_eq!(harness.storage_value_of(RESERVED_TEMPLATE, b"init"), None);
+        assert_eq!(harness.storage_value_of((2, 103), b"init"), None);
+
+        // A later call reaches a clone by its id, and finds what it stored.
+        let again = harness.call_opcode(2, &[Value::U128(101)]).unwrap();
+        assert_eq!(again.data_text(), "no");
+        assert_eq!(harness.context().sequence, 103);
+    }
+
+    #[test]
+    fn a_contract_reads_the_sequence_its_clones_advanced() {
+        let contracts = Contracts::new("sequence");
+        let mut harness = contracts.harness("factory", &forwarder_wat());
+        harness
+            .deploy_file(TEMPLATE, contracts.wasm("sequence", SEQUENCE))
+            .unwrap();
+        harness.context_mut().sequence = 100;
+
+        // A clone is created before it runs, so it reads the id after its own.
+        for expected in [101u128, 102] {
+            let sequence = harness.call_opcode(5, &[Value::U128(9)]).unwrap().data;
+            assert_eq!(sequence, expected.to_le_bytes());
+        }
+        let sequence = harness.call_opcode(2, &[Value::U128(9)]).unwrap().data;
+        assert_eq!(sequence, 102u128.to_le_bytes());
+    }
+
+    #[test]
+    fn a_reverted_clone_leaves_nothing_and_keeps_the_sequence() {
+        let contracts = Contracts::new("clone-revert");
+        let mut harness = contracts.harness("factory", &forwarder_wat());
+        harness.context_mut().sequence = 100;
+
+        // No template to clone.
+        assert_eq!(
+            harness
+                .call_opcode(5, &[Value::U128(9)])
+                .unwrap()
+                .data_text(),
+            "no"
+        );
+        assert_eq!(harness.context().sequence, 100);
+
+        // The clone itself reverts.
+        harness
+            .deploy_file(TEMPLATE, contracts.wasm("trap", TRAP))
+            .unwrap();
+        assert_eq!(
+            harness
+                .call_opcode(5, &[Value::U128(9)])
+                .unwrap()
+                .data_text(),
+            "no"
+        );
+        assert_eq!(harness.context().sequence, 100);
+
+        // The contract that made the clone reverts after it.
+        let wat = caller_wat("__call", (5, 9)).replace(
+            "(call $copy (i32.const 220))",
+            "(call $copy (i32.const 220)) unreachable",
+        );
+        let mut harness = contracts.harness("failing-factory", &wat);
+        harness
+            .deploy_file(TEMPLATE, contracts.wasm("writer", WRITER))
+            .unwrap();
+        harness.context_mut().sequence = 100;
+        assert_revert(harness.call_opcode(1, &[]));
+        assert_eq!(harness.context().sequence, 100);
+        assert_eq!(harness.storage_value_of((2, 100), b"hit"), None);
+
+        // The next clone takes the id none of them kept.
+        let mut harness = contracts.harness("factory", &forwarder_wat());
+        harness
+            .deploy_file(TEMPLATE, contracts.wasm("writer", WRITER))
+            .unwrap();
+        harness.context_mut().sequence = 100;
+        harness
+            .deploy_file((4, 1), contracts.wasm("trap", TRAP))
+            .unwrap();
+        assert_eq!(
+            harness
+                .call_opcode(6, &[Value::U128(1)])
+                .unwrap()
+                .data_text(),
+            "no"
+        );
+        assert_eq!(
+            harness
+                .call_opcode(5, &[Value::U128(9)])
+                .unwrap()
+                .data_text(),
+            "pong"
+        );
+        assert_eq!(
+            harness.storage_value_of((2, 100), b"hit"),
+            Some(&b"yes"[..])
+        );
+    }
+
+    #[test]
+    fn a_static_call_to_a_factory_target_keeps_no_clone() {
+        let contracts = Contracts::new("clone-static");
+        let mut harness = contracts.harness("caller", &caller_wat("__staticcall", (5, 9)));
+        harness
+            .deploy_file(TEMPLATE, contracts.wasm("echo", ECHO_CONTEXT))
+            .unwrap();
+        harness.context_mut().sequence = 100;
+        let context = harness.call_opcode(1, &[]).unwrap().data;
+        assert_eq!(words(&context), vec![2, 100, 1, 1, 0, 0, 7]);
+        assert_eq!(harness.context().sequence, 100);
+    }
+
+    #[test]
+    fn a_top_level_call_to_a_factory_target_runs_a_clone() {
+        let contracts = Contracts::new("clone-top");
+        let mut harness = contracts.harness("unused", TRAP);
+        harness
+            .deploy_file(TEMPLATE, contracts.wasm("init", INIT_ONCE))
+            .unwrap();
+        harness.context_mut().myself = (5, 9);
+        harness.context_mut().sequence = 100;
+        for clone in [100, 101] {
+            assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "ok");
+            assert_eq!(
+                harness.storage_value_of((2, clone), b"init"),
+                Some(&b"1"[..])
+            );
+        }
+        assert_eq!(harness.context().sequence, 102);
+
+        harness.context_mut().myself = (5, 8);
+        assert_revert_with(harness.call_opcode(1, &[]), "clones 2:8");
+        assert_eq!(harness.context().sequence, 102);
+    }
+
+    #[test]
+    fn a_top_level_revert_reports_the_reason_the_contract_gave() {
+        let contracts = Contracts::new("reason");
+        let mut harness = contracts.harness("init", INIT_ONCE);
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "ok");
+
+        let error = harness.call_opcode(1, &[]).unwrap_err();
+        assert!(matches!(&error, HarnessError::Revert(reason) if reason == "already initialized"));
+        assert_eq!(error.revert_reason(), Some("already initialized"));
+        assert_revert(harness.call_opcode(1, &[]));
+        assert_revert_with(harness.call_opcode(1, &[]), "already initialized");
+        assert_eq!(harness.storage_value(b"init"), Some(&b"1"[..]));
+
+        // An abort with no response to read is still a revert.
+        let mut harness = contracts.harness(
+            "abort",
+            r#"(module
+                (import "env" "abort" (func $abort (param i32 i32 i32 i32)))
+                (memory (export "memory") 1)
+                (func (export "__execute") (result i32)
+                    (call $abort (i32.const 0) (i32.const 0) (i32.const 12) (i32.const 34))
+                    (i32.const 0)))"#,
+        );
+        assert!(harness
+            .call_opcode(1, &[])
+            .unwrap_err()
+            .revert_reason()
+            .is_some());
+        assert!(HarnessError::UnknownMethod("x".into())
+            .revert_reason()
+            .is_none());
+    }
+
+    #[test]
+    fn a_caller_reads_the_reason_its_callee_reverted_with() {
+        let contracts = Contracts::new("nested-reason");
+        let mut harness = contracts.harness("caller", &revert_reader_wat(CALLEE));
+        harness
+            .deploy_file(CALLEE, contracts.wasm("init", INIT_ONCE))
+            .unwrap();
+        harness.set_storage_of(CALLEE, b"init", b"1");
+        let mut expected = REVERT_SELECTOR.to_vec();
+        expected.extend_from_slice(b"ALKANES: revert: already initialized");
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data, expected);
+    }
 
     #[test]
     fn a_contract_reads_the_height_block_and_transaction_of_its_context() {
