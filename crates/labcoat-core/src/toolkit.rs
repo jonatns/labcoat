@@ -182,6 +182,9 @@ pub(crate) async fn deploy_with_broadcast(
         ));
     }
 
+    if !options.payments.is_empty() {
+        return Err(crate::execute::payments_on_deploy());
+    }
     let input_requirements = options.input_requirements()?;
     let mut provider = system::connect_signing(config, signer).await?.provider;
     let to_address = match &options.to {
@@ -217,6 +220,7 @@ pub(crate) async fn deploy_with_broadcast(
             fee_rate,
             max_indexed_height: indexed,
             input_requirements,
+            payments: Vec::new(),
         },
         observe,
     )
@@ -312,6 +316,7 @@ async fn execution_outcome(
         } else {
             Vec::new()
         },
+        payments: Vec::new(),
         traces,
     }
 }
@@ -363,6 +368,10 @@ pub(crate) async fn call_with_broadcast(
         options,
     } = request;
     let input_requirements = options.input_requirements()?;
+    // Before connecting: a bad payment fails without touching the wallet.
+    let spec = call_spec(block, tx, opcode, args, options);
+    let payments =
+        crate::execute::payment_outputs(&spec, options, crate::execute::bitcoin_network(config))?;
     let mut provider = system::connect_signing(config, signer).await?.provider;
     let to_address = match &options.to {
         Some(address) => address.clone(),
@@ -372,7 +381,6 @@ pub(crate) async fn call_with_broadcast(
         .await
         .ok();
 
-    let spec = call_spec(block, tx, opcode, args, options);
     let result = crate::execute::run_with_broadcast(
         &mut provider,
         config,
@@ -383,11 +391,14 @@ pub(crate) async fn call_with_broadcast(
             fee_rate,
             max_indexed_height: indexed,
             input_requirements,
+            payments: payments.clone(),
         },
         observe,
     )
     .await?;
-    Ok(execution_outcome(&provider, result, false).await)
+    let mut outcome = execution_outcome(&provider, result, false).await;
+    outcome.payments = payments;
+    Ok(outcome)
 }
 
 /// Read-only simulation.

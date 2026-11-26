@@ -6,8 +6,8 @@ use crate::system::ToolkitConfig;
 use alkanes_cli_common::alkanes::execute::EnhancedAlkanesExecutor;
 pub use alkanes_cli_common::alkanes::types::InputRequirement;
 use alkanes_cli_common::alkanes::types::{
-    EnhancedExecuteParams, EnhancedExecuteResult, ExecutionState, OrdinalsStrategy,
-    ReadyToSignRevealTx, UtxoDataSource,
+    EnhancedExecuteParams, EnhancedExecuteResult, ExecutionState, OrdinalsStrategy, OutputTarget,
+    ProtostoneSpec, ReadyToSignRevealTx, UtxoDataSource,
 };
 use alkanes_cli_common::provider::ConcreteProvider;
 use alkanes_cli_common::traits::{BitcoinRpcProvider, WalletProvider};
@@ -34,12 +34,16 @@ pub struct ExecuteOutcome {
     /// Every Alkane the transaction created, in trace order (deploys).
     #[serde(skip)]
     pub created: Vec<String>,
+    /// Bitcoin payment outputs the transaction carries (calls).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub payments: Vec<PaymentOutput>,
     pub traces: Option<Vec<serde_json::Value>>,
 }
 
 /// Transaction-shaping options shared by call and deploy. The defaults
 /// reproduce the historical behavior: no extra inputs, protostone outputs
-/// to the wallet's primary address, pointer/refund at output 0, no edicts.
+/// to the wallet's primary address, pointer/refund at output 0, no edicts,
+/// no payment outputs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TxOptions {
     /// Comma-separated input requirements: alkanes `block:tx:amount`
@@ -54,6 +58,241 @@ pub struct TxOptions {
     pub refund: Option<String>,
     /// Edicts appended to the protostone, each `block:tx:amount:target`.
     pub edicts: Vec<String>,
+    /// Plain bitcoin payment outputs, each `address:sats`, in output order.
+    /// Calls only: see [`payment_outputs`] for where they land.
+    pub payments: Vec<String>,
+}
+
+/// The smallest output value the executor will build.
+pub const DUST_SATS: u64 = 546;
+
+/// A plain bitcoin payment a call adds to its transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentOutput {
+    /// The physical output it occupies, `vN`.
+    pub output: String,
+    pub address: String,
+    pub sats: u64,
+    #[serde(skip)]
+    pub index: u32,
+    #[serde(skip)]
+    pub script_pubkey: bitcoin::ScriptBuf,
+}
+
+/// The Bitcoin network addresses on the configured target belong to.
+pub fn bitcoin_network(config: &ToolkitConfig) -> bitcoin::Network {
+    match config.bitcoin_network_id() {
+        "mainnet" => bitcoin::Network::Bitcoin,
+        "testnet" => bitcoin::Network::Testnet,
+        "signet" => bitcoin::Network::Signet,
+        _ => bitcoin::Network::Regtest,
+    }
+}
+
+const PAY_HINT: &str = "expected <address>:<sats>, for example --pay bcrt1q...:10000";
+
+fn parse_payment(
+    entry: &str,
+    network: bitcoin::Network,
+) -> Result<(String, u64, bitcoin::ScriptBuf)> {
+    let invalid =
+        |message: String, hint: &'static str| LabcoatError::new("CONFIG_INVALID", message, hint);
+    let entry = entry.trim();
+    let (address, sats) = entry
+        .rsplit_once(':')
+        .ok_or_else(|| invalid(format!("bad payment '{entry}': no amount"), PAY_HINT))?;
+    let sats: u64 = sats.parse().map_err(|_| {
+        invalid(
+            format!("bad payment '{entry}': '{sats}' is not a whole number of sats"),
+            PAY_HINT,
+        )
+    })?;
+    let script_pubkey = bitcoin::Address::from_str(address)
+        .map_err(|error| {
+            invalid(
+                format!("bad payment '{entry}': '{address}' is not a bitcoin address ({error})"),
+                PAY_HINT,
+            )
+        })?
+        .require_network(network)
+        .map_err(|_| {
+            invalid(
+                format!("payment address '{address}' does not belong to the selected network ({network})"),
+                "pay an address of the network this command targets, or select the other network",
+            )
+        })?
+        .script_pubkey();
+    if sats < DUST_SATS {
+        return Err(invalid(
+            format!(
+                "payment of {sats} sats to {address} is below the dust limit ({DUST_SATS} sats)"
+            ),
+            "pay at least 546 sats; a smaller output is not relayed",
+        ));
+    }
+    Ok((address.to_string(), sats, script_pubkey))
+}
+
+/// Check one `address:sats` payment without building anything.
+pub fn validate_payment(entry: &str, network: bitcoin::Network) -> Result<()> {
+    parse_payment(entry, network).map(|_| ())
+}
+
+/// How many leading outputs the protostones and `B:sats:vN` assignments
+/// address: the recipient output `v0` plus every higher `vN` named by a
+/// pointer, refund, or edict. Mirrors the count the upstream executor
+/// derives, so payment outputs can be placed after all of them.
+fn addressed_outputs(protostones: &[ProtostoneSpec], requirements: &[InputRequirement]) -> u32 {
+    let output = |target: &OutputTarget| match target {
+        OutputTarget::Output(n) => Some(*n),
+        _ => None,
+    };
+    protostones
+        .iter()
+        .flat_map(|protostone| {
+            protostone
+                .pointer
+                .iter()
+                .chain(protostone.refund.iter())
+                .chain(protostone.edicts.iter().map(|edict| &edict.target))
+                .chain(
+                    protostone
+                        .bitcoin_transfer
+                        .iter()
+                        .map(|transfer| &transfer.target),
+                )
+                .filter_map(output)
+        })
+        .chain(
+            requirements
+                .iter()
+                .filter_map(|requirement| match requirement {
+                    InputRequirement::BitcoinOutput { target, .. } => output(target),
+                    _ => None,
+                }),
+        )
+        .max()
+        .map_or(1, |highest| highest + 1)
+}
+
+/// Resolve the options' payments against a built spec: validate each
+/// address and amount, and assign each the physical output it will occupy.
+///
+/// Output order of a call transaction: `v0` is the protostone recipient
+/// (`--to`); any higher `vN` a pointer, refund, or edict names follows,
+/// paying the wallet; then the payment outputs in the order given; then
+/// the wallet's change, when there is any; and the OP_RETURN last. Payments
+/// therefore never renumber the outputs `--pointer`, `--refund`, and edicts
+/// address, and the first payment is `v1` unless one of those names a
+/// higher output.
+pub fn payment_outputs(
+    spec: &str,
+    options: &TxOptions,
+    network: bitcoin::Network,
+) -> Result<Vec<PaymentOutput>> {
+    if options.payments.is_empty() {
+        return Ok(Vec::new());
+    }
+    let protostones = parse_spec(spec)?;
+    let first = addressed_outputs(&protostones, &options.input_requirements()?);
+    options
+        .payments
+        .iter()
+        .zip(first..)
+        .map(|(entry, index)| {
+            let (address, sats, script_pubkey) = parse_payment(entry, network)?;
+            Ok(PaymentOutput {
+                output: format!("v{index}"),
+                address,
+                sats,
+                index,
+                script_pubkey,
+            })
+        })
+        .collect()
+}
+
+/// The recipient list and requirements that make the upstream executor
+/// build the payment outputs: one recipient per output up to the last
+/// payment, and a `B:sats:vN` assignment carrying each payment's value.
+///
+/// A plain `B:sats` requirement is spread by the executor over every
+/// recipient, which would now include the payments; it is restated here as
+/// assignments to the addressed outputs alone, so it means what it meant
+/// without payments.
+fn layout_outputs(
+    to_address: String,
+    mut requirements: Vec<InputRequirement>,
+    payments: &[PaymentOutput],
+) -> (Vec<String>, Vec<InputRequirement>) {
+    let Some(first) = payments.first().map(|payment| payment.index) else {
+        return (vec![to_address], requirements);
+    };
+    let mut to_addresses = vec![to_address];
+    // The executor's own default for an addressed output with no recipient.
+    to_addresses.resize(first as usize, "p2tr:0".to_string());
+    to_addresses.extend(payments.iter().map(|payment| payment.address.clone()));
+
+    let explicit: u64 = requirements
+        .iter()
+        .filter_map(|requirement| match requirement {
+            InputRequirement::Bitcoin { amount } => Some(*amount),
+            _ => None,
+        })
+        .sum();
+    if explicit > 0 {
+        requirements.retain(|requirement| !matches!(requirement, InputRequirement::Bitcoin { .. }));
+        let each = (explicit / u64::from(first)).max(DUST_SATS);
+        let assigned: Vec<InputRequirement> = (0..first)
+            .map(|index| InputRequirement::BitcoinOutput {
+                amount: each,
+                target: OutputTarget::Output(index),
+            })
+            .collect();
+        // Ahead of the caller's own `B:sats:vN` entries, which still win.
+        requirements.splice(0..0, assigned);
+    }
+    requirements.extend(
+        payments
+            .iter()
+            .map(|payment| InputRequirement::BitcoinOutput {
+                amount: payment.sats,
+                target: OutputTarget::Output(payment.index),
+            }),
+    );
+    (to_addresses, requirements)
+}
+
+/// Refuse to sign a transaction whose payment outputs are not exactly the
+/// ones requested, at the outputs reported for them.
+fn verify_payments(tx: &bitcoin::Transaction, payments: &[PaymentOutput]) -> Result<()> {
+    for payment in payments {
+        let built = tx.output.get(payment.index as usize);
+        if !built.is_some_and(|output| {
+            output.script_pubkey == payment.script_pubkey && output.value.to_sat() == payment.sats
+        }) {
+            return Err(LabcoatError::new(
+                "TOOLKIT_ERROR",
+                format!(
+                    "the built transaction does not pay {} sats to {} at output {}",
+                    payment.sats, payment.address, payment.output
+                ),
+                "nothing was signed or broadcast; report this as a Labcoat bug",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn parse_spec(spec: &str) -> Result<Vec<ProtostoneSpec>> {
+    alkanes_cli_common::alkanes::parsing::parse_protostones(spec).map_err(|e| {
+        LabcoatError::new(
+            "ENVELOPE_INVALID",
+            format!("bad protostone spec '{spec}': {e}"),
+            "pointer/refund must be vN or pN; edicts must be block:tx:amount:target",
+        )
+    })
 }
 
 impl TxOptions {
@@ -180,15 +419,7 @@ fn shift_edict_target(edict: &str) -> String {
 /// Lets dry runs reject bad `--pointer`/`--refund`/`--edict` values with the
 /// same error the broadcast path would produce.
 pub fn validate_spec(spec: &str) -> Result<()> {
-    alkanes_cli_common::alkanes::parsing::parse_protostones(spec)
-        .map(|_| ())
-        .map_err(|e| {
-            LabcoatError::new(
-                "ENVELOPE_INVALID",
-                format!("bad protostone spec '{spec}': {e}"),
-                "pointer/refund must be vN or pN; edicts must be block:tx:amount:target",
-            )
-        })
+    parse_spec(spec).map(|_| ())
 }
 
 /// One transaction for [`run`]: the spec, its payload, and its shaping.
@@ -200,6 +431,8 @@ pub struct ExecuteRequest<'a> {
     pub fee_rate: Option<f32>,
     pub max_indexed_height: Option<u64>,
     pub input_requirements: Vec<InputRequirement>,
+    /// Payment outputs from [`payment_outputs`]; calls only.
+    pub payments: Vec<PaymentOutput>,
 }
 
 pub(crate) enum Broadcast<'a> {
@@ -241,6 +474,13 @@ pub(crate) async fn run_with_broadcast(
             )
         })?;
 
+    if request.envelope.is_some() && !request.payments.is_empty() {
+        return Err(payments_on_deploy());
+    }
+    let payments = request.payments;
+    let (to_addresses, input_requirements) =
+        layout_outputs(request.to_address, request.input_requirements, &payments);
+
     if request.envelope.is_some() && provider.has_remote_signer() {
         return Err(LabcoatError::new(
             "SIGNER_UNSUPPORTED",
@@ -250,8 +490,7 @@ pub(crate) async fn run_with_broadcast(
     }
 
     let mine_enabled = config.network.uses_regtest();
-    let required_alkanes: std::collections::BTreeSet<(u128, u128)> = request
-        .input_requirements
+    let required_alkanes: std::collections::BTreeSet<(u128, u128)> = input_requirements
         .iter()
         .filter_map(|r| match r {
             InputRequirement::Alkanes { block, tx, .. } => Some((*block as u128, *tx as u128)),
@@ -261,8 +500,7 @@ pub(crate) async fn run_with_broadcast(
     let (mut excluded_utxos, spendable) =
         protected_outpoints(provider, mine_enabled, &required_alkanes).await?;
     if request.envelope.is_some() {
-        let bitcoin_requirements: u64 = request
-            .input_requirements
+        let bitcoin_requirements: u64 = input_requirements
             .iter()
             .filter_map(|requirement| match requirement {
                 InputRequirement::Bitcoin { amount } => Some(*amount),
@@ -277,11 +515,11 @@ pub(crate) async fn run_with_broadcast(
 
     let params = EnhancedExecuteParams {
         fee_rate: request.fee_rate.or(config.fee_rate),
-        to_addresses: vec![request.to_address],
+        to_addresses,
         from_addresses: None,
         change_address: None,
         alkanes_change_address: None,
-        input_requirements: request.input_requirements,
+        input_requirements,
         protostones,
         envelope_data: request.envelope,
         raw_output: true,
@@ -322,6 +560,7 @@ pub(crate) async fn run_with_broadcast(
         match state {
             ExecutionState::Complete(result) => result,
             ExecutionState::ReadyToSign(tx) => {
+                verify_payments(&tx.psbt.unsigned_tx, &payments)?;
                 approve_transaction(
                     config,
                     &wallet_fingerprint,
@@ -399,6 +638,16 @@ pub(crate) async fn run_with_broadcast(
     confirm_regtest(provider, config).await?;
 
     Ok(result)
+}
+
+/// Payment outputs ride the single-transaction path; the reveal of a
+/// commit/reveal deploy is built without value assignments.
+pub(crate) fn payments_on_deploy() -> LabcoatError {
+    LabcoatError::new(
+        "CONFIG_INVALID",
+        "payment outputs are supported on calls, not on deploys",
+        "deploy first, then make the payment with `labcoat call ... --pay <address>:<sats>`",
+    )
 }
 
 fn commit_txid(psbt: &bitcoin::psbt::Psbt) -> Result<String> {
@@ -538,7 +787,7 @@ pub(crate) async fn resume_reveal(
 /// Mirrors the constant baked into upstream build_reveal_psbt
 /// (alkanes-cli-common alkanes/execute.rs, `total_bitcoin_needed`).
 const UPSTREAM_REVEAL_BUFFER: u64 = 50_000;
-const DUST: u64 = 546;
+const DUST: u64 = DUST_SATS;
 /// Room for the commit transaction's own fee and change output on top of
 /// what the reveal needs.
 const COMMIT_HEADROOM: u64 = 20_000;
@@ -640,12 +889,7 @@ fn preview(
     config: &ToolkitConfig,
     wallet_fingerprint: &Option<String>,
 ) -> String {
-    let network = match config.bitcoin_network_id() {
-        "mainnet" => bitcoin::Network::Bitcoin,
-        "testnet" => bitcoin::Network::Testnet,
-        "signet" => bitcoin::Network::Signet,
-        _ => bitcoin::Network::Regtest,
-    };
+    let network = bitcoin_network(config);
     let mut lines = vec![format!(
         "about to sign {kind} on {} (wallet {})",
         config.network_id(),
@@ -1222,6 +1466,269 @@ mod tests {
             .input_requirements()
             .unwrap()
             .is_empty());
+    }
+
+    const REGTEST: bitcoin::Network = bitcoin::Network::Regtest;
+
+    /// A second regtest address, distinct from the mining sink.
+    fn payee() -> String {
+        let key = bitcoin::secp256k1::PublicKey::from_str(
+            "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        )
+        .unwrap();
+        bitcoin::Address::p2wpkh(&bitcoin::CompressedPublicKey(key), REGTEST).to_string()
+    }
+
+    fn paying(options: TxOptions, payments: &[String]) -> TxOptions {
+        TxOptions {
+            payments: payments.to_vec(),
+            ..options
+        }
+    }
+
+    #[test]
+    fn payments_follow_the_recipient_output_in_the_order_given() {
+        let (first, second) = (payee(), regtest_mining_address());
+        let options = paying(
+            TxOptions::default(),
+            &[format!("{first}:10000"), format!("{second}:546")],
+        );
+        let spec = spec_with_options(2, 1, &[77], &options);
+        // Payments never touch the protostone: pointer and refund stay v0.
+        assert_eq!(spec, "[2,1,77]:v0:v0");
+        let payments = payment_outputs(&spec, &options, REGTEST).unwrap();
+        assert_eq!(
+            payments
+                .iter()
+                .map(|p| (p.output.as_str(), p.address.as_str(), p.sats))
+                .collect::<Vec<_>>(),
+            [("v1", first.as_str(), 10_000), ("v2", second.as_str(), 546)]
+        );
+        assert_eq!(
+            payments[0].script_pubkey,
+            bitcoin::Address::from_str(&first)
+                .unwrap()
+                .assume_checked()
+                .script_pubkey()
+        );
+        assert_eq!(
+            serde_json::to_value(&payments[0]).unwrap(),
+            serde_json::json!({"output": "v1", "address": first, "sats": 10_000})
+        );
+
+        let (to_addresses, requirements) = layout_outputs("wallet".into(), Vec::new(), &payments);
+        assert_eq!(to_addresses, ["wallet", first.as_str(), second.as_str()]);
+        assert!(matches!(
+            requirements[..],
+            [
+                InputRequirement::BitcoinOutput {
+                    amount: 10_000,
+                    target: OutputTarget::Output(1)
+                },
+                InputRequirement::BitcoinOutput {
+                    amount: 546,
+                    target: OutputTarget::Output(2)
+                }
+            ]
+        ));
+    }
+
+    #[test]
+    fn payments_land_after_every_output_the_protostone_addresses() {
+        // Pointer v2 makes the executor build v0..v2; an edict to v3 one
+        // more. Payments must not renumber any of them.
+        let payment = [format!("{}:2000", payee())];
+        for (options, first) in [
+            (
+                TxOptions {
+                    pointer: Some("v2".into()),
+                    ..TxOptions::default()
+                },
+                3,
+            ),
+            (
+                TxOptions {
+                    pointer: Some("v1".into()),
+                    refund: Some("v0".into()),
+                    edicts: vec!["2:1:5:v3".into()],
+                    ..TxOptions::default()
+                },
+                4,
+            ),
+            // The alkane splitter refunds to v0 and adds no output.
+            (
+                TxOptions {
+                    inputs: Some("2:1:5".into()),
+                    pointer: Some("p0".into()),
+                    ..TxOptions::default()
+                },
+                1,
+            ),
+            // A `B:sats:vN` assignment addresses an output too.
+            (
+                TxOptions {
+                    inputs: Some("B:900:v1".into()),
+                    ..TxOptions::default()
+                },
+                2,
+            ),
+        ] {
+            let options = paying(options, &payment);
+            let spec = spec_with_options(2, 1, &[77], &options);
+            let payments = payment_outputs(&spec, &options, REGTEST).unwrap();
+            assert_eq!(payments[0].index, first, "{spec}");
+            assert_eq!(payments[0].output, format!("v{first}"));
+
+            let (to_addresses, _) = layout_outputs("wallet".into(), Vec::new(), &payments);
+            // Addressed outputs without a recipient default to the wallet.
+            assert_eq!(to_addresses.len(), first as usize + 1);
+            assert_eq!(to_addresses[0], "wallet");
+            assert!(to_addresses[1..first as usize]
+                .iter()
+                .all(|a| a == "p2tr:0"));
+            assert_eq!(to_addresses[first as usize], payee());
+        }
+    }
+
+    #[test]
+    fn a_plain_bitcoin_input_is_not_spread_over_payment_outputs() {
+        // `B:sats` is split by the executor across every recipient. With
+        // payments it is pinned to the addressed outputs alone.
+        let options = paying(
+            TxOptions {
+                inputs: Some("B:10000".into()),
+                pointer: Some("v1".into()),
+                ..TxOptions::default()
+            },
+            &[format!("{}:700", payee())],
+        );
+        let spec = spec_with_options(2, 1, &[77], &options);
+        let payments = payment_outputs(&spec, &options, REGTEST).unwrap();
+        let (to_addresses, requirements) = layout_outputs(
+            "wallet".into(),
+            options.input_requirements().unwrap(),
+            &payments,
+        );
+        assert_eq!(to_addresses.len(), 3);
+        let assigned: Vec<(u64, u32)> = requirements
+            .iter()
+            .map(|requirement| match requirement {
+                InputRequirement::BitcoinOutput {
+                    amount,
+                    target: OutputTarget::Output(index),
+                } => (*amount, *index),
+                other => panic!("unexpected requirement {other:?}"),
+            })
+            .collect();
+        assert_eq!(assigned, [(5000, 0), (5000, 1), (700, 2)]);
+    }
+
+    #[test]
+    fn no_payments_leave_the_transaction_shape_untouched() {
+        let options = TxOptions {
+            inputs: Some("B:10000".into()),
+            ..TxOptions::default()
+        };
+        let spec = spec_with_options(2, 1, &[77], &options);
+        assert!(payment_outputs(&spec, &options, REGTEST)
+            .unwrap()
+            .is_empty());
+        let (to_addresses, requirements) =
+            layout_outputs("wallet".into(), options.input_requirements().unwrap(), &[]);
+        assert_eq!(to_addresses, ["wallet"]);
+        assert!(matches!(
+            requirements[..],
+            [InputRequirement::Bitcoin { amount: 10_000 }]
+        ));
+    }
+
+    #[test]
+    fn bad_payments_are_rejected_before_anything_is_built() {
+        let address = payee();
+        let mainnet = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+        for (entry, network, expected) in [
+            (format!("{address}:545"), REGTEST, "below the dust limit"),
+            (format!("{address}:0"), REGTEST, "below the dust limit"),
+            (address.clone(), REGTEST, "no amount"),
+            (format!("{address}:1.5"), REGTEST, "not a whole number"),
+            (format!("{address}:-600"), REGTEST, "not a whole number"),
+            (
+                "notanaddress:1000".to_string(),
+                REGTEST,
+                "not a bitcoin address",
+            ),
+            ("p2tr:0:1000".to_string(), REGTEST, "not a bitcoin address"),
+            (
+                format!("{mainnet}:1000"),
+                REGTEST,
+                "selected network (regtest)",
+            ),
+            (
+                format!("{address}:1000"),
+                bitcoin::Network::Bitcoin,
+                "selected network (bitcoin)",
+            ),
+        ] {
+            let error = validate_payment(&entry, network).unwrap_err();
+            assert_eq!(error.code, "CONFIG_INVALID", "{entry}");
+            assert!(error.message.contains(expected), "{}", error.message);
+        }
+        validate_payment(&format!("{address}:546"), REGTEST).unwrap();
+        validate_payment(&format!("{mainnet}:1000"), bitcoin::Network::Bitcoin).unwrap();
+    }
+
+    #[test]
+    fn a_built_transaction_must_carry_each_payment_at_its_output() {
+        let options = paying(TxOptions::default(), &[format!("{}:10000", payee())]);
+        let payments = payment_outputs("[2,1,77]:v0:v0", &options, REGTEST).unwrap();
+        let wallet = bitcoin::Address::from_str(&regtest_mining_address())
+            .unwrap()
+            .assume_checked()
+            .script_pubkey();
+        let output = |script: &bitcoin::ScriptBuf, sats: u64| bitcoin::TxOut {
+            value: bitcoin::Amount::from_sat(sats),
+            script_pubkey: script.clone(),
+        };
+        let tx = |outputs: Vec<bitcoin::TxOut>| bitcoin::Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: Vec::new(),
+            output: outputs,
+        };
+        let paid = &payments[0].script_pubkey;
+        let op_return = bitcoin::ScriptBuf::new_op_return([0u8; 4]);
+
+        // recipient, payment, change, OP_RETURN — and without change.
+        verify_payments(
+            &tx(vec![
+                output(&wallet, 546),
+                output(paid, 10_000),
+                output(&wallet, 90_000),
+                output(&op_return, 0),
+            ]),
+            &payments,
+        )
+        .unwrap();
+        verify_payments(
+            &tx(vec![
+                output(&wallet, 546),
+                output(paid, 10_000),
+                output(&op_return, 0),
+            ]),
+            &payments,
+        )
+        .unwrap();
+
+        for wrong in [
+            // Right script, wrong value.
+            vec![output(&wallet, 546), output(paid, 546)],
+            // Right payment, wrong output.
+            vec![output(paid, 10_000), output(&wallet, 546)],
+            vec![output(&wallet, 546)],
+        ] {
+            let error = verify_payments(&tx(wrong), &payments).unwrap_err();
+            assert_eq!(error.code, "TOOLKIT_ERROR");
+        }
     }
 
     #[test]

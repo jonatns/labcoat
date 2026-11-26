@@ -279,6 +279,10 @@ pub struct TxFlags {
     /// Edict `block:tx:amount:target` appended to the protostone (repeatable)
     #[arg(long = "edict")]
     pub edicts: Vec<String>,
+    /// Bitcoin payment outputs `address:sats`. A call's `--pay`; deploy
+    /// has no such flag.
+    #[arg(skip)]
+    pub pay: Vec<String>,
 }
 
 impl TxFlags {
@@ -289,6 +293,7 @@ impl TxFlags {
             pointer: self.pointer.clone(),
             refund: self.refund.clone(),
             edicts: self.edicts.clone(),
+            payments: self.pay.clone(),
         }
     }
 
@@ -299,6 +304,7 @@ impl TxFlags {
             && self.pointer.is_none()
             && self.refund.is_none()
             && self.edicts.is_empty()
+            && self.pay.is_empty()
     }
 
     /// Non-default fields as dry-run metadata.
@@ -309,6 +315,7 @@ impl TxFlags {
             "pointer": self.pointer,
             "refund": self.refund,
             "edicts": self.edicts,
+            "pay": self.pay,
         })
     }
 }
@@ -1144,6 +1151,11 @@ pub async fn call_dry_run(
         options.input_requirements()?;
         let spec = toolkit::call_spec(block, tx, invocation.opcode, &invocation.cellpack_args, &options);
         labcoat_core::execute::validate_spec(&spec)?;
+        let payments = labcoat_core::execute::payment_outputs(
+            &spec,
+            &options,
+            labcoat_core::execute::bitcoin_network(&ctx.config),
+        )?;
         Ok(serde_json::json!({
             "dryRun": true,
             "network": ctx.config.network_id(),
@@ -1158,6 +1170,7 @@ pub async fn call_dry_run(
             "cellpackArgs": invocation.cellpack_args.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
             "protostoneSpec": spec,
             "tx": tx_flags.metadata(),
+            "payments": payments,
             "wouldBroadcast": "one execute transaction carrying the protostone",
         }))
     }

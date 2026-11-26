@@ -328,9 +328,10 @@ fn execution_document(command: &str, value: &Value, verbose: bool) -> Document {
                 ("Wasm", "wasm"),
                 ("Size", "wasmBytes"),
                 ("SHA-256", "wasmSha256"),
-                ("Would broadcast", "wouldBroadcast"),
             ],
         ));
+        document.fields(payment_fields(value));
+        document.fields(fields(value, &[("Would broadcast", "wouldBroadcast")]));
         return document;
     }
 
@@ -394,6 +395,7 @@ fn execution_document(command: &str, value: &Value, verbose: bool) -> Document {
     {
         important.push(("Return".into(), result));
     }
+    important.extend(payment_fields(value));
     document.fields(important);
     if verbose {
         document.fields(fields(
@@ -1059,6 +1061,7 @@ fn plan_document(value: &Value) -> Document {
     ));
     let mut rows = Vec::new();
     let mut arguments = Vec::new();
+    let mut payments = Vec::new();
     let mut details = Vec::new();
     for action in value
         .get("actions")
@@ -1085,6 +1088,22 @@ fn plan_document(value: &Value) -> Document {
         // a completed step's are in the run file.
         if status != "complete" && !args.is_empty() {
             arguments.push(vec![string_at(action, "name"), args]);
+        }
+        if status != "complete" {
+            for payment in action
+                .get("payments")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                // `address:sats`, as declared.
+                let pays = match payment.rsplit_once(':') {
+                    Some((address, sats)) => format!("{sats} sats to {address}"),
+                    None => payment.to_string(),
+                };
+                payments.push(vec![string_at(action, "name"), pays]);
+            }
         }
         rows.push(vec![
             string_at(action, "kind"),
@@ -1114,6 +1133,11 @@ fn plan_document(value: &Value) -> Document {
             vec!["Step".into(), "Arguments".into()],
             arguments,
         ));
+    }
+    if !payments.is_empty() {
+        document
+            .blocks
+            .push(Block::Table(vec!["Step".into(), "Pays".into()], payments));
     }
     for (conflict, detail) in details {
         document.note(if conflict { Tone::Warning } else { Tone::Info }, detail);
@@ -1644,6 +1668,26 @@ fn fields(value: &Value, keys: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// One `Pays vN` field per bitcoin payment output a call carries.
+fn payment_fields(value: &Value) -> Vec<(String, String)> {
+    value
+        .get("payments")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|payment| {
+            Some((
+                format!("Pays {}", payment.get("output")?.as_str()?),
+                format!(
+                    "{} sats to {}",
+                    format_u64(payment.get("sats")?.as_u64()?),
+                    payment.get("address")?.as_str()?
+                ),
+            ))
+        })
+        .collect()
+}
+
 fn replace_field(fields: &mut [(String, String)], label: &str, replacement: String) {
     if let Some((_, value)) = fields.iter_mut().find(|(candidate, _)| candidate == label) {
         *value = replacement;
@@ -1974,6 +2018,41 @@ mod tests {
         });
         let output = render_plain("call", &value, true, 80);
         assert!(output.contains("return 1"));
+    }
+
+    #[test]
+    fn a_call_lists_its_payment_outputs() {
+        let payments = serde_json::json!([
+            {"output": "v1", "address": "bcrt1qpayee", "sats": 10000}
+        ]);
+        let sent = serde_json::json!({
+            "status": "success", "txid": "ab", "traces": null, "payments": payments
+        });
+        let output = render_plain("call", &sent, false, 100);
+        assert!(output.contains("Pays v1"));
+        assert!(output.contains("10,000 sats to bcrt1qpayee"));
+
+        let dry = serde_json::json!({"dryRun": true, "method": "mint", "payments": payments});
+        let output = render_plain("call", &dry, false, 100);
+        assert!(output.contains("10,000 sats to bcrt1qpayee"));
+    }
+
+    #[test]
+    fn plan_lists_the_payments_a_pending_call_makes() {
+        let value = serde_json::json!({
+            "script": "deploy.rs", "network": "labcoat", "height": 108,
+            "pending": 1, "conflicts": 0, "staleRecords": 0,
+            "actions": [
+                {"kind": "call", "name": "buy", "status": "pending", "action": "call", "id": "2:4",
+                 "payments": ["bcrt1qpayee:10000"]},
+                {"kind": "call", "name": "bought", "status": "complete", "action": "none", "id": "2:4",
+                 "payments": ["bcrt1qearlier:546"]},
+            ],
+        });
+        let output = render_plain("plan", &value, false, 100);
+        assert!(output.contains("Pays"));
+        assert!(output.contains("10000 sats to bcrt1qpayee"));
+        assert!(!output.contains("bcrt1qearlier"));
     }
 
     #[test]

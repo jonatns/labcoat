@@ -128,6 +128,34 @@ against live indexed chain state. Use `labcoat test <package>` to execute an
 undeployed local build in the isolated host test runtime. Calls create a
 transaction and wait for indexing and decoded execution status.
 
+### Paying bitcoin in a call
+
+A contract can require a bitcoin payment in the transaction that calls it: a
+mint that checks the transaction's outputs for a payment to a payee before
+it mints, for example. `--pay <address>:<sats>` adds that output, funded from
+the wallet like the rest of the transaction. Repeat it to pay more than one
+address.
+
+```sh
+labcoat call my-token mint 500 --pay bcrt1q...:10000
+```
+
+The outputs of a call transaction are, in order:
+
+1. `v0`, the protostone recipient: `--to`, or the wallet's primary address.
+2. Any higher `vN` that `--pointer`, `--refund`, or an `--edict` names, paying
+   the wallet.
+3. The payment outputs, in the order the flags were given.
+4. The wallet's change, when there is any.
+5. The `OP_RETURN` carrying the protostone.
+
+So the first payment is `v1` unless a pointer, refund, or edict names a higher
+output, and adding `--pay` never renumbers the outputs those flags address.
+`--dry-run` and the JSON result list each payment with its output under
+`payments`. An address of another network, or an amount under 546 sats, is
+rejected with `CONFIG_INVALID` before anything is signed. `labcoat deploy`
+does not take payments.
+
 Token contracts should follow the Alkanes metadata convention: opcode `99`
 returns the name and `100` the symbol, both as UTF-8 text, or leave both
 unimplemented. Balance views ask every held token for these values, and a

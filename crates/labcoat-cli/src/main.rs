@@ -247,6 +247,12 @@ enum Commands {
         args: Vec<String>,
         #[command(flatten)]
         tx: contract::TxFlags,
+        /// Add an output paying SATS of bitcoin to ADDRESS in the same
+        /// transaction (repeatable). Payment outputs follow the outputs
+        /// --pointer, --refund, and edicts address: the first is v1 unless
+        /// one of those names a higher output
+        #[arg(long = "pay", value_name = "ADDRESS:SATS")]
+        pay: Vec<String>,
         /// Resolve the method name against this contract's ABI instead
         /// (labcoat.lock name or block:tx id) — for a call through a proxy,
         /// name the implementation
@@ -698,10 +704,12 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             contract,
             selector,
             args,
-            tx,
+            mut tx,
+            pay,
             abi,
             dry_run,
         } => {
+            tx.pay = pay;
             if !json && !dry_run {
                 ctx.announce_target();
             }
@@ -1374,6 +1382,32 @@ mod envelope_tests {
         assert_eq!(tx.inputs.as_deref(), Some("4:65014:100"));
         assert_eq!(tx.pointer.as_deref(), Some("v1"));
         assert_eq!(tx.edicts, vec!["4:65014:100:v0", "4:65014:5:v1"]);
+
+        // --pay is a call flag, repeatable, and stays out of deploy.
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "call",
+            "mint",
+            "mint",
+            "--pay",
+            "bcrt1qexample:10000",
+            "--pay",
+            "bcrt1qother:546",
+        ])
+        .unwrap();
+        let Commands::Call { pay, .. } = cli.command else {
+            panic!("expected call");
+        };
+        assert_eq!(pay, ["bcrt1qexample:10000", "bcrt1qother:546"]);
+        assert!(Cli::try_parse_from([
+            "labcoat",
+            "deploy",
+            "--wasm",
+            "build/token.wasm",
+            "--pay",
+            "bcrt1qexample:10000"
+        ])
+        .is_err());
 
         // Simulate stays read-only: no transaction-shaping flags.
         assert!(

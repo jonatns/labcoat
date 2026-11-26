@@ -623,6 +623,12 @@
             "required": false
           },
           {
+            "description": "Add an output paying SATS of bitcoin to ADDRESS in the same transaction (repeatable). Payment outputs follow the outputs --pointer, --refund, and edicts address: the first is v1 unless one of those names a higher output",
+            "id": "pay",
+            "possibleValues": [],
+            "required": false
+          },
+          {
             "description": "Resolve the method name against this contract's ABI instead (labcoat.lock name or block:tx id) — for a call through a proxy, name the implementation",
             "id": "abi",
             "possibleValues": [],
@@ -1480,6 +1486,13 @@
               "description": "exact ABI method name or decimal opcode",
               "type": "string"
             },
+            "pay": {
+              "description": "bitcoin payment outputs address:sats added to the transaction, placed after the outputs pointer, refund, and edicts address (first is v1 by default); at least 546 sats each",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "pointer": {
               "description": "protostone pointer target vN or pN (default v0)",
               "type": "string"
@@ -1805,7 +1818,7 @@
         "name": "Deploy"
       },
       {
-        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat deploy` signs. `labcoat deploy <step>` runs one step, once everything it references is deployed. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
+        "detail": "deploy.rs, the project's `deploy` Cargo example target, declares the deployment with the `labcoat` Rust API and never executes it: `labcoat plan` runs the script to read its steps, and only `labcoat deploy` signs. `labcoat deploy <step>` runs one step, once everything it references is deployed. Steps run in declaration order and may reference only earlier steps. d.contract(name, package) deploys once (.reserve(n), .init(method), .arg(name, value), .positional(value)); d.contract_wasm(name, path) deploys a prebuilt wasm; d.clone_of(name, &template) clones deployed code; d.external(name).on(network, block, tx) or .id_everywhere(block, tx) names an existing Alkane; d.call(name, &contract, method) runs once (.arg, .positional, .inputs, .to, .pointer, .refund, .edict, .pay(address, sats) for a bitcoin payment output, .abi_of(&implementation) for a call through a proxy); d.implementation(name, package) is code behind an upgradeable pointer; d.beacon(name, package, &implementation), d.beacon_proxy(name, package, &beacon), and d.proxy(name, package, &implementation) declare the standard upgradeable contracts; d.setting(name, &contract, value).read(method).write(method) keeps a mutable value in sync. Values: handle.id(), .block(), .tx(), .amount(n), contract.created(i), and d.height() + n.",
         "name": "Deployment script"
       },
       {
@@ -1821,7 +1834,7 @@
         "name": "Standard upgradeable contracts"
       },
       {
-        "detail": "Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically.",
+        "detail": "A call transaction's outputs are, in order: v0 the protostone recipient (--to, default the wallet's primary address); any higher vN a --pointer, --refund, or --edict names, paying the wallet; the --pay <address>:<sats> payment outputs in the order given; the wallet's change, when there is any; and the OP_RETURN. The first payment is therefore v1 unless a pointer, refund, or edict names a higher output, and payments never renumber the outputs those address. Trace output for protostone i is transaction.output.len + 1 + i; Labcoat computes it automatically from the built transaction.",
         "name": "Protostone outputs"
       },
       {

@@ -90,6 +90,9 @@ pub struct PlannedAction {
     /// symbolic (`<token.id>`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// Bitcoin payment outputs a call adds, each `address:sats`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub payments: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -318,12 +321,18 @@ fn resolve_tx(tx: &TxShape, resolved: &Resolved, height: u64) -> Option<TxOption
         None => None,
         Some(value) => Some(resolved.eval(value, height)?),
     };
+    let payments = tx
+        .payments
+        .iter()
+        .map(|value| resolved.eval(value, height))
+        .collect::<Option<Vec<_>>>()?;
     Some(TxOptions {
         inputs: (!inputs.is_empty()).then(|| inputs.join(",")),
         to,
         pointer: tx.pointer.clone(),
         refund: tx.refund.clone(),
         edicts,
+        payments,
     })
 }
 
@@ -712,6 +721,7 @@ fn reconcile_steps(
             target: None,
             id: None,
             args: Vec::new(),
+            payments: Vec::new(),
             detail: None,
             wasm_sha256: None,
         };
@@ -876,6 +886,12 @@ fn reconcile_steps(
 
             Step::Call(call) => {
                 action.args = preview_args(&call.call.args, &resolved, height);
+                action.payments = call
+                    .tx
+                    .payments
+                    .iter()
+                    .map(|payment| resolved.preview(payment, height))
+                    .collect();
                 action.id = resolved.eval(&call.contract, height);
                 match record_of(run, name, "call") {
                     Some(record) if needs_confirmation(record) && !replace => {
@@ -1292,6 +1308,24 @@ pub async fn plan(
 
     let Reconciled { actions, resolved } =
         reconcile(graph, &network, &artifacts, &facts, &run, options)?;
+
+    // A payment to a bad address or below dust fails the plan, not the
+    // deploy that reaches the step.
+    let bitcoin_network = execute::bitcoin_network(config);
+    for step in &graph.steps {
+        let Step::Call(call) = step else { continue };
+        for payment in &call.tx.payments {
+            if let Some(entry) = resolved.eval(payment, height) {
+                execute::validate_payment(&entry, bitcoin_network).map_err(|error| {
+                    LabcoatError::new(
+                        error.code,
+                        format!("call `{}`: {}", call.name, error.message),
+                        error.hint,
+                    )
+                })?;
+            }
+        }
+    }
 
     let declared: BTreeSet<&str> = graph.steps.iter().map(Step::name).collect();
     let undeclared = run
