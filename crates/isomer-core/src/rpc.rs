@@ -280,17 +280,33 @@ pub async fn try_mempool_size(config: &IsomerConfig) -> Option<usize> {
     .map(|size| size as usize)
 }
 
+/// Blocks requested from the node per `generatetoaddress` call, so that no
+/// single request outlives its timeout.
+const MINE_BATCH: u32 = 1_000;
+/// Most blocks one `mine` may produce: about two years of Bitcoin blocks.
+pub const MAX_MINE_BLOCKS: u32 = 100_000;
+
+fn mine_batches(count: u32) -> impl Iterator<Item = u32> {
+    (0..count)
+        .step_by(MINE_BATCH as usize)
+        .map(move |mined| MINE_BATCH.min(count - mined))
+}
+
 pub async fn mine_blocks(config: &IsomerConfig, count: u32, address: &str) -> Result<u64, String> {
-    if count > 1000 {
-        return Err("Cannot mine more than 1000 blocks at once".to_string());
+    if count > MAX_MINE_BLOCKS {
+        return Err(format!(
+            "Cannot mine more than {MAX_MINE_BLOCKS} blocks at once"
+        ));
     }
-    call(
-        config,
-        "generatetoaddress",
-        serde_json::json!([count, address]),
-        std::time::Duration::from_secs(60),
-    )
-    .await?;
+    for batch in mine_batches(count) {
+        call(
+            config,
+            "generatetoaddress",
+            serde_json::json!([batch, address]),
+            std::time::Duration::from_secs(60),
+        )
+        .await?;
+    }
     call(
         config,
         "getblockcount",
@@ -351,6 +367,18 @@ pub async fn block_details(config: &IsomerConfig, height: u64) -> Result<BlockDe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mining_is_split_into_bounded_batches() {
+        assert_eq!(mine_batches(0).count(), 0);
+        assert_eq!(mine_batches(1).collect::<Vec<_>>(), [1]);
+        assert_eq!(mine_batches(1_000).collect::<Vec<_>>(), [1_000]);
+        assert_eq!(
+            mine_batches(3_456).collect::<Vec<_>>(),
+            [1_000, 1_000, 1_000, 456]
+        );
+        assert_eq!(mine_batches(MAX_MINE_BLOCKS).sum::<u32>(), MAX_MINE_BLOCKS);
+    }
 
     #[test]
     fn only_this_releases_node_for_this_data_home_is_trusted() {
