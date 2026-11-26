@@ -2,23 +2,27 @@
 
 /** One typed parameter of an ABI method. */
 export interface AbiParam {
-  name: string
+  readonly name: string
   /** ABI type name, e.g. "u128", "AlkaneId", "String". */
-  type: string
+  readonly type: string
 }
 
 /** One contract method: dispatch opcode plus its typed signature. */
 export interface AbiMethod {
-  name: string
+  readonly name: string
   /** Dispatch opcode (a u128). */
-  opcode: bigint
-  params: AbiParam[]
+  readonly opcode: bigint
+  readonly params: readonly AbiParam[]
   /** ABI return type name, e.g. "u128", "String", "Vec<u8>", "void". */
-  returns: string
+  readonly returns: string
 }
 
-/** A contract ABI as extracted from its canonical `__meta` export. */
+/**
+ * A contract ABI as extracted from its canonical `__meta` export. The
+ * generated ABI modules are `as const`, so the client can derive method
+ * names, arguments, and return types from them at compile time.
+ */
 export interface AbiDocument {
-  contract: string
-  methods: AbiMethod[]
+  readonly contract: string
+  readonly methods: readonly AbiMethod[]
 }

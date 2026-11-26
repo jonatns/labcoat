@@ -7,7 +7,7 @@
 //! state, exactly like the lockfile itself is a ledger of verified
 //! deployments. The output is a self-contained module tree — no runtime
 //! dependencies — that browsers use for reads only: indexed height, Alkanes
-//! balances for an address, and ABI-typed `simulate` calls — plus an
+//! balances for an address, and contract reads typed from the ABI — plus an
 //! exchange request builder that serializes the version-1 request file the
 //! `exchange-plan --request` CLI ceremony consumes. No signing, no key
 //! material, no state mutation.
@@ -293,7 +293,7 @@ fn manifest_ts(
     for (name, deployment) in contracts {
         let artifact = artifact_for(name, deployment, inputs.abis);
         entries.push_str(&format!(
-            "    {}: {{\n      id: {},\n      txid: {},\n      wasmSha256: {},\n      chainId: {},\n      artifact: {},\n    }},\n",
+            "  {}: {{\n    id: {},\n    txid: {},\n    wasmSha256: {},\n    chainId: {},\n    artifact: {},\n  }},\n",
             ts_string(name),
             ts_string(&deployment.alkanes_id),
             ts_string(&deployment.txid),
@@ -343,13 +343,23 @@ export interface WebManifest {{
   contracts: Record<string, ContractDeployment>
 }}
 
+/**
+ * Deployment records keyed by labcoat.lock contract name, with literal
+ * types: the generated client derives contract names and their ABIs from
+ * this constant.
+ */
+export const CONTRACTS = {{
+{entries}}} as const satisfies Record<string, ContractDeployment>
+
+/** A contract name recorded in labcoat.lock for this network. */
+export type ContractName = keyof typeof CONTRACTS
+
 export const MANIFEST: WebManifest = {{
   network: {network},
   bitcoinNetwork: {bitcoin_network},
   rpcUrl: {rpc_url},
   chainId: {chain_id},
-  contracts: {{
-{entries}  }},
+  contracts: CONTRACTS,
 }}
 "#,
         header = GENERATED_HEADER,
@@ -368,25 +378,29 @@ fn abi_document_ts() -> String {
 
 /** One typed parameter of an ABI method. */
 export interface AbiParam {{
-  name: string
+  readonly name: string
   /** ABI type name, e.g. "u128", "AlkaneId", "String". */
-  type: string
+  readonly type: string
 }}
 
 /** One contract method: dispatch opcode plus its typed signature. */
 export interface AbiMethod {{
-  name: string
+  readonly name: string
   /** Dispatch opcode (a u128). */
-  opcode: bigint
-  params: AbiParam[]
+  readonly opcode: bigint
+  readonly params: readonly AbiParam[]
   /** ABI return type name, e.g. "u128", "String", "Vec<u8>", "void". */
-  returns: string
+  readonly returns: string
 }}
 
-/** A contract ABI as extracted from its canonical `__meta` export. */
+/**
+ * A contract ABI as extracted from its canonical `__meta` export. The
+ * generated ABI modules are `as const`, so the client can derive method
+ * names, arguments, and return types from them at compile time.
+ */
 export interface AbiDocument {{
-  contract: string
-  methods: AbiMethod[]
+  readonly contract: string
+  readonly methods: readonly AbiMethod[]
 }}
 "#,
     )
@@ -422,11 +436,11 @@ fn abi_contract_ts(build_abi: &BuildAbi) -> String {
 import type {{ AbiDocument }} from "./document"
 
 /** ABI of the {artifact} build artifact. */
-export const {identifier}: AbiDocument = {{
+export const {identifier} = {{
   contract: {contract},
   methods: [
 {methods}  ],
-}}
+}} as const satisfies AbiDocument
 "#,
         header = GENERATED_HEADER,
         artifact = build_abi.artifact,
@@ -459,8 +473,8 @@ import type {{ AbiDocument }} from "./document"
 export type {{ AbiDocument, AbiMethod, AbiParam }} from "./document"
 
 /** Every built contract ABI, keyed by build artifact name. */
-export const ABIS: Record<string, AbiDocument> = {{
-{entries}}}
+export const ABIS = {{
+{entries}}} as const satisfies Record<string, AbiDocument>
 "#,
     )
 }
@@ -473,28 +487,46 @@ fn exchange_ts() -> String {
     format!("{GENERATED_HEADER}\n{EXCHANGE_TS_BODY}")
 }
 
-/// The static read client. Wire protocol notes:
+/// The static read client. `createClient(options)` returns a
+/// `LabcoatWebClient`; `contract(name)` or `contract(id, abi)` returns a
+/// handle whose `read.<method>()` and `tryRead.<method>()` are typed from the
+/// `as const` ABI modules, and `at(height)` returns a client whose reads are
+/// pinned to one indexed height. Method properties are the ABI names in
+/// camelCase; the TypeScript `CamelCase` type and the runtime `camelCase`
+/// function must stay in step, as must `MethodKey` and `methodKeys`.
 ///
-/// - The unified endpoint is Qubitcoin JSON-RPC 2.0. The Alkanes indexer is
-///   exposed as a secondary view: `secondaryheight ["alkanes"]` returns the
-///   indexed height, and `secondaryview ["alkanes", <view>, "0x<hex>"]`
-///   evaluates a metashrew view function over protobuf-encoded parameters,
-///   returning protobuf bytes as a hex string.
+/// Signed writes are not here yet. They are meant to arrive as a `write`
+/// member beside `read` on `ContractHandle` and a wallet option on
+/// `LabcoatWebClientOptions`, without reshaping either.
+///
+/// Wire protocol notes:
+///
+/// - The unified endpoint is JSON-RPC 2.0 and answers batches. The Alkanes
+///   indexer is exposed as a secondary view: `secondaryheight ["alkanes"]`
+///   returns the indexed height, and `secondaryview ["alkanes", <view>,
+///   "0x<hex>"]` evaluates a metashrew view function over protobuf-encoded
+///   parameters, returning protobuf bytes as a hex string.
 /// - `simulate` takes an `alkanes.MessageContextParcel` whose calldata is
 ///   the LEB128 varint list `[block, tx, opcode, ...args]` (a cellpack) and
-///   returns an `alkanes.SimulateResponse`.
+///   returns an `alkanes.SimulateResponse`. A non-empty `error` is a revert;
+///   the indexer prefixes the contract's message with `ALKANES: revert: `.
 /// - `protorunesbyaddress` takes a `protorune.ProtorunesWalletRequest`
 ///   (wallet = address bytes, protocol_tag = 1 for Alkanes) and returns a
 ///   `protorune.WalletResponse` whose outpoint balance sheets are summed
 ///   per Alkane here, mirroring the CLI's `labcoat balance`.
 const CLIENT_TS_BODY: &str = r#"//
-// Read-only browser client for the Labcoat unified JSON-RPC endpoint
-// (Qubitcoin node + Alkanes secondary view). No signing, no key material,
-// no state mutation. Self-contained: no runtime dependencies.
+// Browser client for the Labcoat unified JSON-RPC endpoint (node + Alkanes
+// secondary view): typed contract reads, indexed height, and Alkanes
+// balances. Read-only: no signing, no key material, no state mutation.
+// Self-contained: no runtime dependencies.
+//
+//   const labcoat = createClient({ rpc: "/rpc" })
+//   const supply = await labcoat.contract("token").read.getTotalSupply()
 
-import { MANIFEST } from "./manifest"
+import { CONTRACTS, MANIFEST } from "./manifest"
+import type { ContractDeployment } from "./manifest"
 import { ABIS } from "./abi"
-import type { AbiMethod } from "./abi"
+import type { AbiDocument, AbiMethod, AbiParam } from "./abi"
 
 const U128_MAX = (1n << 128n) - 1n
 const ALKANES_PROTOCOL_TAG = 1n
@@ -570,7 +602,7 @@ class ProtoReader {
       if (this.offset >= this.bytes.length) {
         throw new LabcoatClientError("RESPONSE_INVALID", "truncated protobuf varint")
       }
-      const byte = this.bytes[this.offset++]
+      const byte = this.bytes[this.offset++] as number
       value |= BigInt(byte & 0x7f) << shift
       if ((byte & 0x80) === 0) return value
       shift += 7n
@@ -634,26 +666,65 @@ export type LabcoatClientErrorCode =
   | "RPC_ERROR"
   | "RESPONSE_INVALID"
   | "CONTRACT_UNKNOWN"
+  | "ABI_UNKNOWN"
   | "METHOD_UNKNOWN"
   | "ARG_INVALID"
+  | "CONTRACT_REVERT"
 
 export class LabcoatClientError extends Error {
-  constructor(
-    public readonly code: LabcoatClientErrorCode,
-    message: string,
-  ) {
+  readonly code: LabcoatClientErrorCode
+
+  constructor(code: LabcoatClientErrorCode, message: string) {
     super(message)
+    this.code = code
     this.name = "LabcoatClientError"
   }
 }
 
-/* --------------------------------- results -------------------------------- */
+/** Thrown by `contract.read.<method>()` when the contract reverts. */
+export class ContractRevertError extends LabcoatClientError {
+  /** The contract's own message, without the indexer's "ALKANES: revert: " prefix. */
+  readonly reason: string
+  /** Alkanes id of the contract that was called, as "block:tx". */
+  readonly contract: string
+  /** ABI name of the method that was called. */
+  readonly method: string
+  readonly gasUsed: bigint
+  /** Raw return bytes of the reverted call. */
+  readonly data: Uint8Array
+
+  constructor(details: {
+    reason: string
+    contract: string
+    method: string
+    gasUsed: bigint
+    data: Uint8Array
+  }) {
+    super("CONTRACT_REVERT", `${details.method} on ${details.contract} reverted: ${details.reason}`)
+    this.name = "ContractRevertError"
+    this.reason = details.reason
+    this.contract = details.contract
+    this.method = details.method
+    this.gasUsed = details.gasUsed
+    this.data = details.data
+  }
+}
+
+/* --------------------------------- values --------------------------------- */
 
 export interface AlkaneRef {
   /** Canonical decimal digits. */
   block: string
   tx: string
 }
+
+/**
+ * An Alkane id as an argument: "block:tx", or `{ block, tx }` (the shape
+ * reads return, so a returned id can be passed straight back in).
+ */
+export type AlkaneIdLike =
+  | string
+  | { readonly block: bigint | number | string; readonly tx: bigint | number | string }
 
 export interface AlkaneBalance {
   id: AlkaneRef
@@ -665,12 +736,150 @@ export interface AlkaneBalance {
   balance: bigint
 }
 
+/* ------------------------------ typed methods ----------------------------- */
+
+/** How each ABI parameter type is passed. */
+interface AbiArgTypes {
+  u128: bigint | number
+  AlkaneId: AlkaneIdLike
+  String: string
+}
+
+/** How each ABI return type is decoded. */
+interface AbiReturnTypes {
+  u128: bigint
+  String: string
+  AlkaneId: AlkaneRef
+  "Vec<u8>": Uint8Array
+  void: undefined
+}
+
+/** Any typed argument: the argument type of an ABI that is not a literal. */
+export type AbiArg = AbiArgTypes[keyof AbiArgTypes]
+
+/** Any decoded return value: the return type of an ABI that is not a literal. */
+export type AbiValue = AbiReturnTypes[keyof AbiReturnTypes]
+
+/** A parameter type the client cannot encode makes the method uncallable by name. */
+type ArgOf<T extends string> = string extends T
+  ? AbiArg
+  : T extends keyof AbiArgTypes
+    ? AbiArgTypes[T]
+    : never
+
+/** A return type the client does not know is handed back as raw bytes. */
+type ReturnOf<T extends string> = string extends T
+  ? AbiValue
+  : T extends keyof AbiReturnTypes
+    ? AbiReturnTypes[T]
+    : Uint8Array
+
+type ArgsOf<P extends readonly AbiParam[]> = {
+  -readonly [I in keyof P]: P[I] extends AbiParam ? ArgOf<P[I]["type"]> : never
+}
+
+type MethodOf<A extends AbiDocument> = A["methods"][number]
+
+/** snake_case to camelCase, exactly as `camelCase` below does it at runtime. */
+type CamelCase<S extends string> = S extends `${infer Head}_${infer Tail}`
+  ? `${Head}${Capitalize<CamelCase<Tail>>}`
+  : S
+
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
+
+type MethodsByCamelCase<A extends AbiDocument> = {
+  [M in MethodOf<A> as CamelCase<M["name"]>]: M
+}
+
+/**
+ * The property a method is called through: its name in camelCase. Methods
+ * whose camelCase names collide (`get_count` and `getCount`) each keep their
+ * exact ABI name instead, so no call is ever ambiguous.
+ */
+type MethodKey<A extends AbiDocument, M extends AbiMethod> =
+  IsUnion<MethodsByCamelCase<A>[CamelCase<M["name"]> & keyof MethodsByCamelCase<A>]> extends true
+    ? M["name"]
+    : CamelCase<M["name"]>
+
+/** `contract.read`: one function per ABI method; resolves to the decoded return, throws on revert. */
+export type ReadMethods<A extends AbiDocument> = {
+  readonly [M in MethodOf<A> as MethodKey<A, M>]: (
+    ...args: ArgsOf<M["params"]>
+  ) => Promise<ReturnOf<M["returns"]>>
+}
+
+/** `contract.tryRead`: the same calls, with a revert returned instead of thrown. */
+export type TryReadMethods<A extends AbiDocument> = {
+  readonly [M in MethodOf<A> as MethodKey<A, M>]: (
+    ...args: ArgsOf<M["params"]>
+  ) => Promise<ReadResult<ReturnOf<M["returns"]>>>
+}
+
+export type ReadResult<T> =
+  | { status: "success"; value: T; gasUsed: bigint; data: Uint8Array }
+  | {
+      status: "revert"
+      /** The contract's own message. */
+      reason: string
+      /** What `read` would have thrown. */
+      error: ContractRevertError
+      gasUsed: bigint
+      data: Uint8Array
+    }
+
+/** A contract at one Alkanes id, called through its ABI. */
+export interface ContractHandle<A extends AbiDocument = AbiDocument> {
+  /** Alkanes id as canonical decimal "block:tx". */
+  readonly id: string
+  readonly abi: A
+  /** Simulate a method and return its decoded value; a revert throws `ContractRevertError`. */
+  readonly read: ReadMethods<A>
+  /** Simulate a method and return `{ status, ... }`; for calls that are expected to revert. */
+  readonly tryRead: TryReadMethods<A>
+}
+
+/** Manifest contracts whose ABI was built when the client was generated. */
+export type TypedContractName = {
+  [N in keyof typeof CONTRACTS]: (typeof CONTRACTS)[N] extends { artifact: keyof typeof ABIS }
+    ? N
+    : never
+}[keyof typeof CONTRACTS]
+
+/** The ABI of a manifest contract. */
+export type ContractAbi<N extends TypedContractName> = (typeof CONTRACTS)[N] extends {
+  artifact: infer Artifact extends keyof typeof ABIS
+}
+  ? (typeof ABIS)[Artifact]
+  : never
+
+function camelCase(name: string): string {
+  const underscore = name.indexOf("_")
+  if (underscore < 0) return name
+  const tail = camelCase(name.slice(underscore + 1))
+  return name.slice(0, underscore) + tail.charAt(0).toUpperCase() + tail.slice(1)
+}
+
+/** Each method with the property it is called through; see `MethodKey`. */
+function methodKeys(abi: AbiDocument): [string, AbiMethod][] {
+  const seen = new Map<string, number>()
+  for (const method of abi.methods) {
+    const key = camelCase(method.name)
+    seen.set(key, (seen.get(key) ?? 0) + 1)
+  }
+  return abi.methods.map((method) => {
+    const key = camelCase(method.name)
+    return [seen.get(key) === 1 ? key : method.name, method]
+  })
+}
+
+/* ------------------------------ raw simulate ------------------------------ */
+
 export type SimulateValue = bigint | string | Uint8Array | AlkaneRef | null
 
 export interface SimulateResult {
   status: "success" | "revert"
   gasUsed: bigint
-  /** Revert reason, when the contract reverted. */
+  /** Revert reason as the indexer reports it, when the contract reverted. */
   error: string | null
   /** Raw return bytes. */
   data: Uint8Array
@@ -686,9 +895,16 @@ export interface SimulateResult {
  * "block:tx" for AlkaneId parameters, or arbitrary text for String ones. */
 export type SimulateArg = bigint | number | string
 
+export interface SimulateOptions {
+  /** Indexed height to read at. Defaults to the client's pinned height, else the current one. */
+  height?: number
+  /** ABI to resolve `method` with, for a contract the manifest has no ABI for. */
+  abi?: AbiDocument
+}
+
 /* ------------------------------ arg encoding ------------------------------ */
 
-function parseU128(value: SimulateArg, label: string): bigint {
+function parseU128(value: unknown, label: string): bigint {
   let parsed: bigint
   if (typeof value === "bigint") {
     parsed = value
@@ -697,9 +913,7 @@ function parseU128(value: SimulateArg, label: string): bigint {
       throw new LabcoatClientError("ARG_INVALID", `${label} must be a non-negative safe integer`)
     }
     parsed = BigInt(value)
-  } else if (/^0x[0-9a-fA-F]+$/.test(value)) {
-    parsed = BigInt(value)
-  } else if (/^(0|[1-9][0-9]*)$/.test(value)) {
+  } else if (typeof value === "string" && /^(0x[0-9a-fA-F]+|0|[1-9][0-9]*)$/.test(value)) {
     parsed = BigInt(value)
   } else {
     throw new LabcoatClientError("ARG_INVALID", `${label} must be a canonical decimal or 0x-hex u128`)
@@ -710,22 +924,28 @@ function parseU128(value: SimulateArg, label: string): bigint {
   return parsed
 }
 
-function parseAlkaneRef(value: SimulateArg, label: string): { block: bigint; tx: bigint } {
-  if (typeof value !== "string" || !value.includes(":")) {
-    throw new LabcoatClientError("ARG_INVALID", `${label} must use decimal "block:tx" syntax`)
+function parseAlkaneRef(value: unknown, label: string): { block: bigint; tx: bigint } {
+  if (typeof value === "object" && value !== null && "block" in value && "tx" in value) {
+    return {
+      block: parseU128(value.block, `${label} block`),
+      tx: parseU128(value.tx, `${label} tx`),
+    }
   }
-  const [block, tx, ...rest] = value.split(":")
-  if (rest.length > 0) {
-    throw new LabcoatClientError("ARG_INVALID", `${label} must use decimal "block:tx" syntax`)
+  const parts = typeof value === "string" ? value.split(":") : []
+  if (parts.length !== 2) {
+    throw new LabcoatClientError(
+      "ARG_INVALID",
+      `${label} must be a decimal "block:tx" string or a { block, tx } object`,
+    )
   }
   return {
-    block: parseU128(block, `${label} block`),
-    tx: parseU128(tx, `${label} tx`),
+    block: parseU128(parts[0], `${label} block`),
+    tx: parseU128(parts[1], `${label} tx`),
   }
 }
 
 /** NUL-terminated UTF-8 packed into little-endian u128 cellpack words. */
-function encodeStringArg(value: SimulateArg, label: string): bigint[] {
+function encodeStringArg(value: unknown, label: string): bigint[] {
   if (typeof value !== "string") {
     throw new LabcoatClientError("ARG_INVALID", `${label} must be a string`)
   }
@@ -737,17 +957,16 @@ function encodeStringArg(value: SimulateArg, label: string): bigint[] {
   terminated.set(bytes)
   const words: bigint[] = []
   for (let i = 0; i < terminated.length; i += 16) {
-    const chunk = terminated.subarray(i, i + 16)
     let word = 0n
-    for (let j = 0; j < chunk.length; j++) {
-      word |= BigInt(chunk[j]) << BigInt(8 * j)
-    }
+    terminated.subarray(i, i + 16).forEach((byte, j) => {
+      word |= BigInt(byte) << BigInt(8 * j)
+    })
     words.push(word)
   }
   return words
 }
 
-function encodeAbiArgs(method: AbiMethod, args: SimulateArg[]): bigint[] {
+function encodeAbiArgs(method: AbiMethod, args: readonly unknown[]): bigint[] {
   if (args.length !== method.params.length) {
     const expected = method.params.map((p) => `${p.name}: ${p.type}`).join(", ")
     throw new LabcoatClientError(
@@ -756,8 +975,7 @@ function encodeAbiArgs(method: AbiMethod, args: SimulateArg[]): bigint[] {
     )
   }
   const words: bigint[] = []
-  for (let i = 0; i < method.params.length; i++) {
-    const param = method.params[i]
+  method.params.forEach((param, i) => {
     const label = `parameter ${param.name}`
     if (param.type === "u128") {
       words.push(parseU128(args[i], label))
@@ -772,7 +990,7 @@ function encodeAbiArgs(method: AbiMethod, args: SimulateArg[]): bigint[] {
         `ABI type ${param.type} is not supported by the generated client`,
       )
     }
-  }
+  })
   return words
 }
 
@@ -780,12 +998,13 @@ function encodeAbiArgs(method: AbiMethod, args: SimulateArg[]): bigint[] {
 
 function decodeLeU128(bytes: Uint8Array): bigint {
   let value = 0n
-  for (let i = 0; i < bytes.length; i++) {
-    value |= BigInt(bytes[i]) << BigInt(8 * i)
-  }
+  bytes.forEach((byte, i) => {
+    value |= BigInt(byte) << BigInt(8 * i)
+  })
   return value
 }
 
+/** Lenient decoding for `simulate`: null where the bytes do not fit the type. */
 function decodeReturn(returns: string, data: Uint8Array): SimulateValue {
   if (returns === "u128") {
     if (data.length > 16) return null
@@ -807,81 +1026,146 @@ function decodeReturn(returns: string, data: Uint8Array): SimulateValue {
   return null
 }
 
-/* ------------------------------- the client ------------------------------- */
-
-export interface LabcoatWebClientOptions {
-  /**
-   * JSON-RPC endpoint the browser can actually reach — typically a
-   * same-origin path (e.g. "/rpc") proxied to the manifest's rpcUrl by the
-   * app's dev server. Defaults to the manifest's rpcUrl.
-   */
-  baseUrl?: string
-  /** Fetch implementation (for tests and non-browser runtimes). */
-  fetchFn?: typeof fetch
+/** Strict decoding for typed reads: bytes that do not fit the type are an error. */
+function decodeTyped(method: AbiMethod, data: Uint8Array): AbiValue {
+  if (method.returns === "void") return undefined
+  if (method.returns !== "u128" && method.returns !== "AlkaneId" && method.returns !== "String") {
+    return data
+  }
+  const value = decodeReturn(method.returns, data)
+  if (value === null) {
+    throw new LabcoatClientError(
+      "RESPONSE_INVALID",
+      `${method.name} returned ${data.length} byte(s), which is not a valid ${method.returns}`,
+    )
+  }
+  return value
 }
 
-export class LabcoatWebClient {
-  readonly baseUrl: string
-  private readonly fetchFn: typeof fetch
-  private requestId = 0
+const REVERT_PREFIX = "ALKANES: revert: "
 
-  constructor(options: LabcoatWebClientOptions = {}) {
-    this.baseUrl = options.baseUrl ?? MANIFEST.rpcUrl
-    const fetchFn = options.fetchFn ?? globalThis.fetch
-    if (typeof fetchFn !== "function") {
-      throw new LabcoatClientError("RPC_UNREACHABLE", "no fetch implementation available")
-    }
-    this.fetchFn = fetchFn.bind(globalThis)
+function revertReason(error: string): string {
+  return error.startsWith(REVERT_PREFIX) ? error.slice(REVERT_PREFIX.length) : error
+}
+
+/* -------------------------------- transport ------------------------------- */
+
+interface PendingCall {
+  id: number
+  method: string
+  params: unknown[]
+  resolve: (result: unknown) => void
+  reject: (error: unknown) => void
+}
+
+interface RpcEnvelope {
+  id?: unknown
+  result?: unknown
+  error?: { message?: string; code?: number } | null
+}
+
+interface Simulation {
+  data: Uint8Array
+  gasUsed: bigint
+  error: string | null
+}
+
+/** One endpoint, shared by a client and the pinned clients made from it. */
+class RpcConnection {
+  readonly url: string
+  private readonly fetchFn: typeof fetch
+  private readonly batch: boolean
+  private nextId = 0
+  private queue: PendingCall[] = []
+  private pendingHeight: Promise<number> | null = null
+
+  constructor(url: string, fetchFn: typeof fetch, batch: boolean) {
+    this.url = url
+    this.fetchFn = fetchFn
+    this.batch = batch
   }
 
-  private async rpc(method: string, params: unknown[]): Promise<unknown> {
+  /**
+   * One JSON-RPC call. With batching on, calls made in the same tick (a
+   * `Promise.all` of reads) leave as a single HTTP request.
+   */
+  request(method: string, params: unknown[]): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ id: ++this.nextId, method, params, resolve, reject })
+      if (!this.batch) void this.flush()
+      else if (this.queue.length === 1) void Promise.resolve().then(() => this.flush())
+    })
+  }
+
+  private async flush(): Promise<void> {
+    const calls = this.queue
+    this.queue = []
+    const [first] = calls
+    if (first === undefined) return
+    const requests = calls.map(({ id, method, params }) => ({ jsonrpc: "2.0", id, method, params }))
+    try {
+      if (calls.length === 1) {
+        settle(first, (await this.post(requests[0], first.method)) as RpcEnvelope)
+        return
+      }
+      const label = `a batch of ${calls.length} requests`
+      const body = await this.post(requests, label)
+      if (!Array.isArray(body)) {
+        throw new LabcoatClientError(
+          "RPC_ERROR",
+          `${label} was not answered as a batch; if the endpoint does not support JSON-RPC batches, create the client with batch: false`,
+        )
+      }
+      const answers = new Map<unknown, RpcEnvelope>()
+      for (const envelope of body as RpcEnvelope[]) answers.set(envelope?.id, envelope)
+      for (const call of calls) {
+        const envelope = answers.get(call.id)
+        if (envelope === undefined) {
+          call.reject(new LabcoatClientError("RESPONSE_INVALID", `${call.method} was not answered in its batch`))
+        } else {
+          settle(call, envelope)
+        }
+      }
+    } catch (error) {
+      for (const call of calls) call.reject(error)
+    }
+  }
+
+  private async post(body: unknown, label: string): Promise<unknown> {
     let response: Response
     try {
-      response = await this.fetchFn(this.baseUrl, {
+      response = await this.fetchFn(this.url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: ++this.requestId, method, params }),
+        body: JSON.stringify(body),
       })
     } catch (cause) {
       throw new LabcoatClientError(
         "RPC_UNREACHABLE",
-        `cannot reach ${this.baseUrl}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `cannot reach ${this.url}: ${cause instanceof Error ? cause.message : String(cause)}`,
       )
     }
     if (!response.ok) {
-      throw new LabcoatClientError("RPC_ERROR", `${method} failed: HTTP ${response.status}`)
+      throw new LabcoatClientError("RPC_ERROR", `${label} failed: HTTP ${response.status}`)
     }
-    let envelope: { result?: unknown; error?: { message?: string; code?: number } | null }
     try {
-      envelope = (await response.json()) as typeof envelope
+      return await response.json()
     } catch {
-      throw new LabcoatClientError("RESPONSE_INVALID", `${method} returned a non-JSON body`)
+      throw new LabcoatClientError("RESPONSE_INVALID", `${label} returned a non-JSON body`)
     }
-    if (envelope.error != null) {
-      throw new LabcoatClientError(
-        "RPC_ERROR",
-        `${method} failed: ${envelope.error.message ?? JSON.stringify(envelope.error)}`,
-      )
-    }
-    return envelope.result
   }
 
   /** A metashrew view over the Alkanes secondary index; protobuf in and out. */
-  private async view(view: string, request: Uint8Array): Promise<Uint8Array> {
-    const result = await this.rpc("secondaryview", [
-      "alkanes",
-      view,
-      `0x${bytesToHex(request)}`,
-    ])
+  async view(view: string, request: Uint8Array): Promise<Uint8Array> {
+    const result = await this.request("secondaryview", ["alkanes", view, `0x${bytesToHex(request)}`])
     if (typeof result !== "string") {
       throw new LabcoatClientError("RESPONSE_INVALID", `${view} returned a non-string result`)
     }
     return hexToBytes(result)
   }
 
-  /** Height of the Alkanes secondary index — the state every read reflects. */
-  async getIndexedHeight(): Promise<number> {
-    const result = await this.rpc("secondaryheight", ["alkanes"])
+  async indexedHeight(): Promise<number> {
+    const result = await this.request("secondaryheight", ["alkanes"])
     const height =
       typeof result === "number"
         ? result
@@ -892,6 +1176,217 @@ export class LabcoatWebClient {
       throw new LabcoatClientError("RESPONSE_INVALID", `invalid indexed height: ${String(result)}`)
     }
     return height
+  }
+
+  /** The height an unpinned read runs at; reads that start while one lookup is in flight share it. */
+  readHeight(): Promise<number> {
+    if (this.pendingHeight === null) {
+      const lookup: Promise<number> = this.indexedHeight().finally(() => {
+        if (this.pendingHeight === lookup) this.pendingHeight = null
+      })
+      this.pendingHeight = lookup
+    }
+    return this.pendingHeight
+  }
+
+  /** Run a cellpack `[block, tx, opcode, ...words]` against indexed state. */
+  async simulate(cellpack: bigint[], height: number | null): Promise<Simulation> {
+    // alkanes.MessageContextParcel { height = 4, calldata = 5 }
+    const parcel: number[] = []
+    pushProtoVarintField(parcel, 4, BigInt(height ?? (await this.readHeight())))
+    pushProtoBytesField(parcel, 5, encodeCellpack(cellpack))
+
+    const response = await this.view("simulate", Uint8Array.from(parcel))
+
+    // alkanes.SimulateResponse { execution = 1, gas_used = 2, error = 3 }
+    let data: Uint8Array = new Uint8Array(0)
+    let gasUsed = 0n
+    let error: string | null = null
+    const reader = new ProtoReader(response)
+    while (!reader.atEnd()) {
+      const { field, wire } = reader.readField()
+      if (field === 1 && wire === 2) {
+        // alkanes.ExtendedCallResponse { data = 3 }
+        const execution = new ProtoReader(reader.readBytes())
+        while (!execution.atEnd()) {
+          const item = execution.readField()
+          if (item.field === 3 && item.wire === 2) data = execution.readBytes()
+          else execution.skip(item.wire)
+        }
+      } else if (field === 2 && wire === 0) {
+        gasUsed = reader.readVarint()
+      } else if (field === 3 && wire === 2) {
+        error = new TextDecoder("utf-8", { fatal: false }).decode(reader.readBytes())
+        if (error.length === 0) error = null
+      } else {
+        reader.skip(wire)
+      }
+    }
+    return { data, gasUsed, error }
+  }
+}
+
+function settle(call: PendingCall, envelope: RpcEnvelope): void {
+  if (envelope?.error != null) {
+    call.reject(
+      new LabcoatClientError(
+        "RPC_ERROR",
+        `${call.method} failed: ${envelope.error.message ?? JSON.stringify(envelope.error)}`,
+      ),
+    )
+  } else {
+    call.resolve(envelope?.result)
+  }
+}
+
+/* ------------------------------- the client ------------------------------- */
+
+export interface LabcoatWebClientOptions {
+  /**
+   * JSON-RPC endpoint the browser can actually reach — typically a
+   * same-origin path (e.g. "/rpc") proxied to the manifest's rpcUrl by the
+   * app's dev server. Defaults to the manifest's rpcUrl.
+   */
+  rpc?: string
+  /** @deprecated Use `rpc`. */
+  baseUrl?: string
+  /** Fetch implementation (for tests and non-browser runtimes). */
+  fetchFn?: typeof fetch
+  /**
+   * Send calls made in the same tick as one JSON-RPC batch request.
+   * Defaults to true; pass false for an endpoint without batch support.
+   */
+  batch?: boolean
+}
+
+interface ResolvedContract {
+  block: bigint
+  tx: bigint
+  /** Canonical "block:tx". */
+  id: string
+  artifact: string | null
+}
+
+/** Create a client; `new LabcoatWebClient(options)` under a shorter name. */
+export function createClient(options: LabcoatWebClientOptions = {}): LabcoatWebClient {
+  return new LabcoatWebClient(options)
+}
+
+export class LabcoatWebClient {
+  /** The JSON-RPC endpoint requests are sent to. */
+  readonly rpc: string
+  private readonly options: LabcoatWebClientOptions
+  private connection: RpcConnection
+  private pinnedHeight: number | null = null
+
+  constructor(options: LabcoatWebClientOptions = {}) {
+    this.options = options
+    this.rpc = options.rpc ?? options.baseUrl ?? MANIFEST.rpcUrl
+    const fetchFn = options.fetchFn ?? globalThis.fetch
+    if (typeof fetchFn !== "function") {
+      throw new LabcoatClientError("RPC_UNREACHABLE", "no fetch implementation available")
+    }
+    this.connection = new RpcConnection(this.rpc, fetchFn.bind(globalThis), options.batch ?? true)
+  }
+
+  /** @deprecated Use `rpc`. */
+  get baseUrl(): string {
+    return this.rpc
+  }
+
+  /** The indexed height this client's contract reads are pinned to, or null. */
+  get height(): number | null {
+    return this.pinnedHeight
+  }
+
+  /**
+   * A client whose contract reads all run at `height`, so a set of reads
+   * describes one state of the chain and none of them looks the height up:
+   *
+   *   const snapshot = labcoat.at(await labcoat.getIndexedHeight())
+   *
+   * It shares this client's endpoint. Balances and `getIndexedHeight` are
+   * not pinned: they always answer from the current index.
+   */
+  at(height: number): LabcoatWebClient {
+    if (!Number.isSafeInteger(height) || height < 0) {
+      throw new LabcoatClientError("ARG_INVALID", "height must be a non-negative safe integer")
+    }
+    const pinned = new LabcoatWebClient(this.options)
+    pinned.connection = this.connection
+    pinned.pinnedHeight = height
+    return pinned
+  }
+
+  /**
+   * A handle on one contract, typed from its ABI.
+   *
+   * By manifest name, the ABI is the one built for that deployment:
+   *
+   *   const count = await labcoat.contract("counter").read.getCount()
+   *
+   * Any other contract — a clone a factory made, a contract another project
+   * deployed — takes its id and the ABI it shares:
+   *
+   *   const clone = labcoat.contract("2:12", abiCounter)
+   */
+  contract<N extends TypedContractName>(name: N): ContractHandle<ContractAbi<N>>
+  contract<A extends AbiDocument>(target: AlkaneIdLike, abi: A): ContractHandle<A>
+  contract(target: AlkaneIdLike, abi?: AbiDocument): unknown {
+    const resolved = this.resolveContract(target)
+    const document = abi ?? builtAbi(resolved.artifact)
+    if (document === undefined) {
+      throw new LabcoatClientError(
+        "ABI_UNKNOWN",
+        `no ABI was built for ${describe(target)}; pass one: contract(${JSON.stringify(resolved.id)}, abi)`,
+      )
+    }
+    const read: Record<string, (...args: AbiArg[]) => Promise<AbiValue>> = {}
+    const tryRead: Record<string, (...args: AbiArg[]) => Promise<ReadResult<AbiValue>>> = {}
+    for (const [key, method] of methodKeys(document)) {
+      tryRead[key] = (...args) => this.readMethod(resolved, method, args)
+      read[key] = async (...args) => {
+        const result = await this.readMethod(resolved, method, args)
+        if (result.status === "revert") throw result.error
+        return result.value
+      }
+    }
+    const handle: ContractHandle = { id: resolved.id, abi: document, read, tryRead }
+    return handle
+  }
+
+  private async readMethod(
+    contract: ResolvedContract,
+    method: AbiMethod,
+    args: readonly AbiArg[],
+  ): Promise<ReadResult<AbiValue>> {
+    const words = encodeAbiArgs(method, args)
+    const { data, gasUsed, error } = await this.connection.simulate(
+      [contract.block, contract.tx, method.opcode, ...words],
+      this.pinnedHeight,
+    )
+    if (error !== null) {
+      const reason = revertReason(error)
+      return {
+        status: "revert",
+        reason,
+        error: new ContractRevertError({
+          reason,
+          contract: contract.id,
+          method: method.name,
+          gasUsed,
+          data,
+        }),
+        gasUsed,
+        data,
+      }
+    }
+    return { status: "success", value: decodeTyped(method, data), gasUsed, data }
+  }
+
+  /** Height of the Alkanes secondary index — the state every read reflects. */
+  getIndexedHeight(): Promise<number> {
+    return this.connection.indexedHeight()
   }
 
   /**
@@ -909,7 +1404,7 @@ export class LabcoatWebClient {
     pushProtoVarintField(protocolTag, 1, ALKANES_PROTOCOL_TAG)
     pushProtoBytesField(request, 2, Uint8Array.from(protocolTag))
 
-    const response = await this.view("protorunesbyaddress", Uint8Array.from(request))
+    const response = await this.connection.view("protorunesbyaddress", Uint8Array.from(request))
     const totals = new Map<string, { block: bigint; tx: bigint; name: string; symbol: string; balance: bigint }>()
 
     // protorune.WalletResponse { outpoints: OutpointResponse[] = 1 }
@@ -961,17 +1456,19 @@ export class LabcoatWebClient {
   }
 
   /**
-   * Read-only simulation against indexed chain state. `contract` is a
-   * manifest contract name or a "block:tx" id; `method` is an ABI method
-   * name (typed args, decoded return) or a decimal opcode (raw u128 args,
-   * raw return). Pass `options.height` to reuse an already-fetched indexed
-   * height and save a round trip.
+   * The untyped call underneath `contract().read`: nothing is checked at
+   * compile time and a revert is returned, not thrown. Use it for a
+   * numeric opcode or for raw return bytes.
+   *
+   * `contract` is a manifest contract name or an Alkanes id; `method` is an
+   * ABI method name (typed args, decoded return) or a decimal opcode (raw
+   * u128 args, raw return in `data`).
    */
   async simulate(
-    contract: string,
+    contract: AlkaneIdLike,
     method: string,
-    args: SimulateArg[] = [],
-    options: { height?: number } = {},
+    args: readonly SimulateArg[] = [],
+    options: SimulateOptions = {},
   ): Promise<SimulateResult> {
     const target = this.resolveContract(contract)
     let opcode: bigint
@@ -982,94 +1479,70 @@ export class LabcoatWebClient {
       words = args.map((arg, index) => parseU128(arg, `argument ${index}`))
       returns = null
     } else {
-      const abiMethod = this.resolveMethod(target, method)
+      const abiMethod = resolveMethod(options.abi ?? builtAbi(target.artifact), method)
       opcode = abiMethod.opcode
       words = encodeAbiArgs(abiMethod, args)
       returns = abiMethod.returns
     }
 
-    const height = options.height ?? (await this.getIndexedHeight())
-    const calldata = encodeCellpack([target.block, target.tx, opcode, ...words])
-    // alkanes.MessageContextParcel { height = 4, calldata = 5 }
-    const parcel: number[] = []
-    pushProtoVarintField(parcel, 4, BigInt(height))
-    pushProtoBytesField(parcel, 5, calldata)
-
-    const response = await this.view("simulate", Uint8Array.from(parcel))
-
-    // alkanes.SimulateResponse { execution = 1, gas_used = 2, error = 3 }
-    let data: Uint8Array = new Uint8Array(0)
-    let gasUsed = 0n
-    let error: string | null = null
-    const reader = new ProtoReader(response)
-    while (!reader.atEnd()) {
-      const { field, wire } = reader.readField()
-      if (field === 1 && wire === 2) {
-        // alkanes.ExtendedCallResponse { data = 3 }
-        const execution = new ProtoReader(reader.readBytes())
-        while (!execution.atEnd()) {
-          const item = execution.readField()
-          if (item.field === 3 && item.wire === 2) data = execution.readBytes()
-          else execution.skip(item.wire)
-        }
-      } else if (field === 2 && wire === 0) {
-        gasUsed = reader.readVarint()
-      } else if (field === 3 && wire === 2) {
-        error = new TextDecoder("utf-8", { fatal: false }).decode(reader.readBytes())
-        if (error.length === 0) error = null
-      } else {
-        reader.skip(wire)
-      }
-    }
-
-    const status = error === null ? "success" : "revert"
+    const { data, gasUsed, error } = await this.connection.simulate(
+      [target.block, target.tx, opcode, ...words],
+      options.height ?? this.pinnedHeight,
+    )
     return {
-      status,
+      status: error === null ? "success" : "revert",
       gasUsed,
       error,
       data,
-      value: status === "success" && returns !== null ? decodeReturn(returns, data) : null,
+      value: error === null && returns !== null ? decodeReturn(returns, data) : null,
     }
   }
 
-  private resolveContract(contract: string): { block: bigint; tx: bigint; artifact: string | null } {
-    if (contract.includes(":")) {
-      const ref = parseAlkaneRef(contract, "contract id")
-      return { block: ref.block, tx: ref.tx, artifact: null }
+  private resolveContract(contract: AlkaneIdLike): ResolvedContract {
+    let ref: { block: bigint; tx: bigint }
+    let artifact: string | null = null
+    if (typeof contract === "string" && !contract.includes(":")) {
+      const deployment = (CONTRACTS as Record<string, ContractDeployment>)[contract]
+      if (deployment === undefined) {
+        const known = Object.keys(CONTRACTS).join(", ")
+        throw new LabcoatClientError(
+          "CONTRACT_UNKNOWN",
+          `no contract "${contract}" in the generated manifest${known.length > 0 ? ` (known: ${known})` : ""}`,
+        )
+      }
+      ref = parseAlkaneRef(deployment.id, `manifest id for ${contract}`)
+      artifact = deployment.artifact
+    } else {
+      ref = parseAlkaneRef(contract, "contract id")
     }
-    const deployment = MANIFEST.contracts[contract]
-    if (deployment === undefined) {
-      const known = Object.keys(MANIFEST.contracts).join(", ")
-      throw new LabcoatClientError(
-        "CONTRACT_UNKNOWN",
-        `no contract "${contract}" in the generated manifest${known.length > 0 ? ` (known: ${known})` : ""}`,
-      )
-    }
-    const ref = parseAlkaneRef(deployment.id, `manifest id for ${contract}`)
-    return { block: ref.block, tx: ref.tx, artifact: deployment.artifact }
+    return { ...ref, id: `${ref.block}:${ref.tx}`, artifact }
   }
+}
 
-  private resolveMethod(
-    target: { artifact: string | null },
-    method: string,
-  ): AbiMethod {
-    if (target.artifact === null) {
-      throw new LabcoatClientError(
-        "METHOD_UNKNOWN",
-        `method "${method}" needs ABI metadata; call by manifest contract name or use a numeric opcode`,
-      )
-    }
-    const abi = ABIS[target.artifact]
-    const resolved = abi?.methods.find((candidate) => candidate.name === method)
-    if (resolved === undefined) {
-      const available = abi?.methods.map((candidate) => candidate.name).join(", ") ?? ""
-      throw new LabcoatClientError(
-        "METHOD_UNKNOWN",
-        `ABI method "${method}" was not found${available.length > 0 ? `; available methods: ${available}` : ""}`,
-      )
-    }
-    return resolved
+function describe(target: AlkaneIdLike): string {
+  return typeof target === "string" ? `"${target}"` : `${target.block}:${target.tx}`
+}
+
+function builtAbi(artifact: string | null): AbiDocument | undefined {
+  return artifact === null ? undefined : (ABIS as Record<string, AbiDocument>)[artifact]
+}
+
+function resolveMethod(abi: AbiDocument | undefined, method: string): AbiMethod {
+  if (abi === undefined) {
+    throw new LabcoatClientError(
+      "METHOD_UNKNOWN",
+      `method "${method}" needs ABI metadata; call by manifest contract name, pass options.abi, or use a numeric opcode`,
+    )
   }
+  const resolved = abi.methods.find((candidate) => candidate.name === method)
+  if (resolved === undefined) {
+    const available = abi.methods.map((candidate) => candidate.name).join(", ")
+    throw new LabcoatClientError(
+      "METHOD_UNKNOWN",
+      `ABI method "${method}" was not found${available.length > 0 ? `; available methods: ${available}` : ""}`,
+    )
+  }
+  return resolved
 }
 
 function decodeBalanceSheetItem(
@@ -1400,7 +1873,7 @@ mod tests {
         };
         let files = generate_web(&inputs).unwrap();
         let manifest = &files[0].contents;
-        assert!(manifest.contains("contracts: {\n  },"));
+        assert!(manifest.contains("export const CONTRACTS = {\n} as const"));
         assert!(manifest.contains("chainId: null"));
     }
 

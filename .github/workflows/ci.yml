@@ -203,6 +203,8 @@ jobs:
             echo '::error::oyl-sdk reference found in a lockfile (banned — see TOOLCHAIN.md)'
             exit 1
           fi
+      - name: Generated web client type and runtime checks
+        run: ./scripts/tests/generate-web-client-test.sh
       - name: "Guard: oyl-sdk is banned from the cargo tree"
         run: |
           if grep -riE 'oyl[_/-]?sdk|"oyl"|/oyl[-.]' Cargo.lock; then

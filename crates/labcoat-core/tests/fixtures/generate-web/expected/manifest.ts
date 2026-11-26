@@ -38,39 +38,49 @@ export interface WebManifest {
   contracts: Record<string, ContractDeployment>
 }
 
+/**
+ * Deployment records keyed by labcoat.lock contract name, with literal
+ * types: the generated client derives contract names and their ABIs from
+ * this constant.
+ */
+export const CONTRACTS = {
+  "fire": {
+    id: "4:65011",
+    txid: "1111111111111111111111111111111111111111111111111111111111111111",
+    wasmSha256: "73767b02082691113f2035e0f5f88c50985c28ee9eab23f6ae58fd3821aff265",
+    chainId: "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+    artifact: "overwrite-test-token",
+  },
+  "legacy": {
+    id: "4:100",
+    txid: "4444444444444444444444444444444444444444444444444444444444444444",
+    wasmSha256: null,
+    chainId: null,
+    artifact: null,
+  },
+  "series": {
+    id: "4:65014",
+    txid: "2222222222222222222222222222222222222222222222222222222222222222",
+    wasmSha256: "8f3c2c41d651a8a03e517b93df0ded4ffe17a9d579cabf3503c2a9578965f02d",
+    chainId: "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+    artifact: "overwrite-series",
+  },
+  "usd": {
+    id: "4:65012",
+    txid: "3333333333333333333333333333333333333333333333333333333333333333",
+    wasmSha256: "73767b02082691113f2035e0f5f88c50985c28ee9eab23f6ae58fd3821aff265",
+    chainId: "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+    artifact: "overwrite-test-token",
+  },
+} as const satisfies Record<string, ContractDeployment>
+
+/** A contract name recorded in labcoat.lock for this network. */
+export type ContractName = keyof typeof CONTRACTS
+
 export const MANIFEST: WebManifest = {
   network: "labcoat",
   bitcoinNetwork: "regtest",
   rpcUrl: "http://127.0.0.1:18443",
   chainId: null,
-  contracts: {
-    "fire": {
-      id: "4:65011",
-      txid: "1111111111111111111111111111111111111111111111111111111111111111",
-      wasmSha256: "73767b02082691113f2035e0f5f88c50985c28ee9eab23f6ae58fd3821aff265",
-      chainId: "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
-      artifact: "overwrite-test-token",
-    },
-    "legacy": {
-      id: "4:100",
-      txid: "4444444444444444444444444444444444444444444444444444444444444444",
-      wasmSha256: null,
-      chainId: null,
-      artifact: null,
-    },
-    "series": {
-      id: "4:65014",
-      txid: "2222222222222222222222222222222222222222222222222222222222222222",
-      wasmSha256: "8f3c2c41d651a8a03e517b93df0ded4ffe17a9d579cabf3503c2a9578965f02d",
-      chainId: "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
-      artifact: "overwrite-series",
-    },
-    "usd": {
-      id: "4:65012",
-      txid: "3333333333333333333333333333333333333333333333333333333333333333",
-      wasmSha256: "73767b02082691113f2035e0f5f88c50985c28ee9eab23f6ae58fd3821aff265",
-      chainId: "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
-      artifact: "overwrite-test-token",
-    },
-  },
+  contracts: CONTRACTS,
 }

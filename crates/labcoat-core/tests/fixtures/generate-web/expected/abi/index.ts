@@ -7,7 +7,7 @@ import { abiOverwriteTestToken } from "./overwrite-test-token"
 export type { AbiDocument, AbiMethod, AbiParam } from "./document"
 
 /** Every built contract ABI, keyed by build artifact name. */
-export const ABIS: Record<string, AbiDocument> = {
+export const ABIS = {
   "overwrite-series": abiOverwriteSeries,
   "overwrite-test-token": abiOverwriteTestToken,
-}
+} as const satisfies Record<string, AbiDocument>
