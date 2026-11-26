@@ -2755,6 +2755,7 @@ dependencies = [
  "labcoat-deploy",
  "ordinals",
  "prost",
+ "protorune-support",
  "rand 0.8.5",
  "serde",
  "serde_json",
