@@ -4,9 +4,20 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+### Added
+
+- test contracts that call other contracts in `labcoat-test`: `ContractHarness::deploy(id, name)` makes another built contract callable at an Alkane id, with `storage_value_of` and `set_storage_of` to inspect and seed its storage. `call`, `staticcall`, and `delegatecall` run the callee, a failed call leaves every contract's storage as it was, and `block_header()` answers from the context's block. Balances and fuel are still not modelled
+- set the chain a contract observes in `labcoat-test` through `ChainContext::height`, `block`, and `transaction`. The harness used to report height 0 and an empty block and transaction, so nothing that depends on block height could be tested without a network
+- mine up to 100,000 blocks with one `labcoat mine`, requested from the node in batches of 1,000. The limit was 1,000
+
 ### Changed
 
 - show `assigned at deploy` in `labcoat plan` for a contract that has no id yet, under a column headed `Id`. The plan used to print `1:0`, the instruction that asks the protocol for the next free id, under `Id/Target`, which read as a prediction that `labcoat deploy` then contradicted with `2:n`. JSON output is unchanged
+
+### Fixed
+
+- report the fuel each call used in `labcoat trace` and in the trace a `labcoat call` returns. Every `return` and `revert` event said `fuel_used: 0`, although the indexer had recorded the figure
+- explain a contract whose struct is not named after its message enum. The compiler reports the mismatch at `derive(MessageDispatch)` without naming the cause; `COMPILE_FAILED` now carries a hint, and generated contracts note the rule beside the struct
 
 ## [0.4.0](https://github.com/jonatns/labcoat/compare/cli-v0.3.0...cli-v0.4.0) - 2026-11-25
 
