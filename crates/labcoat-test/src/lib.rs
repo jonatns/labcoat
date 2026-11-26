@@ -45,6 +45,14 @@ pub struct ChainContext {
     pub caller: (u128, u128),
     pub vout: u128,
     pub incoming: Vec<AlkaneTransfer>,
+    /// Block height the contract reads through `height()`.
+    pub height: u64,
+    /// Consensus-encoded block the contract reads through `block()`. Its
+    /// first 80 bytes also answer `block_header()`.
+    pub block: Vec<u8>,
+    /// Consensus-encoded transaction the contract reads through
+    /// `transaction()`.
+    pub transaction: Vec<u8>,
 }
 
 impl ChainContext {
@@ -52,8 +60,7 @@ impl ChainContext {
         Self {
             myself: (1, 1),
             caller: (2, 2),
-            vout: 0,
-            incoming: Vec::new(),
+            ..Self::default()
         }
     }
 }
@@ -101,10 +108,61 @@ struct AbiMethod {
     opcode: u128,
 }
 
+type AlkaneId = (u128, u128);
+type Storage = BTreeMap<Vec<u8>, Vec<u8>>;
+
+/// Nested calls deeper than this revert instead of exhausting the host stack.
+const MAX_CALL_DEPTH: usize = 64;
+/// The Alkanes precompile that answers `block_header()`.
+const BLOCK_HEADER_PRECOMPILE: AlkaneId = (800_000_000, 0);
+const BLOCK_HEADER_LEN: usize = 80;
+/// Prefix of the return data of a reverted call, followed by its message.
+const REVERT_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
+
+/// Every contract a call can reach, and the chain it observes.
+#[derive(Clone, Default)]
+struct World {
+    modules: BTreeMap<AlkaneId, Module>,
+    storage: BTreeMap<AlkaneId, Storage>,
+    height: u64,
+    block: Vec<u8>,
+    transaction: Vec<u8>,
+}
+
+/// One contract execution: a top-level call or a call one contract makes.
+struct Frame {
+    /// Whose code runs.
+    code: AlkaneId,
+    /// Whose storage it reads and writes. Differs from `code` in a
+    /// delegatecall.
+    account: AlkaneId,
+    myself: AlkaneId,
+    caller: AlkaneId,
+    vout: u128,
+    incoming: Vec<AlkaneTransfer>,
+    /// Opcode and arguments, as 16-byte little-endian words.
+    inputs: Vec<u8>,
+    depth: usize,
+}
+
 struct HostState {
     wasi: WasiP1Ctx,
     context: Vec<u8>,
-    storage: BTreeMap<Vec<u8>, Vec<u8>>,
+    engine: Engine,
+    world: World,
+    account: AlkaneId,
+    myself: AlkaneId,
+    caller: AlkaneId,
+    vout: u128,
+    depth: usize,
+    /// What the most recent call this frame made returned.
+    returndata: Vec<u8>,
+}
+
+impl HostState {
+    fn storage(&self) -> Option<&Storage> {
+        self.world.storage.get(&self.account)
+    }
 }
 
 pub struct ContractHarness {
@@ -112,14 +170,21 @@ pub struct ContractHarness {
     module: Module,
     abi: ContractAbi,
     context: ChainContext,
-    storage: BTreeMap<Vec<u8>, Vec<u8>>,
+    storage: Storage,
+    /// Other contracts this one can call, by Alkane id.
+    deployed: BTreeMap<AlkaneId, Module>,
+    deployed_storage: BTreeMap<AlkaneId, Storage>,
+}
+
+fn artifact_dir() -> PathBuf {
+    std::env::var_os("LABCOAT_TEST_ARTIFACT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(".labcoat/test-artifacts"))
 }
 
 impl ContractHarness {
     pub fn for_contract(name: &str) -> Result<Self, HarnessError> {
-        let root = std::env::var_os("LABCOAT_TEST_ARTIFACT_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(".labcoat/test-artifacts"));
+        let root = artifact_dir();
         Self::from_files(
             root.join(format!("{name}.wasm")),
             root.join(format!("{name}.abi.json")),
@@ -147,7 +212,58 @@ impl ContractHarness {
             abi,
             context: ChainContext::deterministic(),
             storage: BTreeMap::new(),
+            deployed: BTreeMap::new(),
+            deployed_storage: BTreeMap::new(),
         })
+    }
+
+    /// Make another built contract callable at `id`, with empty storage.
+    ///
+    /// The contract under test reaches it with `call`, `staticcall`, or
+    /// `delegatecall`. Alkane balances are not tracked: a call hands its
+    /// outgoing transfers to the callee and receives the callee's in return,
+    /// and `balance()` always reads zero.
+    pub fn deploy(&mut self, id: (u128, u128), name: &str) -> Result<&mut Self, HarnessError> {
+        self.deploy_file(id, artifact_dir().join(format!("{name}.wasm")))
+    }
+
+    /// Make the contract compiled at `wasm_path` callable at `id`.
+    pub fn deploy_file(
+        &mut self,
+        id: (u128, u128),
+        wasm_path: impl AsRef<Path>,
+    ) -> Result<&mut Self, HarnessError> {
+        let wasm_path = wasm_path.as_ref();
+        if !wasm_path.exists() {
+            return Err(HarnessError::ArtifactMissing(wasm_path.to_path_buf()));
+        }
+        let module = Module::from_file(&self.engine, wasm_path).map_err(runtime_error)?;
+        self.deployed.insert(id, module);
+        self.deployed_storage.insert(id, BTreeMap::new());
+        Ok(self)
+    }
+
+    /// Return a raw storage value of a contract added with [`Self::deploy`].
+    pub fn storage_value_of(&self, id: (u128, u128), key: impl AsRef<[u8]>) -> Option<&[u8]> {
+        self.deployed_storage
+            .get(&id)?
+            .get(key.as_ref())
+            .map(Vec::as_slice)
+    }
+
+    /// Seed or replace a raw storage value of a contract added with
+    /// [`Self::deploy`].
+    pub fn set_storage_of(
+        &mut self,
+        id: (u128, u128),
+        key: impl AsRef<[u8]>,
+        value: impl AsRef<[u8]>,
+    ) -> &mut Self {
+        self.deployed_storage
+            .entry(id)
+            .or_default()
+            .insert(key.as_ref().to_vec(), value.as_ref().to_vec());
+        self
     }
 
     pub fn context(&self) -> &ChainContext {
@@ -203,38 +319,216 @@ impl ContractHarness {
         opcode: u128,
         args: &[Value],
     ) -> Result<CallResult, HarnessError> {
-        let context = serialize_context(&self.context, opcode, args)?;
-        let mut linker: Linker<HostState> = Linker::new(&self.engine);
-        p1::add_to_linker_sync(&mut linker, |state| &mut state.wasi).map_err(runtime_error)?;
-        add_alkanes_imports(&mut linker)?;
-
-        let state = HostState {
-            wasi: WasiCtxBuilder::new().build_p1(),
-            context,
-            storage: self.storage.clone(),
+        let myself = self.context.myself;
+        // The contract under test is deployed last, so it wins its own id.
+        let mut world = World {
+            modules: self.deployed.clone(),
+            storage: self.deployed_storage.clone(),
+            height: self.context.height,
+            block: self.context.block.clone(),
+            transaction: self.context.transaction.clone(),
         };
-        let mut store = Store::new(&self.engine, state);
-        let instance = linker
-            .instantiate(&mut store, &self.module)
-            .map_err(runtime_error)?;
-        if let Ok(initialize) = instance.get_typed_func::<(), ()>(&mut store, "_initialize") {
-            initialize
-                .call(&mut store, ())
-                .map_err(|e| HarnessError::Revert(format!("{e:#}")))?;
-        }
-        let execute = instance
-            .get_typed_func::<(), i32>(&mut store, "__execute")
-            .map_err(runtime_error)?;
-        let pointer = execute
-            .call(&mut store, ())
-            .map_err(|e| HarnessError::Revert(format!("{e:#}")))?;
-        let memory = instance
-            .get_memory(&mut store, "memory")
-            .ok_or_else(|| HarnessError::InvalidResponse("missing memory export".into()))?;
-        let decoded = decode_response(memory.data(&store), pointer)?;
-        self.storage.extend(decoded.storage);
+        world.modules.insert(myself, self.module.clone());
+        world.storage.insert(myself, self.storage.clone());
+
+        let frame = Frame {
+            code: myself,
+            account: myself,
+            myself,
+            caller: self.context.caller,
+            vout: self.context.vout,
+            incoming: self.context.incoming.clone(),
+            inputs: serialize_inputs(opcode, args)?,
+            depth: 0,
+        };
+        let (mut world, result) = run_frame(&self.engine, world, frame);
+        // A failed call changes nothing: the world it ran in is dropped.
+        let decoded = result?;
+        world
+            .storage
+            .entry(myself)
+            .or_default()
+            .extend(decoded.storage);
+        self.storage = world.storage.remove(&myself).unwrap_or_default();
+        self.deployed_storage = world.storage;
         Ok(decoded.result)
     }
+}
+
+/// Run one frame to completion. The world comes back whether or not the
+/// frame succeeded; the caller decides what to keep.
+fn run_frame(
+    engine: &Engine,
+    world: World,
+    frame: Frame,
+) -> (World, Result<DecodedResponse, HarnessError>) {
+    let Some(module) = world.modules.get(&frame.code).cloned() else {
+        let (block, tx) = frame.code;
+        return (
+            world,
+            Err(HarnessError::Revert(format!(
+                "no contract is deployed at {block}:{tx} in this harness"
+            ))),
+        );
+    };
+    let state = HostState {
+        wasi: WasiCtxBuilder::new().build_p1(),
+        context: serialize_frame_context(&frame),
+        engine: engine.clone(),
+        world,
+        account: frame.account,
+        myself: frame.myself,
+        caller: frame.caller,
+        vout: frame.vout,
+        depth: frame.depth,
+        returndata: Vec::new(),
+    };
+    let mut store = Store::new(engine, state);
+    let result = execute(&mut store, &module);
+    (store.into_data().world, result)
+}
+
+fn execute(store: &mut Store<HostState>, module: &Module) -> Result<DecodedResponse, HarnessError> {
+    let mut linker: Linker<HostState> = Linker::new(store.engine());
+    p1::add_to_linker_sync(&mut linker, |state| &mut state.wasi).map_err(runtime_error)?;
+    add_alkanes_imports(&mut linker)?;
+    let instance = linker
+        .instantiate(&mut *store, module)
+        .map_err(runtime_error)?;
+    if let Ok(initialize) = instance.get_typed_func::<(), ()>(&mut *store, "_initialize") {
+        initialize
+            .call(&mut *store, ())
+            .map_err(|e| HarnessError::Revert(format!("{e:#}")))?;
+    }
+    let execute = instance
+        .get_typed_func::<(), i32>(&mut *store, "__execute")
+        .map_err(runtime_error)?;
+    let pointer = execute
+        .call(&mut *store, ())
+        .map_err(|e| HarnessError::Revert(format!("{e:#}")))?;
+    let memory = instance
+        .get_memory(&mut *store, "memory")
+        .ok_or_else(|| HarnessError::InvalidResponse("missing memory export".into()))?;
+    decode_response(memory.data(&*store), pointer)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CallKind {
+    Call,
+    Static,
+    Delegate,
+}
+
+/// A call one contract makes to another. Returns the length of the return
+/// data, negated when the callee reverted, as the Alkanes host does.
+fn extcall(
+    caller: &mut Caller<'_, HostState>,
+    kind: CallKind,
+    cellpack: i32,
+    outgoing: i32,
+    checkpoint: i32,
+) -> wasmtime::Result<i32> {
+    let cellpack = read_arraybuffer(caller, cellpack)?;
+    let outgoing = read_arraybuffer(caller, outgoing)?;
+    let checkpoint = read_arraybuffer(caller, checkpoint)?;
+    let words: Vec<u128> = cellpack
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .map(|word| u128::from_le_bytes(*word))
+        .collect();
+    let [block, tx, ..] = words[..] else {
+        wasmtime::bail!("a call's cellpack has no target");
+    };
+    let target = (block, tx);
+    let (transfers, _) = read_transfers(&outgoing, 0).map_err(wasmtime::Error::msg)?;
+    let (pending, _) = read_storage(&checkpoint, 0).map_err(wasmtime::Error::msg)?;
+
+    let state = caller.data_mut();
+    let engine = state.engine.clone();
+    let mut world = std::mem::take(&mut state.world);
+    let outcome: Result<CallResult, String> = if state.depth + 1 >= MAX_CALL_DEPTH {
+        Err(format!("calls nested deeper than {MAX_CALL_DEPTH}"))
+    } else if target == BLOCK_HEADER_PRECOMPILE {
+        match world.block.get(..BLOCK_HEADER_LEN) {
+            Some(header) => Ok(CallResult {
+                transfers: Vec::new(),
+                data: header.to_vec(),
+            }),
+            None => Err("no block is set; assign ChainContext::block".into()),
+        }
+    } else {
+        let before = world.storage.clone();
+        // The callee sees what its caller has written so far.
+        world
+            .storage
+            .entry(state.account)
+            .or_default()
+            .extend(pending);
+        let frame = Frame {
+            code: target,
+            account: if kind == CallKind::Delegate {
+                state.account
+            } else {
+                target
+            },
+            myself: if kind == CallKind::Delegate {
+                state.myself
+            } else {
+                target
+            },
+            caller: if kind == CallKind::Delegate {
+                state.caller
+            } else {
+                state.myself
+            },
+            vout: state.vout,
+            incoming: transfers,
+            inputs: cellpack[32..].to_vec(),
+            depth: state.depth + 1,
+        };
+        let account = frame.account;
+        let (returned, result) = run_frame(&engine, world, frame);
+        world = returned;
+        match result {
+            Ok(decoded) if kind == CallKind::Static => {
+                world.storage = before;
+                Ok(decoded.result)
+            }
+            Ok(decoded) => {
+                world
+                    .storage
+                    .entry(account)
+                    .or_default()
+                    .extend(decoded.storage);
+                Ok(decoded.result)
+            }
+            Err(error) => {
+                world.storage = before;
+                Err(error.to_string())
+            }
+        }
+    };
+
+    let state = caller.data_mut();
+    state.world = world;
+    let (reverted, response) = match outcome {
+        Ok(response) => (false, response),
+        Err(message) => {
+            let mut data = REVERT_SELECTOR.to_vec();
+            data.extend_from_slice(message.as_bytes());
+            (
+                true,
+                CallResult {
+                    transfers: Vec::new(),
+                    data,
+                },
+            )
+        }
+    };
+    state.returndata = serialize_call_response(&response);
+    let length = i32::try_from(state.returndata.len())?;
+    Ok(if reverted { -length } else { length })
 }
 
 fn runtime_error(error: wasmtime::Error) -> HarnessError {
@@ -311,8 +605,8 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
                 let key = read_arraybuffer(&mut caller, pointer)?;
                 Ok(caller
                     .data()
-                    .storage
-                    .get(&key)
+                    .storage()
+                    .and_then(|storage| storage.get(&key))
                     .map(Vec::len)
                     .unwrap_or(0)
                     .try_into()?)
@@ -328,7 +622,12 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
              output: i32|
              -> wasmtime::Result<i32> {
                 let key = read_arraybuffer(&mut caller, key_pointer)?;
-                let value = caller.data().storage.get(&key).cloned().unwrap_or_default();
+                let value = caller
+                    .data()
+                    .storage()
+                    .and_then(|storage| storage.get(&key))
+                    .cloned()
+                    .unwrap_or_default();
                 write_arraybuffer(&mut caller, output, &value)
             },
         )
@@ -372,7 +671,8 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
             "env",
             "__height",
             |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
-                write_arraybuffer(&mut caller, output, &0u64.to_le_bytes())?;
+                let height = caller.data().world.height;
+                write_arraybuffer(&mut caller, output, &height.to_le_bytes())?;
                 Ok(())
             },
         )
@@ -382,33 +682,63 @@ fn add_alkanes_imports(linker: &mut Linker<HostState>) -> Result<(), HarnessErro
             "env",
             "__returndatacopy",
             |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
-                write_arraybuffer(&mut caller, output, &[])?;
+                let returndata = caller.data().returndata.clone();
+                write_arraybuffer(&mut caller, output, &returndata)?;
                 Ok(())
             },
         )
         .map_err(runtime_error)?;
     linker
-        .func_wrap("env", "__request_transaction", || -> i32 { 0 })
+        .func_wrap(
+            "env",
+            "__request_transaction",
+            |caller: Caller<'_, HostState>| caller.data().world.transaction.len() as i32,
+        )
         .map_err(runtime_error)?;
     linker
-        .func_wrap("env", "__load_transaction", |_output: i32| {})
+        .func_wrap(
+            "env",
+            "__load_transaction",
+            |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
+                let transaction = caller.data().world.transaction.clone();
+                memory(&mut caller)?.write(&mut caller, usize::try_from(output)?, &transaction)?;
+                Ok(())
+            },
+        )
         .map_err(runtime_error)?;
     linker
-        .func_wrap("env", "__request_block", || -> i32 { 0 })
+        .func_wrap("env", "__request_block", |caller: Caller<'_, HostState>| {
+            caller.data().world.block.len() as i32
+        })
         .map_err(runtime_error)?;
     linker
-        .func_wrap("env", "__load_block", |_output: i32| {})
+        .func_wrap(
+            "env",
+            "__load_block",
+            |mut caller: Caller<'_, HostState>, output: i32| -> wasmtime::Result<()> {
+                let block = caller.data().world.block.clone();
+                memory(&mut caller)?.write(&mut caller, usize::try_from(output)?, &block)?;
+                Ok(())
+            },
+        )
         .map_err(runtime_error)?;
-    for name in ["__call", "__staticcall", "__delegatecall"] {
+    for (name, kind) in [
+        ("__call", CallKind::Call),
+        ("__staticcall", CallKind::Static),
+        ("__delegatecall", CallKind::Delegate),
+    ] {
         linker
             .func_wrap(
                 "env",
                 name,
-                |_cellpack: i32,
-                 _incoming_alkanes: i32,
-                 _checkpoint: i32,
-                 _start_fuel: u64|
-                 -> i32 { 0 },
+                move |mut caller: Caller<'_, HostState>,
+                      cellpack: i32,
+                      outgoing: i32,
+                      checkpoint: i32,
+                      _start_fuel: u64|
+                      -> wasmtime::Result<i32> {
+                    extcall(&mut caller, kind, cellpack, outgoing, checkpoint)
+                },
             )
             .map_err(runtime_error)?;
     }
@@ -456,28 +786,8 @@ fn write_arraybuffer(
     Ok(i32::try_from(pointer)?)
 }
 
-fn serialize_context(
-    context: &ChainContext,
-    opcode: u128,
-    args: &[Value],
-) -> Result<Vec<u8>, HarnessError> {
-    let mut output = Vec::new();
-    for value in [
-        context.myself.0,
-        context.myself.1,
-        context.caller.0,
-        context.caller.1,
-        context.vout,
-        context.incoming.len() as u128,
-    ] {
-        output.extend_from_slice(&value.to_le_bytes());
-    }
-    for incoming in &context.incoming {
-        output.extend_from_slice(&incoming.block.to_le_bytes());
-        output.extend_from_slice(&incoming.tx.to_le_bytes());
-        output.extend_from_slice(&incoming.value.to_le_bytes());
-    }
-    output.extend_from_slice(&opcode.to_le_bytes());
+fn serialize_inputs(opcode: u128, args: &[Value]) -> Result<Vec<u8>, HarnessError> {
+    let mut output = opcode.to_le_bytes().to_vec();
     for arg in args {
         match arg {
             Value::U128(value) => output.extend_from_slice(&value.to_le_bytes()),
@@ -497,6 +807,41 @@ fn serialize_context(
         }
     }
     Ok(output)
+}
+
+fn write_transfers(output: &mut Vec<u8>, transfers: &[AlkaneTransfer]) {
+    output.extend_from_slice(&(transfers.len() as u128).to_le_bytes());
+    for transfer in transfers {
+        output.extend_from_slice(&transfer.block.to_le_bytes());
+        output.extend_from_slice(&transfer.tx.to_le_bytes());
+        output.extend_from_slice(&transfer.value.to_le_bytes());
+    }
+}
+
+/// The context a contract loads: who it is, who called, what arrived, and
+/// the opcode and arguments.
+fn serialize_frame_context(frame: &Frame) -> Vec<u8> {
+    let mut output = Vec::new();
+    for value in [
+        frame.myself.0,
+        frame.myself.1,
+        frame.caller.0,
+        frame.caller.1,
+        frame.vout,
+    ] {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    write_transfers(&mut output, &frame.incoming);
+    output.extend_from_slice(&frame.inputs);
+    output
+}
+
+/// What a caller reads back from a call: transfers, then data.
+fn serialize_call_response(response: &CallResult) -> Vec<u8> {
+    let mut output = Vec::new();
+    write_transfers(&mut output, &response.transfers);
+    output.extend_from_slice(&response.data);
+    output
 }
 
 struct DecodedResponse {
@@ -519,37 +864,8 @@ fn decode_response(memory: &[u8], pointer: i32) -> Result<DecodedResponse, Harne
     let response = memory
         .get(pointer..pointer + length)
         .ok_or_else(|| HarnessError::InvalidResponse("response exceeds memory".into()))?;
-    let (count, mut offset) = read_u128(response, 0)?;
-    let mut transfers = Vec::new();
-    for _ in 0..count {
-        let (block, next) = read_u128(response, offset)?;
-        let (tx, next2) = read_u128(response, next)?;
-        let (value, next3) = read_u128(response, next2)?;
-        offset = next3;
-        transfers.push(AlkaneTransfer { block, tx, value });
-    }
-    let (storage_count, mut offset) = read_u32(response, offset)?;
-    let mut storage = BTreeMap::new();
-    for _ in 0..storage_count {
-        let (key_length, next) = read_u32(response, offset)?;
-        let key_end = next
-            .checked_add(key_length as usize)
-            .ok_or_else(|| HarnessError::InvalidResponse("storage key length overflow".into()))?;
-        let key = response
-            .get(next..key_end)
-            .ok_or_else(|| HarnessError::InvalidResponse("truncated storage key".into()))?
-            .to_vec();
-        let (value_length, value_start) = read_u32(response, key_end)?;
-        let value_end = value_start
-            .checked_add(value_length as usize)
-            .ok_or_else(|| HarnessError::InvalidResponse("storage value length overflow".into()))?;
-        let value = response
-            .get(value_start..value_end)
-            .ok_or_else(|| HarnessError::InvalidResponse("truncated storage value".into()))?
-            .to_vec();
-        storage.insert(key, value);
-        offset = value_end;
-    }
+    let (transfers, offset) = read_transfers(response, 0)?;
+    let (storage, offset) = read_storage(response, offset)?;
     Ok(DecodedResponse {
         result: CallResult {
             transfers,
@@ -557,6 +873,48 @@ fn decode_response(memory: &[u8], pointer: i32) -> Result<DecodedResponse, Harne
         },
         storage,
     })
+}
+
+fn read_transfers(
+    bytes: &[u8],
+    offset: usize,
+) -> Result<(Vec<AlkaneTransfer>, usize), HarnessError> {
+    let (count, mut offset) = read_u128(bytes, offset)?;
+    let mut transfers = Vec::new();
+    for _ in 0..count {
+        let (block, next) = read_u128(bytes, offset)?;
+        let (tx, next) = read_u128(bytes, next)?;
+        let (value, next) = read_u128(bytes, next)?;
+        offset = next;
+        transfers.push(AlkaneTransfer { block, tx, value });
+    }
+    Ok((transfers, offset))
+}
+
+fn read_storage(bytes: &[u8], offset: usize) -> Result<(Storage, usize), HarnessError> {
+    let (count, mut offset) = read_u32(bytes, offset)?;
+    let mut storage = BTreeMap::new();
+    for _ in 0..count {
+        let (key_length, next) = read_u32(bytes, offset)?;
+        let key_end = next
+            .checked_add(key_length as usize)
+            .ok_or_else(|| HarnessError::InvalidResponse("storage key length overflow".into()))?;
+        let key = bytes
+            .get(next..key_end)
+            .ok_or_else(|| HarnessError::InvalidResponse("truncated storage key".into()))?
+            .to_vec();
+        let (value_length, value_start) = read_u32(bytes, key_end)?;
+        let value_end = value_start
+            .checked_add(value_length as usize)
+            .ok_or_else(|| HarnessError::InvalidResponse("storage value length overflow".into()))?;
+        let value = bytes
+            .get(value_start..value_end)
+            .ok_or_else(|| HarnessError::InvalidResponse("truncated storage value".into()))?
+            .to_vec();
+        storage.insert(key, value);
+        offset = value_end;
+    }
+    Ok((storage, offset))
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<(u32, usize), HarnessError> {
@@ -591,7 +949,9 @@ mod tests {
 
     #[test]
     fn context_encoding_includes_transfers_opcode_and_arguments() {
-        let context = ChainContext {
+        let frame = Frame {
+            code: (1, 2),
+            account: (1, 2),
             myself: (1, 2),
             caller: (3, 4),
             vout: 5,
@@ -600,16 +960,239 @@ mod tests {
                 tx: 7,
                 value: 8,
             }],
+            inputs: serialize_inputs(9, &[Value::U128(10), Value::String("AB".into())]).unwrap(),
+            depth: 0,
         };
-        let encoded =
-            serialize_context(&context, 9, &[Value::U128(10), Value::String("AB".into())]).unwrap();
-        let words: Vec<u128> = encoded
+        assert_eq!(
+            words(&serialize_frame_context(&frame)),
+            vec![1, 2, 3, 4, 5, 1, 6, 7, 8, 9, 10, 0x4241]
+        );
+    }
+
+    fn words(bytes: &[u8]) -> Vec<u128> {
+        bytes
             .as_chunks::<16>()
             .0
             .iter()
             .map(|word| u128::from_le_bytes(*word))
-            .collect();
-        assert_eq!(words, vec![1, 2, 3, 4, 5, 1, 6, 7, 8, 9, 10, 0x4241]);
+            .collect()
+    }
+
+    /// A scratch directory of compiled test contracts, removed on drop.
+    struct Contracts(PathBuf);
+
+    impl Contracts {
+        fn new(test: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("labcoat-{test}-{}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn wasm(&self, name: &str, wat: &str) -> PathBuf {
+            let path = self.0.join(format!("{name}.wasm"));
+            std::fs::write(&path, wat::parse_str(wat).unwrap()).unwrap();
+            path
+        }
+
+        fn harness(&self, name: &str, wat: &str) -> ContractHarness {
+            let abi = self.0.join(format!("{name}.abi.json"));
+            std::fs::write(&abi, r#"{"contract":"Test","methods":[]}"#).unwrap();
+            ContractHarness::from_files(self.wasm(name, wat), abi).unwrap()
+        }
+    }
+
+    impl Drop for Contracts {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    fn wat_bytes(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("\\{byte:02x}")).collect()
+    }
+
+    /// Returns its own context as data.
+    const ECHO_CONTEXT: &str = r#"(module
+        (import "env" "__request_context" (func $request (result i32)))
+        (import "env" "__load_context" (func $load (param i32) (result i32)))
+        (memory (export "memory") 1)
+        (func (export "__execute") (result i32)
+            (i32.store (i32.const 100) (i32.add (i32.const 20) (call $request)))
+            (drop (call $load (i32.const 124)))
+            (i32.const 104)))"#;
+
+    /// Stores `hit = yes` and returns `pong`.
+    const WRITER: &str = r#"(module
+        (memory (export "memory") 1)
+        (data (i32.const 100) "\26\00\00\00")
+        (data (i32.const 120) "\01\00\00\00\03\00\00\00hit\03\00\00\00yespong")
+        (func (export "__execute") (result i32) (i32.const 104)))"#;
+
+    const TRAP: &str = r#"(module
+        (memory (export "memory") 1)
+        (func (export "__execute") (result i32) unreachable))"#;
+
+    /// Calls `target` with opcode 7 through the host import `import` and
+    /// returns what the callee returned, or `no` if it reverted.
+    fn caller_wat(import: &str, target: AlkaneId) -> String {
+        let mut cellpack = Vec::new();
+        for word in [target.0, target.1, 7] {
+            cellpack.extend_from_slice(&word.to_le_bytes());
+        }
+        format!(
+            r#"(module
+                (import "env" "{import}" (func $call (param i32 i32 i32 i64) (result i32)))
+                (import "env" "__returndatacopy" (func $copy (param i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "\30\00\00\00{cellpack}")
+                (data (i32.const 60) "\10\00\00\00")
+                (data (i32.const 90) "\04\00\00\00")
+                (data (i32.const 400) "\16\00\00\00")
+                (data (i32.const 424) "no")
+                (func (export "__execute") (result i32)
+                    (local $length i32)
+                    (local.set $length
+                        (call $call (i32.const 4) (i32.const 64) (i32.const 94) (i64.const 0)))
+                    (if (result i32) (i32.lt_s (local.get $length) (i32.const 0))
+                        (then (i32.const 404))
+                        (else
+                            (call $copy (i32.const 220))
+                            (i32.store (i32.const 1000) (i32.add (i32.const 4) (local.get $length)))
+                            (memory.copy
+                                (i32.const 1024)
+                                (i32.const 236)
+                                (i32.sub (local.get $length) (i32.const 16)))
+                            (i32.const 1004)))))"#,
+            cellpack = wat_bytes(&cellpack)
+        )
+    }
+
+    const CALLEE: AlkaneId = (2, 9);
+
+    #[test]
+    fn a_contract_reads_the_height_block_and_transaction_of_its_context() {
+        let contracts = Contracts::new("chain");
+        let mut harness = contracts.harness(
+            "chain",
+            r#"(module
+                (import "env" "__height" (func $height (param i32)))
+                (import "env" "__request_block" (func $block_length (result i32)))
+                (import "env" "__load_block" (func $block (param i32)))
+                (import "env" "__request_transaction" (func $tx_length (result i32)))
+                (import "env" "__load_transaction" (func $tx (param i32)))
+                (memory (export "memory") 1)
+                (func (export "__execute") (result i32)
+                    (call $height (i32.const 20))
+                    (i64.store (i32.const 124) (i64.load (i32.const 20)))
+                    (call $block (i32.const 132))
+                    (call $tx (i32.add (i32.const 132) (call $block_length)))
+                    (i32.store (i32.const 100)
+                        (i32.add (i32.const 28) (i32.add (call $block_length) (call $tx_length))))
+                    (i32.const 104)))"#,
+        );
+        assert_eq!(
+            harness.call_opcode(1, &[]).unwrap().data,
+            0u64.to_le_bytes()
+        );
+
+        harness.context_mut().height = 840_000;
+        harness.context_mut().block = b"block".to_vec();
+        harness.context_mut().transaction = b"tx".to_vec();
+        let mut expected = 840_000u64.to_le_bytes().to_vec();
+        expected.extend_from_slice(b"blocktx");
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data, expected);
+    }
+
+    #[test]
+    fn a_call_runs_the_callee_as_itself_and_keeps_what_it_stores() {
+        let contracts = Contracts::new("call");
+        let mut harness = contracts.harness("caller", &caller_wat("__call", CALLEE));
+        harness
+            .deploy_file(CALLEE, contracts.wasm("echo", ECHO_CONTEXT))
+            .unwrap();
+        let context = harness.call_opcode(1, &[]).unwrap().data;
+        // myself, caller, vout, no transfers, then the opcode it was sent.
+        assert_eq!(words(&context), vec![2, 9, 1, 1, 0, 0, 7]);
+
+        harness
+            .deploy_file(CALLEE, contracts.wasm("writer", WRITER))
+            .unwrap();
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "pong");
+        assert_eq!(harness.storage_value_of(CALLEE, b"hit"), Some(&b"yes"[..]));
+        assert_eq!(harness.storage_value(b"hit"), None);
+    }
+
+    #[test]
+    fn a_staticcall_returns_data_and_discards_what_the_callee_stores() {
+        let contracts = Contracts::new("staticcall");
+        let mut harness = contracts.harness("caller", &caller_wat("__staticcall", CALLEE));
+        harness
+            .deploy_file(CALLEE, contracts.wasm("writer", WRITER))
+            .unwrap();
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "pong");
+        assert_eq!(harness.storage_value_of(CALLEE, b"hit"), None);
+    }
+
+    #[test]
+    fn a_delegatecall_runs_the_callee_as_the_caller() {
+        let contracts = Contracts::new("delegatecall");
+        let mut harness = contracts.harness("caller", &caller_wat("__delegatecall", CALLEE));
+        harness
+            .deploy_file(CALLEE, contracts.wasm("echo", ECHO_CONTEXT))
+            .unwrap();
+        let context = harness.call_opcode(1, &[]).unwrap().data;
+        assert_eq!(words(&context), vec![1, 1, 2, 2, 0, 0, 7]);
+
+        harness
+            .deploy_file(CALLEE, contracts.wasm("writer", WRITER))
+            .unwrap();
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "pong");
+        assert_eq!(harness.storage_value(b"hit"), Some(&b"yes"[..]));
+        assert_eq!(harness.storage_value_of(CALLEE, b"hit"), None);
+    }
+
+    #[test]
+    fn a_reverted_or_missing_callee_is_reported_to_the_caller() {
+        let contracts = Contracts::new("revert");
+        let mut harness = contracts.harness("caller", &caller_wat("__call", CALLEE));
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "no");
+
+        harness
+            .deploy_file(CALLEE, contracts.wasm("trap", TRAP))
+            .unwrap();
+        harness.set_storage_of(CALLEE, b"kept", b"1");
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "no");
+        assert_eq!(harness.storage_value_of(CALLEE, b"kept"), Some(&b"1"[..]));
+    }
+
+    #[test]
+    fn a_failed_top_level_call_keeps_nothing_its_callees_stored() {
+        let contracts = Contracts::new("rollback");
+        // Calls the writer, then traps.
+        let wat = caller_wat("__call", CALLEE).replace(
+            "(call $copy (i32.const 220))",
+            "(call $copy (i32.const 220)) unreachable",
+        );
+        let mut harness = contracts.harness("caller", &wat);
+        harness
+            .deploy_file(CALLEE, contracts.wasm("writer", WRITER))
+            .unwrap();
+        assert_revert(harness.call_opcode(1, &[]));
+        assert_eq!(harness.storage_value_of(CALLEE, b"hit"), None);
+    }
+
+    #[test]
+    fn the_block_header_precompile_answers_from_the_context_block() {
+        let contracts = Contracts::new("header");
+        let mut harness = contracts.harness(
+            "caller",
+            &caller_wat("__staticcall", BLOCK_HEADER_PRECOMPILE),
+        );
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data_text(), "no");
+
+        let block: Vec<u8> = (0..100).collect();
+        harness.context_mut().block = block.clone();
+        assert_eq!(harness.call_opcode(1, &[]).unwrap().data, block[..80]);
     }
 
     #[test]

@@ -66,6 +66,23 @@ fn wasi_include_in(root: &Path) -> Option<PathBuf> {
         .find(|path| path.is_dir())
 }
 
+/// What to do about a failed contract build. Recognises the one failure
+/// whose compiler output does not explain itself: `MessageDispatch` calls a
+/// method per opcode on the struct named after the enum, and the errors
+/// point at the derive rather than at the name or the missing method.
+fn compile_hint(stderr: &str) -> &'static str {
+    let dispatch =
+        stderr.contains("derive(MessageDispatch)") || stderr.contains("macro `MessageDispatch`");
+    let unresolved = ["method not found in `&", "expected `&", "cannot find type"]
+        .iter()
+        .any(|symptom| stderr.contains(symptom));
+    if dispatch && unresolved {
+        "`enum CounterMessage` dispatches to `struct Counter`: name the contract struct after the enum, and give it one snake_case method per variant"
+    } else {
+        "fix the contract Cargo build errors above"
+    }
+}
+
 /// A failed contract build that a missing prerequisite explains, rather
 /// than the contract's own code: the Rust target, or the WASI C headers.
 fn missing_prerequisite(target: &str, stderr: &str, wasi_headers: bool) -> Option<LabcoatError> {
@@ -179,7 +196,7 @@ pub fn compile_packages(
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             ),
-            "fix the contract Cargo build errors above",
+            compile_hint(&stderr),
         ));
     }
 
@@ -436,6 +453,16 @@ fn write_project_file(path: &Path, contents: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dispatch_failure_gets_a_hint_about_the_struct_name() {
+        let stderr = "error[E0599]: no method named `get_meals` found for reference `&Organism` in the current scope\n  --> contracts/organism/src/lib.rs:29:10\n   |\n29 | #[derive(MessageDispatch)]\n   |          ^^^^^^^^^^^^^^^ method not found in `&Organism`";
+        assert!(compile_hint(stderr).contains("name the contract struct after the enum"));
+        assert_eq!(
+            compile_hint("error[E0425]: cannot find value `x` in this scope"),
+            "fix the contract Cargo build errors above"
+        );
+    }
 
     #[test]
     fn a_missing_prerequisite_is_not_reported_as_a_contract_error() {

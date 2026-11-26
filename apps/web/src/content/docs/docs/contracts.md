@@ -17,6 +17,30 @@ in-memory storage that persists across calls on that harness. Use
 Generated projects obtain the harness from this repository's matching
 `cli-vX.Y.Z` Git tag, so the CLI and test API advance as one release.
 
+A contract reads the chain from the harness's context. Set the block height,
+and the block or transaction if the contract reads them, before a call:
+
+```rust
+let mut contract = ContractHarness::for_contract("my-token")?;
+contract.context_mut().height = 840_000;
+```
+
+To test a contract that calls another, deploy the other one at the Alkane id
+the caller expects. `call`, `staticcall`, and `delegatecall` then reach it,
+and a call that fails leaves every contract's storage as it was:
+
+```rust
+contract.deploy((2, 7), "price-feed")?;
+contract.set_storage_of((2, 7), b"/price", 42u128.to_le_bytes());
+contract.call_method("buy", &[])?;
+assert!(contract.storage_value_of((2, 7), b"/sales").is_some());
+```
+
+The harness does not track Alkane balances: a call hands its outgoing
+transfers to the callee and receives the callee's in return, and `balance()`
+reads zero. It does not meter fuel either. Test both on Labcoat Network,
+where `labcoat trace` reports the fuel each call used.
+
 ## Build
 
 ```bash
