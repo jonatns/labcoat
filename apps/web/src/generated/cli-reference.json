@@ -1854,7 +1854,7 @@
         "name": "Contract ABI"
       },
       {
-        "detail": "`labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. The client is read-only — indexed height, Alkanes balances, ABI-typed simulate — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.",
+        "detail": "`labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. `createClient({ rpc })` returns the client: `contract(name).read.<method>()` is typed from the ABI, returns the decoded value, and throws `ContractRevertError` on a revert (`tryRead` returns it instead); `contract(id, abi)` calls a contract outside labcoat.lock, such as a factory's clone; `at(height)` pins reads to one indexed height. The client is read-only — contract reads, indexed height, Alkanes balances — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.",
         "name": "Generated web client"
       },
       {

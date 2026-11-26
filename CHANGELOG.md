@@ -14,8 +14,17 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 - pay bitcoin in the transaction that makes a call: `labcoat call --pay <address>:<sats>` (repeatable), `.pay(address, sats)` on a `d.call(..)` step in deploy.rs, and `pay` on the MCP `call` tool. A contract that checks its transaction's outputs for a payment, such as a paid mint, could not be called on a network. Payment outputs follow the outputs the pointer, refund, and edicts address, so the first is `v1` by default; `--dry-run`, the JSON result, and `labcoat plan` list them. An address of another network or an amount under 546 sats is `CONFIG_INVALID`. Deploys do not take payments
 - mine up to 100,000 blocks with one `labcoat mine`, requested from the node in batches of 1,000. The limit was 1,000
 
+- read contracts from the client `labcoat generate web` writes through methods typed from their ABIs: `createClient({ rpc: "/rpc" }).contract("counter").read.getCount()` returns the decoded value, a `bigint` here. A misspelled method or a wrong argument is a compile error, where `simulate("counter", "get_count", [])` took any strings and returned a union. Methods are named in camelCase; methods of one contract whose camelCase names collide keep their exact ABI names. An `AlkaneId` argument is `"block:tx"` or `{ block, tx }`
+- call a contract that is not in `labcoat.lock` by method name with `contract("2:12", abi)`, for a clone a factory made or a contract another project deployed. Such a call used to fail with `METHOD_UNKNOWN`, which left numeric opcodes and decoding the bytes by hand. `simulate` takes the ABI as `{ abi }`
+- throw `ContractRevertError` from a read whose call reverts, carrying the contract's `reason`, so a call site no longer checks a status before using the value. `tryRead.<method>()` returns the revert for a call that is expected to revert
+- pin a set of reads to one indexed height with `labcoat.at(height)`, which returns a client whose contract reads run at that height without looking it up
+- send reads started together, as in a `Promise.all`, as one JSON-RPC batch request with one height lookup between them. They were two requests each. `createClient({ batch: false })` turns it off for an endpoint without batch support
+- export `CONTRACTS` and the `ContractName` type from the generated `manifest.ts`: the deployment records with literal types
+
 ### Changed
 
+- name the generated client's endpoint option `rpc`. `baseUrl` still works, as an option and as a property
+- emit the generated ABI modules and `ABIS` as `as const` literals with read-only fields, which typed reads are derived from. Code that indexes `ABIS` with a plain `string` or writes to an ABI object no longer compiles. The generated files now need TypeScript 4.9 or newer
 - show `assigned at deploy` in `labcoat plan` for a contract that has no id yet, under a column headed `Id`. The plan used to print `1:0`, the instruction that asks the protocol for the next free id, under `Id/Target`, which read as a prediction that `labcoat deploy` then contradicted with `2:n`. JSON output is unchanged
 
 ### Fixed

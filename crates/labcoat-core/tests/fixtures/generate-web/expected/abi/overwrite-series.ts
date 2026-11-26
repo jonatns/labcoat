@@ -3,7 +3,7 @@
 import type { AbiDocument } from "./document"
 
 /** ABI of the overwrite-series build artifact. */
-export const abiOverwriteSeries: AbiDocument = {
+export const abiOverwriteSeries = {
   contract: "OverwriteSeries",
   methods: [
     {
@@ -63,4 +63,4 @@ export const abiOverwriteSeries: AbiDocument = {
       returns: "Vec<u8>",
     },
   ],
-}
+} as const satisfies AbiDocument

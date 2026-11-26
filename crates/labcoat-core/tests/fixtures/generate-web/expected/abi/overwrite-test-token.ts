@@ -3,7 +3,7 @@
 import type { AbiDocument } from "./document"
 
 /** ABI of the overwrite-test-token build artifact. */
-export const abiOverwriteTestToken: AbiDocument = {
+export const abiOverwriteTestToken = {
   contract: "TestToken",
   methods: [
     {
@@ -40,4 +40,4 @@ export const abiOverwriteTestToken: AbiDocument = {
       returns: "u128",
     },
   ],
-}
+} as const satisfies AbiDocument

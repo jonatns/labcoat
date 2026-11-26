@@ -2,7 +2,8 @@
 
 Status: implemented for the read path and the exchange request builder
 (`labcoat generate web`); unsigned transaction-plan builders beyond the
-request file are future work.
+request file are future work, as are wallet-signed writes
+(`contract.write.<method>` beside `contract.read`).
 
 ## Decision
 
@@ -34,18 +35,36 @@ network access** and is safe to run in CI.
   instance id when every record agrees, and one record per lockfile contract.
   Each record links to the local build artifact whose ABI describes it,
   matched by wasm sha256 first and artifact name second.
+  The records are also exported as `CONTRACTS`, an `as const` object, so
+  contract names and their artifacts are literal types.
 - `abi/document.ts`, `abi/<artifact>.ts`, `abi/index.ts` — typed method
   descriptors (opcode as `bigint`, parameter and return type names) derived
-  from the existing ABI model, one module per build artifact.
-- `client.ts` — a dependency-free, fetch-based read client:
+  from the existing ABI model, one module per build artifact. Each is
+  `as const satisfies AbiDocument`: the client's types are computed from
+  these literals, so no per-contract client code is generated.
+- `client.ts` — a dependency-free, fetch-based read client, made with
+  `createClient({ rpc })`:
+  - `contract(name)` and `contract(id, abi)` — a handle on one contract.
+    `read.<method>(...args)` simulates the call (`secondaryview` →
+    `simulate` over a cellpack-carrying `MessageContextParcel`) and returns
+    the value decoded per the ABI: `u128` as `bigint`, ids as canonical
+    decimal strings, `Vec<u8>` as `Uint8Array`. A revert throws
+    `ContractRevertError`; `tryRead.<method>` returns it. Method names,
+    argument types, and return types are derived from the ABI at the type
+    level, with method names in camelCase. Methods whose camelCase names
+    collide keep their exact ABI names;
+  - `at(height)` — a client sharing the same connection whose contract
+    reads are pinned to one indexed height;
   - `getIndexedHeight()` — the Alkanes secondary-index height
     (`secondaryheight`);
   - `getAlkanesBalances(address)` — full-u128 balances summed across the
     address's outpoints (`secondaryview` → `protorunesbyaddress`);
-  - `simulate(contract, method, args)` — ABI-typed simulation
-    (`secondaryview` → `simulate` over a cellpack-carrying
-    `MessageContextParcel`), with returns decoded per the ABI: `u128` as
-    `bigint`, ids as canonical decimal strings, `Vec<u8>` as `Uint8Array`.
+  - `simulate(contract, method, args)` — the untyped call underneath
+    `read`, by ABI method name or decimal opcode, returning the raw bytes
+    and `status` without throwing on a revert.
+
+  Calls made in the same tick are sent as one JSON-RPC batch request, and
+  unpinned reads that start together share one height lookup.
 - `exchange.ts` — the exchange request builder for the CLI settlement
   ceremony:
   - `serializeExchangeRequest(request)` — validates an
@@ -76,8 +95,8 @@ hand-written files in the same directory survive.
   application that consumes them.
 - **Browser transport is the app's concern.** The manifest records the
   endpoint labcoat resolved at generation time; browsers normally reach it
-  through the app's same-origin dev proxy or rewrite (the client takes a
-  `baseUrl`), so Labcoat's stack needs no CORS configuration.
+  through the app's same-origin dev proxy or rewrite (the client takes an
+  `rpc` option), so Labcoat's stack needs no CORS configuration.
 - **Stale-state detection stays honest.** Records carry their chain instance
   id (the hash of block 1). After a `labcoat reset`, regenerating updates the
   manifest; a client comparing the manifest's `chainId` against live state
@@ -89,9 +108,15 @@ hand-written files in the same directory survive.
 - Golden-file codegen tests (`crates/labcoat-core/tests/generate_web.rs`)
   regenerate from fixture lock + ABI files and compare byte-exact output;
   bless intentional changes with `LABCOAT_BLESS=1`.
-- The generated tree type-checks under a strict TypeScript config
-  (`strict`, ES2020, bundler resolution) — consumers vendor the output into
-  their own compilation unit.
+- `scripts/tests/generate-web-client-test.sh` compiles the golden tree
+  under a strict browser TypeScript configuration (`strict`,
+  `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+  `verbatimModuleSyntax`, bundler resolution) — consumers vendor the output
+  into their own compilation unit — together with type-level checks
+  (`checks/types.ts`, where a wrong method name or argument must be a
+  compile error) and runs runtime checks against a stub `fetch`
+  (`checks/runtime.test.ts`). CI runs it in the `guards` job. The output
+  needs TypeScript 4.9 or newer.
 - Manual against-live check (not run in CI): with a project's stack up and
   seeded (`labcoat up`, deploys applied), run `labcoat generate web` in the
   project, point the app's dev proxy at the unified endpoint, and confirm
