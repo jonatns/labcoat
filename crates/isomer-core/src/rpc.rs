@@ -267,6 +267,43 @@ pub async fn try_block_count(config: &IsomerConfig) -> Option<u64> {
     .and_then(|value| value.as_u64())
 }
 
+/// The dev signer's JSON-RPC methods.
+pub const DEV_SIGNER_METHODS: [&str; 2] = ["labcoat_dev_addresses", "labcoat_dev_sign_psbt"];
+
+/// Ask the running network whether its dev signer can sign.
+pub async fn dev_signer(config: &IsomerConfig) -> crate::state::DevSignerInfo {
+    // The first answer unlocks the built-in wallet, which takes a moment.
+    let answer = call(
+        config,
+        DEV_SIGNER_METHODS[0],
+        serde_json::json!([]),
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+    let address = answer.as_ref().ok().and_then(|wallet| {
+        wallet
+            .pointer("/addresses/0/address")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    });
+    crate::state::DevSignerInfo {
+        available: address.is_some(),
+        rpc: rpc_url(config),
+        methods: DEV_SIGNER_METHODS.map(str::to_owned).to_vec(),
+        reason: match (&address, answer) {
+            (Some(_), _) => None,
+            (None, Err(error)) => Some(
+                error
+                    .strip_prefix("Labcoat Network RPC error: ")
+                    .unwrap_or(&error)
+                    .to_owned(),
+            ),
+            (None, Ok(_)) => Some("the dev signer listed no address".to_owned()),
+        },
+        address,
+    }
+}
+
 pub async fn try_mempool_size(config: &IsomerConfig) -> Option<usize> {
     call(
         config,

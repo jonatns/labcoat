@@ -237,6 +237,29 @@ fn port_check(
     }
 }
 
+/// Whether the running network signs for its built-in wallet. The methods
+/// are always served; what can be missing is the wallet `labcoat up` makes.
+fn dev_signer_check(signer: &isomer_core::DevSignerInfo) -> Check {
+    const NAME: &str = "dev signer";
+    match (&signer.address, &signer.reason) {
+        (Some(address), _) if signer.available => ok(
+            NAME,
+            format!(
+                "signs PSBTs for the built-in wallet {address} at {}",
+                signer.rpc
+            ),
+        ),
+        (_, reason) => warn(
+            NAME,
+            format!(
+                "not available: {}",
+                reason.as_deref().unwrap_or("no answer")
+            ),
+            "run `labcoat up`; it creates and funds the built-in wallet",
+        ),
+    }
+}
+
 fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Option<bool>) -> Check {
     const NAME: &str = "project toolchain";
     match pinned {
@@ -361,6 +384,13 @@ pub async fn run() -> Vec<Check> {
         || isomer_core::rpc::identify_blocking(&config, std::time::Duration::from_secs(2)),
     ));
 
+    // The dev signer, when this data home's network is the one running.
+    if isomer_core::rpc::is_own_node(&config).await {
+        checks.push(dev_signer_check(
+            &isomer_core::rpc::dev_signer(&config).await,
+        ));
+    }
+
     // Binaries
     let infos = BinaryManager::new().check_all();
     checks.push(runtime_bundle_check(
@@ -453,6 +483,33 @@ mod tests {
         std::fs::write(root.join("labcoat.toml"), "mnemonic = \"never\"\n").unwrap();
         assert_eq!(project_config_check(&root).status, "fail");
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_dev_signer_check_passes_with_a_wallet_and_warns_without_one() {
+        let mut signer = isomer_core::DevSignerInfo {
+            available: true,
+            rpc: "http://127.0.0.1:18443".into(),
+            methods: vec![],
+            address: Some("bcrt1pexample".into()),
+            reason: None,
+        };
+        let ready = dev_signer_check(&signer);
+        assert_eq!(ready.status, "ok");
+        assert!(ready
+            .detail
+            .contains("bcrt1pexample at http://127.0.0.1:18443"));
+
+        signer.available = false;
+        signer.address = None;
+        signer.reason = Some("the built-in wallet does not exist yet".into());
+        let missing = dev_signer_check(&signer);
+        assert_eq!(missing.status, "warn");
+        assert!(missing.detail.contains("does not exist yet"));
+        assert_eq!(
+            missing.hint.unwrap(),
+            "run `labcoat up`; it creates and funds the built-in wallet"
+        );
     }
 
     #[test]

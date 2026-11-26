@@ -56,6 +56,19 @@ pub struct SchnorrDigestSignature {
     pub signature: String,
 }
 
+/// The public half of one BIP-86 key-path address, hex-encoded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaprootKey {
+    pub address: String,
+    pub derivation_path: String,
+    /// The x-only internal key: a PSBT input's `tapInternalKey`.
+    pub internal_key: String,
+    /// The x-only tweaked key the script pays to.
+    pub output_key: String,
+    pub script_pubkey: String,
+}
+
 /// Which signing backend a command should use. This replaces the bare
 /// `Option<String>` passphrase that used to act as the de-facto signer
 /// handle.
@@ -169,8 +182,29 @@ impl KeystoreSigner {
                 ));
             }
         };
-        let network = provider.get_network();
-        let mnemonic = Mnemonic::parse_in(bip39::Language::English, mnemonic.as_str())
+        Self::unlocked(keystore, &mnemonic, provider.get_network())
+    }
+
+    /// Unlock the keystore file at `path` with `passphrase`, without a
+    /// provider or an RPC connection. `network` chooses the address
+    /// encoding and the BIP-86 coin type.
+    pub fn from_keystore_file(
+        path: &std::path::Path,
+        passphrase: &str,
+        network: bitcoin::Network,
+    ) -> Result<Self> {
+        let keystore =
+            Keystore::from_file(path).map_err(|error| LabcoatError::classify(error.into()))?;
+        let mnemonic = zeroize::Zeroizing::new(
+            keystore
+                .decrypt_mnemonic(passphrase)
+                .map_err(|error| LabcoatError::classify(error.into()))?,
+        );
+        Self::unlocked(keystore, &mnemonic, network)
+    }
+
+    fn unlocked(keystore: Keystore, mnemonic: &str, network: bitcoin::Network) -> Result<Self> {
+        let mnemonic = Mnemonic::parse_in(bip39::Language::English, mnemonic)
             .map_err(|error| LabcoatError::classify(error.into()))?;
         let seed = zeroize::Zeroizing::new(mnemonic.to_seed(""));
         let root = Xpriv::new_master(network, seed.as_ref())
@@ -182,6 +216,45 @@ impl KeystoreSigner {
             network,
             fingerprint,
         })
+    }
+
+    /// The public keys of the first `count` BIP-86 receive addresses: what
+    /// a PSBT builder needs to spend from and pay to this wallet.
+    pub fn taproot_keys(&self, count: u32) -> Result<Vec<TaprootKey>> {
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+        self.keystore
+            .get_addresses(self.network, "p2tr", 0, 0, count)
+            .map_err(|error| LabcoatError::classify(error.into()))?
+            .into_iter()
+            .map(|info| {
+                let path = DerivationPath::from_str(&info.derivation_path)
+                    .map_err(|error| LabcoatError::classify(error.into()))?;
+                let derived = self
+                    .root
+                    .derive_priv(&secp, &path)
+                    .map_err(|error| LabcoatError::classify(error.into()))?;
+                let (internal_key, _) = derived.to_keypair(&secp).x_only_public_key();
+                let address = Address::p2tr(&secp, internal_key, None, self.network);
+                if address.to_string() != info.address {
+                    return Err(LabcoatError::new(
+                        "WALLET_ERROR",
+                        format!(
+                            "the keystore lists {} at {}, but its key derives {address}",
+                            info.address, info.derivation_path
+                        ),
+                        "the keystore file is inconsistent; recreate the wallet",
+                    ));
+                }
+                let script_pubkey = address.script_pubkey();
+                Ok(TaprootKey {
+                    address: info.address,
+                    derivation_path: info.derivation_path,
+                    internal_key: internal_key.to_string(),
+                    output_key: hex::encode(&script_pubkey.as_bytes()[2..34]),
+                    script_pubkey: script_pubkey.to_hex_string(),
+                })
+            })
+            .collect()
     }
 
     /// Match a P2TR address to its derivation path by scanning the

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::node::Node;
+use crate::node::{DevSigner, Node};
 use crate::{IndexerModule, Runtime};
 
 /// The file holding the chain inside the data directory.
@@ -22,6 +22,8 @@ pub struct Options {
     pub indexer: PathBuf,
     /// Where compiled indexer modules are cached.
     pub cache_dir: PathBuf,
+    /// Signs for the built-in wallet over JSON-RPC, if this network has one.
+    pub dev_signer: Option<Arc<dyn DevSigner>>,
 }
 
 /// Load the chain and serve it until a `stop` request arrives.
@@ -58,7 +60,10 @@ pub fn run(options: &Options) -> Result<(), String> {
     let pid_file = options.data_dir.join(PID_FILE);
     std::fs::write(&pid_file, std::process::id().to_string())
         .map_err(|error| format!("cannot write {}: {error}", pid_file.display()))?;
-    let node = Node::new(runtime).with_data_dir(options.data_dir.display().to_string());
+    let mut node = Node::new(runtime).with_data_dir(options.data_dir.display().to_string());
+    if let Some(signer) = &options.dev_signer {
+        node = node.with_dev_signer(signer.clone());
+    }
     let served = crate::server::serve(Arc::new(node), listener);
     remove_pid_file(&pid_file);
     served.map_err(|error| format!("Labcoat Network stopped: {error}"))

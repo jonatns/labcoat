@@ -2721,6 +2721,7 @@ version = "0.4.0"
 dependencies = [
  "anstream",
  "anstyle",
+ "bitcoin 0.32.101",
  "clap",
  "hex",
  "indicatif",

@@ -84,6 +84,12 @@ jobs:
           grep -q '"is_ready": true' "$RUNNER_TEMP/labcoat-status.json"
           grep -q '"network": "labcoat"' "$RUNNER_TEMP/labcoat-status.json"
           grep -q '"bitcoin_network": "regtest"' "$RUNNER_TEMP/labcoat-status.json"
+          # The dev signer signs for the wallet `up` created, and a client
+          # can spend from it through the endpoint alone.
+          grep -A2 '"dev_signer"' "$RUNNER_TEMP/labcoat-status.json" \
+            | grep -q '"available": true'
+          cargo test --locked -p labcoat-cli \
+            a_client_spends_from_the_running_networks_dev_wallet -- --ignored
           ./target/debug/labcoat fund \
             bcrt1q9zuctyd46l7sdedccdk47335lzsmjz2wngdv3u 1 --json \
             | tee "$RUNNER_TEMP/labcoat-fund.json"

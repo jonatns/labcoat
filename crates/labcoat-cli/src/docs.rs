@@ -371,6 +371,10 @@ pub fn reference(command: Command, mcp_tools: Vec<Value>) -> AgentReference {
                 name: "Generated web client".into(),
                 detail: "`labcoat generate web` derives a self-contained TypeScript module tree (manifest, typed ABI descriptors, fetch read client) from labcoat.lock and built ABIs, offline. `createClient({ rpc })` returns the client: `contract(name).read.<method>()` is typed from the ABI, returns the decoded value, and throws `ContractRevertError` on a revert (`tryRead` returns it instead); `contract(id, abi)` calls a contract outside labcoat.lock, such as a factory's clone; `at(height)` pins reads to one indexed height. The client is read-only — contract reads, indexed height, Alkanes balances — and holds no keys; browsers reach the unified JSON-RPC endpoint through the app's own dev proxy or rewrite.".into(),
             },
+            ProtocolReference {
+                name: "Dev signer".into(),
+                detail: "While Labcoat Network is up, its JSON-RPC endpoint signs for the built-in wallet, so a page or a headless test needs no wallet extension: `labcoat_dev_addresses` (params `[]`) returns the primary P2TR address with its `internalKey`, `outputKey`, and `scriptPubKey`, and `labcoat_dev_sign_psbt` (params `[psbtBase64, {\"finalize\": true}]`) signs the wallet's taproot key-path inputs with SIGHASH_DEFAULT, leaves every other input untouched, and returns `psbt`, `signedInputs`, `complete`, and, once every input is final, `hex` and `txid`. Broadcast `hex` with `sendrawtransaction`, then mine it with `generatetoaddress`: nothing is mined automatically. It exists only on Labcoat Network, signs only with the built-in wallet, and answers only callers on this machine (error -32000 otherwise). `labcoat up --ci` and `labcoat status --json` report it as `dev_signer`.".into(),
+            },
         ],
     }
 }

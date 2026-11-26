@@ -26,6 +26,22 @@ pub struct ServiceInfo {
     pub version: Option<String>,
 }
 
+/// Whether, and where, a local client can have the built-in wallet sign.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DevSignerInfo {
+    /// Whether the dev signer answers with the built-in wallet right now.
+    pub available: bool,
+    /// The JSON-RPC endpoint that serves the methods.
+    pub rpc: String,
+    pub methods: Vec<String>,
+    /// The built-in wallet's primary address, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Why it is not available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// Overall system status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemStatus {
@@ -38,4 +54,7 @@ pub struct SystemStatus {
     pub block_height: u64,
     pub mempool_size: usize,
     pub is_ready: bool,
+    /// The dev signer, while the network is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dev_signer: Option<DevSignerInfo>,
 }
