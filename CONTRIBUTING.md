@@ -42,6 +42,7 @@ pnpm --filter @labcoat/web build
 pnpm --filter @labcoat/web test:e2e
 ./scripts/tests/install-labcoat-test.sh
 ./scripts/tests/release-validation-test.sh
+./scripts/tests/generate-web-client-test.sh
 git diff --check
 ```
 

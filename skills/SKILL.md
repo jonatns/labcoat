@@ -207,9 +207,14 @@ labcoat exchange-plan --request exchange-request.json --plan-out plan.json --psb
 ```
 
 `labcoat generate web` writes a typed, read-only TypeScript client
-(`generated/web/`: manifest, ABI descriptors, `simulate`, balances, and an
-exchange request builder) from `labcoat.lock` and `build/*.abi.json` with
-no network access; regenerate after every deploy or reset.
+(`generated/web/`: manifest, ABI descriptors, contract reads, balances, and
+an exchange request builder) from `labcoat.lock` and `build/*.abi.json` with
+no network access; regenerate after every deploy or reset. In the app,
+`createClient({ rpc: "/rpc" }).contract("counter").read.getCount()` is typed
+from the ABI (method names in camelCase) and throws `ContractRevertError` on
+a revert; `tryRead` returns the revert instead, `contract("2:12", abi)` calls
+a contract that is not in `labcoat.lock`, and `at(height)` pins reads to one
+indexed height.
 `labcoat state migrate` opts a project into durable deployment history
 (`state list`, `state show <name> --history`); afterwards a deploy onto a
 reset chain fails with `STATE_CHAIN_MISMATCH` before broadcasting.
