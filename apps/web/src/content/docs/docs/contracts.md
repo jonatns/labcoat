@@ -36,6 +36,31 @@ contract.call_method("buy", &[])?;
 assert!(contract.storage_value_of((2, 7), b"/sales").is_some());
 ```
 
+A contract deployed at `2:n` or `4:n` is also a template. A call to `[5, n]`
+or `[6, n]` creates a clone of it at `2:<sequence>`, as on chain: the clone
+runs the template's code as itself, with storage of its own, and the sequence
+advances. Clones stay on the harness, so later calls reach them by id, and a
+call that fails keeps no clone and leaves the sequence where it was:
+
+```rust
+factory.deploy((4, 1), "token")?;
+factory.context_mut().sequence = 100;
+factory.call_method("create_token", &[])?;
+assert!(factory.storage_value_of((2, 100), b"/initialized").is_some());
+assert_eq!(factory.context().sequence, 101);
+```
+
+The sequence starts at 1, or just past the highest `2:n` id the harness
+already uses, and a contract reads it through `sequence()`.
+
+A call that fails returns `HarnessError::Revert` with the reason: the message
+of the error the contract returned, or the trap that stopped it. Assert on it
+with `assert_revert_with`, or use `assert_revert` when any failure will do:
+
+```rust
+assert_revert_with(contract.call_method("initialize", &[]), "already initialized");
+```
+
 The harness does not track Alkane balances: a call hands its outgoing
 transfers to the callee and receives the callee's in return, and `balance()`
 reads zero. It does not meter fuel either. Test both on Labcoat Network,
