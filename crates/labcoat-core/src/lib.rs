@@ -26,6 +26,8 @@ pub mod system;
 pub mod toolkit;
 pub mod trace;
 pub mod wallet;
+#[cfg(test)]
+mod web_write_vectors;
 pub mod workspace;
 
 pub use error::{LabcoatError, Result};

@@ -10,9 +10,13 @@ import type {
   AlkaneRef,
   ContractHandle,
   ContractRevertError,
+  LabcoatWallet,
   ReadMethods,
   ReadResult,
+  TransactionReceipt,
   TypedContractName,
+  WriteMethods,
+  WriteResult,
 } from "../expected/client"
 import type { ContractName } from "../expected/manifest"
 import { abiOverwriteTestToken } from "../expected/abi/overwrite-test-token"
@@ -146,6 +150,46 @@ export async function typeChecks(wideAbi: AbiDocument, dynamicId: string): Promi
   const value: AbiValue = await loose.read["anything"]?.(1n, "2:1")
   void value
 
+  /* ---------------------------------- writes -------------------------------- */
+
+  const wallet: LabcoatWallet = await labcoat.connect()
+  // The method's arguments, then the options.
+  const sent: WriteResult<Uint8Array> = await clone.write.childOf("2:1", "seedling", { wallet })
+  const receipt: TransactionReceipt<Uint8Array> = await sent.wait()
+  const mined: bigint = (await (await clone.write.getEnergy({ wallet, feeRate: 3 })).wait({ timeoutMs: 1 })).value
+  const txid: string = sent.txid
+  const fee: bigint = sent.fee
+  void [receipt, mined, txid, fee]
+  await clone.write.getEnergy({
+    wallet,
+    alkanes: [{ id: "2:5", amount: 300n }],
+    pay: [{ address: "bcrt1q...", sats: 10_000 }],
+    to: "bcrt1p...",
+    simulate: false,
+  })
+  // The wallet may come from the client instead.
+  await clone.write.getEnergy()
+  // By transaction id, the return value stays bytes.
+  const bare: Uint8Array = (await labcoat.waitForTransaction(txid)).value
+  void bare
+  // Anything with the three members is a wallet.
+  const own: LabcoatWallet = {
+    name: "mine",
+    getAccounts: async () => [{ address: "bcrt1p...", publicKey: "00" }],
+    signPsbt: async ({ psbt }) => ({ psbt }),
+  }
+  await labcoat.contract("fire").write.forward({ wallet: own })
+  // @ts-expect-error write checks arguments like read
+  await clone.write.childOf("2:1", { wallet })
+  // @ts-expect-error write has no method the ABI lacks
+  await clone.write.grow({ wallet })
+  // @ts-expect-error an unknown option
+  await clone.write.getEnergy({ wallet, gasLimit: 1 })
+  // @ts-expect-error a wallet must be able to sign
+  await clone.write.getEnergy({ wallet: { name: "half", getAccounts: async () => [] } })
+  // @ts-expect-error only the wallets connect knows by name
+  await labcoat.connect({ wallet: "metamask" })
+
   /* ------------------------------ raw simulate ------------------------------ */
 
   await labcoat.simulate("fire", "get_name")
@@ -168,6 +212,7 @@ export type Checks = [
       "initialize" | "forward" | "getName" | "getSymbol" | "getTotalSupply"
     >
   >,
+  Expect<Equal<keyof WriteMethods<typeof abiOrganism>, keyof ReadMethods<typeof abiOrganism>>>,
   Expect<
     Equal<
       ReadMethods<AbiDocument>,

@@ -148,6 +148,16 @@ pub fn generate_web(inputs: &WebInputs<'_>) -> Result<Vec<GeneratedFile>> {
         path: "client.ts".to_string(),
         contents: client_ts(),
     });
+    for (path, body) in [
+        ("errors.ts", ERRORS_TS_BODY),
+        ("transaction.ts", TRANSACTION_TS_BODY),
+        ("wallet.ts", WALLET_TS_BODY),
+    ] {
+        files.push(GeneratedFile {
+            path: path.to_string(),
+            contents: format!("{GENERATED_HEADER}\n{body}"),
+        });
+    }
     files.push(GeneratedFile {
         path: "exchange.ts".to_string(),
         contents: exchange_ts(),
@@ -487,7 +497,19 @@ fn exchange_ts() -> String {
     format!("{GENERATED_HEADER}\n{EXCHANGE_TS_BODY}")
 }
 
-/// The static read client. `createClient(options)` returns a
+const ERRORS_TS_BODY: &str = include_str!("generate/web/errors.ts");
+
+/// Builds the unsigned call transaction. It must build what the Rust call
+/// path builds for the same wallet and call; `web_write_vectors` records
+/// what Rust builds, and the TypeScript checks compare against it.
+const TRANSACTION_TS_BODY: &str = include_str!("generate/web/transaction.ts");
+
+/// The wallet interface, the dev wallet over Labcoat Network's
+/// `labcoat_dev_addresses` and `labcoat_dev_sign_psbt`, and the browser
+/// wallet adapters.
+const WALLET_TS_BODY: &str = include_str!("generate/web/wallet.ts");
+
+/// The static client. `createClient(options)` returns a
 /// `LabcoatWebClient`; `contract(name)` or `contract(id, abi)` returns a
 /// handle whose `read.<method>()` and `tryRead.<method>()` are typed from the
 /// `as const` ABI modules, and `at(height)` returns a client whose reads are
@@ -495,9 +517,16 @@ fn exchange_ts() -> String {
 /// camelCase; the TypeScript `CamelCase` type and the runtime `camelCase`
 /// function must stay in step, as must `MethodKey` and `methodKeys`.
 ///
-/// Signed writes are not here yet. They are meant to arrive as a `write`
-/// member beside `read` on `ContractHandle` and a wallet option on
-/// `LabcoatWebClientOptions`, without reshaping either.
+/// `write.<method>()` sends the same call as a transaction a wallet signs.
+/// The client holds no key: it builds the unsigned transaction with
+/// `transaction.ts` and hands a PSBT to a `LabcoatWallet` from `wallet.ts`.
+/// Those two modules and `errors.ts` are plain TypeScript files under
+/// `generate/web/`, included below; this one stays inline.
+///
+/// To change this file, edit the golden copy
+/// (`tests/fixtures/generate-web/expected/client.ts`), run
+/// `scripts/tests/generate-web-client-test.sh`, and paste the file back here
+/// without its first line.
 ///
 /// Wire protocol notes:
 ///
@@ -516,40 +545,55 @@ fn exchange_ts() -> String {
 ///   per Alkane here, mirroring the CLI's `labcoat balance`.
 const CLIENT_TS_BODY: &str = r#"//
 // Browser client for the Labcoat unified JSON-RPC endpoint (node + Alkanes
-// secondary view): typed contract reads, indexed height, and Alkanes
-// balances. Read-only: no signing, no key material, no state mutation.
-// Self-contained: no runtime dependencies.
+// secondary view): typed contract reads, wallet-signed contract calls,
+// indexed height, and Alkanes balances. It holds no key material: a wallet
+// signs every transaction. Self-contained: no runtime dependencies.
 //
 //   const labcoat = createClient({ rpc: "/rpc" })
-//   const supply = await labcoat.contract("token").read.getTotalSupply()
+//   const counter = labcoat.contract("counter")
+//   const count = await counter.read.getCount()
+//
+//   const wallet = await labcoat.connect()
+//   const tx = await counter.write.increment({ wallet })
+//   await tx.wait()
 
 import { CONTRACTS, MANIFEST } from "./manifest"
 import type { ContractDeployment } from "./manifest"
 import { ABIS } from "./abi"
 import type { AbiDocument, AbiMethod, AbiParam } from "./abi"
+import { ContractRevertError, LabcoatClientError } from "./errors"
+import {
+  addressToScript,
+  buildCallTransaction,
+  bytesToHex,
+  encodeCellpack,
+  extractTransaction,
+  hexToBytes,
+  isTaprootScript,
+  psbtUnsignedTransaction,
+  scriptHash,
+  transactionOutputCount,
+  unsignedTransaction,
+} from "./transaction"
+import type { AlkaneAmount, BitcoinNetwork, BuiltTransaction, SpendableOutput } from "./transaction"
+import { approvalPrompt, browserWallet, devWallet, installedBrowserWallets } from "./wallet"
+import type { ApproveTransaction, BrowserWalletId, LabcoatWallet, WalletHost } from "./wallet"
+
+export { ContractRevertError, LabcoatClientError, WalletRejectedError } from "./errors"
+export type { LabcoatClientErrorCode } from "./errors"
+export { approvalPrompt, devWallet } from "./wallet"
+export type {
+  ApproveTransaction,
+  BrowserWalletId,
+  LabcoatWallet,
+  SignPsbtRequest,
+  SignedTransaction,
+  TransactionSummary,
+  WalletAccount,
+} from "./wallet"
 
 const U128_MAX = (1n << 128n) - 1n
 const ALKANES_PROTOCOL_TAG = 1n
-
-/* ---------------------------------- hex ---------------------------------- */
-
-function bytesToHex(bytes: Uint8Array): string {
-  let out = ""
-  for (const byte of bytes) out += byte.toString(16).padStart(2, "0")
-  return out
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex
-  if (clean.length % 2 !== 0 || /[^0-9a-fA-F]/.test(clean)) {
-    throw new LabcoatClientError("RESPONSE_INVALID", `invalid hex payload: ${hex.slice(0, 32)}…`)
-  }
-  const bytes = new Uint8Array(clean.length / 2)
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16)
-  }
-  return bytes
-}
 
 /* --------------------------- LEB128 / protobuf ---------------------------- */
 
@@ -565,13 +609,6 @@ function pushVarint(out: number[], value: bigint): void {
     }
     out.push(byte | 0x80)
   }
-}
-
-/** LEB128 varint list — the cellpack encoding: [block, tx, opcode, ...args]. */
-function encodeCellpack(values: bigint[]): Uint8Array {
-  const out: number[] = []
-  for (const value of values) pushVarint(out, value)
-  return Uint8Array.from(out)
 }
 
 function pushProtoVarintField(out: number[], field: number, value: bigint): void {
@@ -645,6 +682,13 @@ class ProtoReader {
   }
 }
 
+function encodeUint128(value: bigint): Uint8Array {
+  const out: number[] = []
+  pushProtoVarintField(out, 1, value & 0xffff_ffff_ffff_ffffn)
+  pushProtoVarintField(out, 2, value >> 64n)
+  return Uint8Array.from(out)
+}
+
 /** protorune/alkanes uint128 message: { lo: u64 = 1, hi: u64 = 2 }. */
 function decodeUint128(bytes: Uint8Array): bigint {
   const reader = new ProtoReader(bytes)
@@ -657,57 +701,6 @@ function decodeUint128(bytes: Uint8Array): bigint {
     else reader.skip(wire)
   }
   return (hi << 64n) | lo
-}
-
-/* --------------------------------- errors --------------------------------- */
-
-export type LabcoatClientErrorCode =
-  | "RPC_UNREACHABLE"
-  | "RPC_ERROR"
-  | "RESPONSE_INVALID"
-  | "CONTRACT_UNKNOWN"
-  | "ABI_UNKNOWN"
-  | "METHOD_UNKNOWN"
-  | "ARG_INVALID"
-  | "CONTRACT_REVERT"
-
-export class LabcoatClientError extends Error {
-  readonly code: LabcoatClientErrorCode
-
-  constructor(code: LabcoatClientErrorCode, message: string) {
-    super(message)
-    this.code = code
-    this.name = "LabcoatClientError"
-  }
-}
-
-/** Thrown by `contract.read.<method>()` when the contract reverts. */
-export class ContractRevertError extends LabcoatClientError {
-  /** The contract's own message, without the indexer's "ALKANES: revert: " prefix. */
-  readonly reason: string
-  /** Alkanes id of the contract that was called, as "block:tx". */
-  readonly contract: string
-  /** ABI name of the method that was called. */
-  readonly method: string
-  readonly gasUsed: bigint
-  /** Raw return bytes of the reverted call. */
-  readonly data: Uint8Array
-
-  constructor(details: {
-    reason: string
-    contract: string
-    method: string
-    gasUsed: bigint
-    data: Uint8Array
-  }) {
-    super("CONTRACT_REVERT", `${details.method} on ${details.contract} reverted: ${details.reason}`)
-    this.name = "ContractRevertError"
-    this.reason = details.reason
-    this.contract = details.contract
-    this.method = details.method
-    this.gasUsed = details.gasUsed
-    this.data = details.data
-  }
 }
 
 /* --------------------------------- values --------------------------------- */
@@ -815,6 +808,83 @@ export type TryReadMethods<A extends AbiDocument> = {
   ) => Promise<ReadResult<ReturnOf<M["returns"]>>>
 }
 
+/** An amount of one Alkane, as an argument. */
+export interface AlkaneAmountLike {
+  id: AlkaneIdLike
+  /** Base units: bigint, safe integer, or a decimal string. */
+  amount: bigint | number | string
+}
+
+/** A plain bitcoin payment a call adds to its transaction. */
+export interface PaymentLike {
+  address: string
+  sats: bigint | number
+}
+
+/** The last argument of `contract.write.<method>()`. */
+export interface WriteOptions {
+  /** The wallet that pays and signs. Defaults to the client's `wallet` option. */
+  wallet?: LabcoatWallet
+  /** Alkanes to send in with the call, taken from the wallet's outputs. */
+  alkanes?: readonly AlkaneAmountLike[]
+  /** Bitcoin payment outputs, placed after output 0 in this order: the first is output 1. */
+  pay?: readonly PaymentLike[]
+  /** Address the call's results and refunds go to. Defaults to the wallet's own. */
+  to?: string
+  /** Fee rate in sat/vB. Defaults to the client's `feeRate`, or 2 on regtest. */
+  feeRate?: number
+  /**
+   * Simulate the call first and throw `ContractRevertError` instead of
+   * asking the wallet to sign a call that would revert. Defaults to true.
+   * The simulation sees the Alkanes sent in, but not the transaction's
+   * outputs: pass false for a method that checks its payment outputs.
+   */
+  simulate?: boolean
+}
+
+export interface WaitOptions {
+  /** Give up after this many milliseconds. Defaults to 60,000. */
+  timeoutMs?: number
+  /** Ask the index this often, in milliseconds. Defaults to 500. */
+  pollMs?: number
+}
+
+/** A mined and indexed contract call that succeeded. */
+export interface TransactionReceipt<T = Uint8Array> {
+  txid: string
+  status: "success"
+  /** The call's return data, decoded per the ABI. `waitForTransaction` leaves it as bytes. */
+  value: T
+  /** Raw return bytes. */
+  data: Uint8Array
+  gasUsed: bigint
+}
+
+/** A broadcast contract call. */
+export interface WriteResult<T = Uint8Array> {
+  txid: string
+  /** Sats paid in fees. */
+  fee: bigint
+  /** The payment outputs, with the output index each one occupies. */
+  payments: { output: number; address: string; sats: bigint }[]
+  /**
+   * Wait until the Alkanes index has the transaction. Resolves with the
+   * decoded return value; throws `ContractRevertError` if the call reverted.
+   */
+  wait(options?: WaitOptions): Promise<TransactionReceipt<T>>
+}
+
+/**
+ * `contract.write.<method>()`: one function per ABI method, taking the
+ * method's arguments and then `WriteOptions`. It builds the transaction,
+ * has the wallet sign it, broadcasts it, and resolves once it is broadcast.
+ */
+export type WriteMethods<A extends AbiDocument> = {
+  readonly [M in MethodOf<A> as MethodKey<A, M>]: (
+    ...args: [...args: ArgsOf<M["params"]>, options?: WriteOptions]
+  ) => Promise<WriteResult<ReturnOf<M["returns"]>>>
+}
+
 export type ReadResult<T> =
   | { status: "success"; value: T; gasUsed: bigint; data: Uint8Array }
   | {
@@ -836,6 +906,8 @@ export interface ContractHandle<A extends AbiDocument = AbiDocument> {
   readonly read: ReadMethods<A>
   /** Simulate a method and return `{ status, ... }`; for calls that are expected to revert. */
   readonly tryRead: TryReadMethods<A>
+  /** Send a method as a transaction the wallet signs; resolves once it is broadcast. */
+  readonly write: WriteMethods<A>
 }
 
 /** Manifest contracts whose ABI was built when the client was generated. */
@@ -1064,6 +1136,13 @@ interface RpcEnvelope {
   error?: { message?: string; code?: number } | null
 }
 
+/** One completed call frame of an indexed trace. */
+interface TraceExit {
+  reverted: boolean
+  data: Uint8Array
+  gasUsed: bigint
+}
+
 interface Simulation {
   data: Uint8Array
   gasUsed: bigint
@@ -1190,9 +1269,23 @@ class RpcConnection {
   }
 
   /** Run a cellpack `[block, tx, opcode, ...words]` against indexed state. */
-  async simulate(cellpack: bigint[], height: number | null): Promise<Simulation> {
-    // alkanes.MessageContextParcel { height = 4, calldata = 5 }
+  async simulate(
+    cellpack: bigint[],
+    height: number | null,
+    alkanes: readonly AlkaneAmount[] = [],
+  ): Promise<Simulation> {
+    // alkanes.MessageContextParcel { alkanes = 1, height = 4, calldata = 5 }
     const parcel: number[] = []
+    for (const alkane of alkanes) {
+      // alkanes.AlkaneTransfer { id: AlkaneId { block = 1, tx = 2 } = 1, value = 2 }
+      const id: number[] = []
+      pushProtoBytesField(id, 1, encodeUint128(alkane.block))
+      pushProtoBytesField(id, 2, encodeUint128(alkane.tx))
+      const transfer: number[] = []
+      pushProtoBytesField(transfer, 1, Uint8Array.from(id))
+      pushProtoBytesField(transfer, 2, encodeUint128(alkane.amount))
+      pushProtoBytesField(parcel, 1, Uint8Array.from(transfer))
+    }
     pushProtoVarintField(parcel, 4, BigInt(height ?? (await this.readHeight())))
     pushProtoBytesField(parcel, 5, encodeCellpack(cellpack))
 
@@ -1224,6 +1317,88 @@ class RpcConnection {
     }
     return { data, gasUsed, error }
   }
+
+  /** An Esplora view over the node's ledger; text in, text out. */
+  async esplora(view: string, input: string): Promise<string> {
+    const request = `0x${bytesToHex(new TextEncoder().encode(input))}`
+    const result = await this.request("secondaryview", ["esplora", view, request])
+    if (typeof result !== "string") {
+      throw new LabcoatClientError("RESPONSE_INVALID", `${view} returned a non-string result`)
+    }
+    return new TextDecoder().decode(hexToBytes(result))
+  }
+
+  /**
+   * The outcome of the call traced at one virtual output, or null while the
+   * index has no completed trace for it.
+   */
+  async trace(txid: string, vout: number): Promise<TraceExit | null> {
+    // alkanes.Outpoint { txid = 1 (internal byte order), vout = 2 }
+    const outpoint: number[] = []
+    pushProtoBytesField(outpoint, 1, hexToBytes(txid).reverse())
+    pushProtoVarintField(outpoint, 2, BigInt(vout))
+    const response = await this.view("trace", Uint8Array.from(outpoint))
+
+    // alkanes.AlkanesTrace { events: AlkanesTraceEvent[] = 1 }; an event is
+    // enter_context = 1, exit_context = 2, or create_alkane = 3. The call's
+    // own outcome is the exit that closes the outermost frame.
+    let depth = 0
+    let outcome: TraceExit | null = null
+    const events = new ProtoReader(response)
+    while (!events.atEnd()) {
+      const { field, wire } = events.readField()
+      if (field !== 1 || wire !== 2) {
+        events.skip(wire)
+        continue
+      }
+      const event = new ProtoReader(events.readBytes())
+      while (!event.atEnd()) {
+        const kind = event.readField()
+        if (kind.field === 1 && kind.wire === 2) {
+          event.readBytes()
+          depth += 1
+        } else if (kind.field === 2 && kind.wire === 2) {
+          const exit = decodeTraceExit(event.readBytes())
+          if (depth <= 1) outcome = exit
+          depth = Math.max(depth - 1, 0)
+        } else {
+          event.skip(kind.wire)
+        }
+      }
+    }
+    return outcome
+  }
+}
+
+function decodeTraceExit(bytes: Uint8Array): TraceExit {
+  // alkanes.AlkanesExitContext { status = 1 (1 is failure), response = 2, fuel_used = 3 }
+  const exit: TraceExit = { reverted: false, data: new Uint8Array(0), gasUsed: 0n }
+  const reader = new ProtoReader(bytes)
+  while (!reader.atEnd()) {
+    const { field, wire } = reader.readField()
+    if (field === 1 && wire === 0) {
+      exit.reverted = reader.readVarint() !== 0n
+    } else if (field === 2 && wire === 2) {
+      // alkanes.ExtendedCallResponse { data = 3 }
+      const response = new ProtoReader(reader.readBytes())
+      while (!response.atEnd()) {
+        const item = response.readField()
+        if (item.field === 3 && item.wire === 2) exit.data = response.readBytes()
+        else response.skip(item.wire)
+      }
+    } else if (field === 3 && wire === 0) {
+      exit.gasUsed = reader.readVarint()
+    } else {
+      reader.skip(wire)
+    }
+  }
+  return exit
+}
+
+/** A revert's return data is a four-byte selector followed by the message. */
+function traceRevertReason(data: Uint8Array): string {
+  if (data.length <= 4) return "the call reverted without a message"
+  return revertReason(new TextDecoder("utf-8", { fatal: false }).decode(data.subarray(4)))
 }
 
 function settle(call: PendingCall, envelope: RpcEnvelope): void {
@@ -1232,6 +1407,7 @@ function settle(call: PendingCall, envelope: RpcEnvelope): void {
       new LabcoatClientError(
         "RPC_ERROR",
         `${call.method} failed: ${envelope.error.message ?? JSON.stringify(envelope.error)}`,
+        typeof envelope.error.code === "number" ? envelope.error.code : null,
       ),
     )
   } else {
@@ -1257,6 +1433,41 @@ export interface LabcoatWebClientOptions {
    * Defaults to true; pass false for an endpoint without batch support.
    */
   batch?: boolean
+  /** The wallet `contract.write` calls use when none is passed to them. */
+  wallet?: LabcoatWallet
+  /** Fee rate in sat/vB for `contract.write` calls that name none. */
+  feeRate?: number
+}
+
+/** Which wallet `connect()` returns. */
+export interface ConnectOptions {
+  /**
+   * "dev" for Labcoat Network's dev wallet, or one browser wallet. Without
+   * it: the dev wallet when the client was generated for Labcoat Network
+   * and the endpoint has one, else the first installed browser wallet.
+   */
+  wallet?: "dev" | BrowserWalletId
+  /**
+   * Dev wallet only: ask before each signature. `true` asks in the page
+   * with `approvalPrompt()`; a function decides itself. Browser wallets
+   * always ask in their own window.
+   */
+  approve?: boolean | ApproveTransaction
+  /**
+   * Dev wallet only: mine a block after each broadcast so the transaction
+   * confirms. Defaults to true; nothing else mines on Labcoat Network.
+   */
+  mine?: boolean
+  /** Where browser wallets are looked up. Defaults to `globalThis` (the page's `window`). */
+  host?: WalletHost
+}
+
+/** A wallet account resolved against the client's network. */
+interface FundingAccount {
+  address: string
+  script: Uint8Array
+  internalKey: Uint8Array | null
+  purpose: "payment" | "ordinals" | undefined
 }
 
 interface ResolvedContract {
@@ -1351,7 +1562,15 @@ export class LabcoatWebClient {
         return result.value
       }
     }
-    const handle: ContractHandle = { id: resolved.id, abi: document, read, tryRead }
+    const write: Record<string, (...args: unknown[]) => Promise<WriteResult<AbiValue>>> = {}
+    for (const [key, method] of methodKeys(document)) {
+      write[key] = (...args) => {
+        const takesOptions = args.length === method.params.length + 1
+        const options = takesOptions ? (args[args.length - 1] as WriteOptions | undefined) : undefined
+        return this.writeMethod(resolved, method, takesOptions ? args.slice(0, -1) : args, options ?? {})
+      }
+    }
+    const handle: ContractHandle = { id: resolved.id, abi: document, read, tryRead, write }
     return handle
   }
 
@@ -1384,6 +1603,389 @@ export class LabcoatWebClient {
     return { status: "success", value: decodeTyped(method, data), gasUsed, data }
   }
 
+  /** The Bitcoin network this client was generated for. */
+  get network(): BitcoinNetwork {
+    const network = MANIFEST.bitcoinNetwork
+    if (network === "mainnet" || network === "testnet" || network === "signet" || network === "regtest") {
+      return network
+    }
+    throw new LabcoatClientError("ARG_INVALID", `the manifest names an unknown bitcoin network "${network}"`)
+  }
+
+  /**
+   * A wallet to pass to `contract.write` calls.
+   *
+   *   const wallet = await labcoat.connect()
+   *
+   * On Labcoat Network this is the dev wallet the network signs for, with
+   * no extension and no prompt. Anywhere else it is a browser wallet, which
+   * asks the person to connect. The same line serves both, so app code has
+   * no local-only branch. Throws `WalletRejectedError` if they decline.
+   */
+  async connect(options: ConnectOptions = {}): Promise<LabcoatWallet> {
+    const network = this.network
+    const dev = (): LabcoatWallet => {
+      const approve = options.approve === true ? approvalPrompt() : options.approve || undefined
+      return devWallet({
+        request: (method, params) => this.connection.request(method, params),
+        ...(options.mine === undefined ? {} : { mine: options.mine }),
+        ...(approve === undefined ? {} : { approve }),
+      })
+    }
+    let wallet: LabcoatWallet | null = null
+    if (options.wallet === "dev") {
+      wallet = dev()
+    } else if (options.wallet !== undefined) {
+      wallet = browserWallet(options.wallet, network, options.host)
+    } else {
+      if (network === "regtest") {
+        // The dev signer is only ever on Labcoat Network; a public
+        // endpoint is never asked for one.
+        const candidate = dev()
+        try {
+          await candidate.getAccounts()
+          return candidate
+        } catch (error) {
+          if (!(error instanceof LabcoatClientError) || error.code !== "WALLET_UNAVAILABLE") throw error
+        }
+      }
+      const [installed] = installedBrowserWallets(options.host)
+      if (installed !== undefined) wallet = browserWallet(installed, network, options.host)
+    }
+    if (wallet === null) {
+      throw new LabcoatClientError(
+        "WALLET_UNAVAILABLE",
+        network === "regtest"
+          ? "no wallet found: start Labcoat Network with `labcoat up` and open the app at http://localhost:<port>, or install a browser wallet"
+          : "no wallet found: install UniSat, Xverse, OKX Wallet, or Leather, or pass your own wallet to the call",
+      )
+    }
+    await wallet.getAccounts()
+    return wallet
+  }
+
+  /** The wallets `connect({ wallet })` can return here: installed browser wallets, and "dev" on regtest. */
+  availableWallets(host?: WalletHost): ("dev" | BrowserWalletId)[] {
+    const installed = installedBrowserWallets(host)
+    return this.network === "regtest" ? ["dev", ...installed] : installed
+  }
+
+  private async writeMethod(
+    contract: ResolvedContract,
+    method: AbiMethod,
+    args: readonly unknown[],
+    options: WriteOptions,
+  ): Promise<WriteResult<AbiValue>> {
+    const network = this.network
+    const wallet = options.wallet ?? this.options.wallet
+    if (wallet === undefined) {
+      throw new LabcoatClientError(
+        "WALLET_UNAVAILABLE",
+        `${method.name} needs a wallet to sign: pass { wallet } as the last argument (see labcoat.connect())`,
+      )
+    }
+    const feeRate = options.feeRate ?? this.options.feeRate ?? (network === "regtest" ? 2 : undefined)
+    if (feeRate === undefined) {
+      throw new LabcoatClientError("ARG_INVALID", `feeRate (sat/vB) is required on ${network}`)
+    }
+    const words = encodeAbiArgs(method, args)
+    const cellpack = [contract.block, contract.tx, method.opcode, ...words]
+    const alkanes = (options.alkanes ?? []).map((alkane): AlkaneAmount => {
+      const id = parseAlkaneRef(alkane.id, "the Alkane to send")
+      return { ...id, amount: parseU128(alkane.amount, `the amount of ${id.block}:${id.tx} to send`) }
+    })
+    const payments = (options.pay ?? []).map((payment) => ({
+      address: payment.address,
+      script: addressToScript(payment.address, network),
+      sats: parseU128(payment.sats, `the payment to ${payment.address}`),
+    }))
+
+    const accounts = (await wallet.getAccounts()).map((account): FundingAccount => {
+      const script = addressToScript(account.address, network)
+      const publicKey = hexToBytes(account.publicKey)
+      return {
+        address: account.address,
+        script,
+        // A taproot internal key is the x coordinate of the public key.
+        internalKey: !isTaprootScript(script)
+          ? null
+          : publicKey.length === 32
+            ? publicKey
+            : publicKey.length === 33
+              ? publicKey.subarray(1)
+              : null,
+        purpose: account.purpose,
+      }
+    })
+    const funding = accounts.filter((account) => isTaprootScript(account.script) || isKeyHashScript(account.script))
+    // Results go to the taproot address that holds assets; change goes back
+    // to the address that holds bitcoin.
+    const home =
+      funding.find((account) => account.purpose !== "payment" && isTaprootScript(account.script)) ??
+      funding.find((account) => isTaprootScript(account.script))
+    const bank = funding.find((account) => account.purpose === "payment") ?? home
+    if (home === undefined || bank === undefined) {
+      throw new LabcoatClientError(
+        "WALLET_ERROR",
+        `${wallet.name} has no taproot address; the generated client spends taproot and native SegWit (P2WPKH) outputs only`,
+      )
+    }
+    const recipient = options.to ?? home.address
+    const recipientScript = addressToScript(recipient, network)
+
+    if (options.simulate !== false) {
+      const { data, gasUsed, error } = await this.connection.simulate(cellpack, null, alkanes)
+      if (error !== null) {
+        throw new ContractRevertError({
+          reason: revertReason(error),
+          contract: contract.id,
+          method: method.name,
+          gasUsed,
+          data,
+        })
+      }
+    }
+
+    // Bitcoin comes from the payment address first, then the other.
+    const ordered = [...funding].sort(
+      (left, right) => Number(right.purpose === "payment") - Number(left.purpose === "payment"),
+    )
+    let utxos = await this.spendableOutputs(ordered)
+    const build = (): BuiltTransaction =>
+      buildCallTransaction({
+        cellpack,
+        utxos,
+        recipient: recipientScript,
+        change: bank.script,
+        alkanes,
+        payments,
+        feeRate,
+      })
+    let built = build()
+    // An output can be spent by a transaction still in the mempool, which
+    // the index of confirmed outputs does not show. Drop those and choose again.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const live = await Promise.all(
+        built.inputs.map((input) => this.connection.request("gettxout", [input.txid, input.vout, true])),
+      )
+      const spent = new Set(built.inputs.filter((_, i) => live[i] == null).map(outpointKey))
+      if (spent.size === 0) break
+      utxos = utxos.filter((utxo) => !spent.has(outpointKey(utxo)))
+      built = build()
+    }
+
+    const signed = await wallet.signPsbt({
+      psbt: built.psbt,
+      inputs: built.inputs.map((input, index) => ({
+        index,
+        address: (ordered.find((account) => sameBytes(account.script, input.script)) as FundingAccount).address,
+      })),
+      summary: {
+        network,
+        contract: contract.id,
+        method: method.name,
+        fee: built.fee,
+        recipient,
+        alkanes: alkanes.map((alkane) => ({ id: `${alkane.block}:${alkane.tx}`, amount: alkane.amount })),
+        payments: payments.map(({ address, sats }) => ({ address, sats })),
+      },
+    })
+    // The wallet signs; it does not get to change what was built.
+    const answered = "hex" in signed ? unsignedTransaction(signed.hex) : psbtUnsignedTransaction(signed.psbt)
+    if (!sameBytes(answered, built.transaction)) {
+      throw new LabcoatClientError(
+        "WALLET_ERROR",
+        `${wallet.name} returned a different transaction from the one it was asked to sign; nothing was broadcast`,
+      )
+    }
+    const hex = "hex" in signed ? signed.hex : extractTransaction(signed.psbt)
+    const txid = await this.connection.request("sendrawtransaction", [hex])
+    if (typeof txid !== "string") {
+      throw new LabcoatClientError("RESPONSE_INVALID", "sendrawtransaction returned no transaction id")
+    }
+    await wallet.afterBroadcast?.(txid)
+
+    return {
+      txid,
+      fee: built.fee,
+      payments: payments.map(({ address, sats }, i) => ({ output: built.paymentOutputs[i] as number, address, sats })),
+      wait: async (waitOptions) => {
+        const exit = await this.waitForTrace(txid, [built.traceVout], waitOptions ?? {})
+        throwIfReverted(exit, txid, contract.id, method.name)
+        return {
+          txid,
+          status: "success",
+          value: decodeTyped(method, exit.data),
+          data: exit.data,
+          gasUsed: exit.gasUsed,
+        }
+      },
+    }
+  }
+
+  /**
+   * The wallet's confirmed outputs, oldest first within each address, each
+   * with the Alkanes the index lists on it. Left out: outputs the Alkanes
+   * index has not reached yet (what they carry is unknown) and block
+   * rewards that are not yet spendable.
+   */
+  private async spendableOutputs(accounts: readonly FundingAccount[]): Promise<SpendableOutput[]> {
+    const indexed = await this.connection.readHeight()
+    const young: SpendableOutput[] = []
+    const perAccount = await Promise.all(
+      accounts.map(async (account) => {
+        const [listed, carried] = await Promise.all([
+          this.connection.esplora("utxosbyscripthash", scriptHash(account.script)),
+          this.alkanesByOutpoint(account.address),
+        ])
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(listed)
+        } catch {
+          parsed = null
+        }
+        if (!Array.isArray(parsed)) {
+          throw new LabcoatClientError("RESPONSE_INVALID", `could not list the outputs of ${account.address}`)
+        }
+        const outputs: SpendableOutput[] = []
+        for (const entry of parsed as Record<string, unknown>[]) {
+          const status = entry["status"] as Record<string, unknown> | undefined
+          const height = status?.["block_height"]
+          if (
+            typeof entry["txid"] !== "string" ||
+            typeof entry["vout"] !== "number" ||
+            typeof entry["value"] !== "number" ||
+            status?.["confirmed"] !== true ||
+            typeof height !== "number" ||
+            height > indexed
+          ) {
+            continue
+          }
+          const output: SpendableOutput = {
+            txid: entry["txid"],
+            vout: entry["vout"],
+            value: BigInt(entry["value"]),
+            script: account.script,
+            internalKey: account.internalKey,
+            alkanes: carried.get(`${entry["txid"]}:${entry["vout"]}`) ?? null,
+          }
+          outputs.push(output)
+          if (indexed - height + 1 < COINBASE_MATURITY) young.push(output)
+        }
+        return outputs
+      }),
+    )
+    const immature = new Set<string>()
+    await Promise.all(
+      young.map(async (output) => {
+        const live = await this.connection.request("gettxout", [output.txid, output.vout, true])
+        if (live == null || (live as Record<string, unknown>)["coinbase"] === true) {
+          immature.add(outpointKey(output))
+        }
+      }),
+    )
+    return perAccount.flat().filter((output) => !immature.has(outpointKey(output)))
+  }
+
+  /** Every outpoint of `address` the Alkanes index lists, with what it carries. */
+  private async alkanesByOutpoint(address: string): Promise<Map<string, AlkaneAmount[]>> {
+    const response = await this.connection.view("protorunesbyaddress", walletRequest(address))
+    const carried = new Map<string, AlkaneAmount[]>()
+    // protorune.WalletResponse { outpoints: OutpointResponse[] = 1 }
+    const wallet = new ProtoReader(response)
+    while (!wallet.atEnd()) {
+      const { field, wire } = wallet.readField()
+      if (field !== 1 || wire !== 2) {
+        wallet.skip(wire)
+        continue
+      }
+      // OutpointResponse { balances: BalanceSheet = 1, outpoint: Outpoint = 2 }
+      const totals = new Map<string, { block: bigint; tx: bigint; name: string; symbol: string; balance: bigint }>()
+      let outpoint: string | null = null
+      const item = new ProtoReader(wallet.readBytes())
+      while (!item.atEnd()) {
+        const part = item.readField()
+        if (part.field === 1 && part.wire === 2) {
+          const sheet = new ProtoReader(item.readBytes())
+          while (!sheet.atEnd()) {
+            const entry = sheet.readField()
+            if (entry.field === 1 && entry.wire === 2) decodeBalanceSheetItem(sheet.readBytes(), totals)
+            else sheet.skip(entry.wire)
+          }
+        } else if (part.field === 2 && part.wire === 2) {
+          // protorune.Outpoint { txid = 1 (internal byte order), vout = 2 }
+          let txid = ""
+          let vout = 0
+          const reader = new ProtoReader(item.readBytes())
+          while (!reader.atEnd()) {
+            const piece = reader.readField()
+            if (piece.field === 1 && piece.wire === 2) txid = bytesToHex(reader.readBytes().slice().reverse())
+            else if (piece.field === 2 && piece.wire === 0) vout = Number(reader.readVarint())
+            else reader.skip(piece.wire)
+          }
+          outpoint = `${txid}:${vout}`
+        } else {
+          item.skip(part.wire)
+        }
+      }
+      if (outpoint !== null) {
+        carried.set(
+          outpoint,
+          [...totals.values()].map(({ block, tx, balance }) => ({ block, tx, amount: balance })),
+        )
+      }
+    }
+    return carried
+  }
+
+  /**
+   * Wait until the Alkanes index has a broadcast contract call, and return
+   * its outcome with the raw return bytes in `value`. Throws
+   * `ContractRevertError` if the call reverted, and a `TRANSACTION_TIMEOUT`
+   * error if the index does not have it in time.
+   *
+   * `(await contract.write.<method>(...)).wait()` does the same and decodes
+   * the return value with the ABI.
+   *
+   * A transaction is indexed once it is in a block. On Labcoat Network the
+   * dev wallet mines one after each broadcast; a transaction sent any other
+   * way stays pending until `labcoat mine`.
+   */
+  async waitForTransaction(txid: string, options: WaitOptions = {}): Promise<TransactionReceipt> {
+    if (!/^[0-9a-fA-F]{64}$/.test(txid)) {
+      throw new LabcoatClientError("ARG_INVALID", "txid must be 64 hex characters")
+    }
+    // A call is traced at a virtual output past the real ones: the first
+    // protostone at `outputs + 1`, and the call one later when a protostone
+    // ahead of it forwards Alkanes.
+    const hex = await this.connection.esplora("txhex", txid)
+    if (!/^[0-9a-f]+$/.test(hex)) {
+      throw new LabcoatClientError("ARG_INVALID", `the node does not know transaction ${txid}`)
+    }
+    const base = transactionOutputCount(hexToBytes(hex)) + 1
+    const exit = await this.waitForTrace(txid, [base, base + 1], options)
+    throwIfReverted(exit, txid, null, null)
+    return { txid, status: "success", value: exit.data, data: exit.data, gasUsed: exit.gasUsed }
+  }
+
+  private async waitForTrace(txid: string, vouts: readonly number[], options: WaitOptions): Promise<TraceExit> {
+    const timeoutMs = options.timeoutMs ?? 60_000
+    const pollMs = options.pollMs ?? 500
+    const started = Date.now()
+    for (;;) {
+      const traces = await Promise.all(vouts.map((vout) => this.connection.trace(txid, vout)))
+      const exit = traces.find((trace) => trace !== null)
+      if (exit != null) return exit
+      if (Date.now() - started >= timeoutMs) {
+        throw new LabcoatClientError(
+          "TRANSACTION_TIMEOUT",
+          `the Alkanes index has no result for ${txid} after ${timeoutMs} ms; it is indexed once it is in a block`,
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs))
+    }
+  }
+
   /** Height of the Alkanes secondary index — the state every read reflects. */
   getIndexedHeight(): Promise<number> {
     return this.connection.indexedHeight()
@@ -1397,14 +1999,7 @@ export class LabcoatWebClient {
     if (address.length === 0) {
       throw new LabcoatClientError("ARG_INVALID", "address must not be empty")
     }
-    // protorune.ProtorunesWalletRequest { wallet = 1, protocol_tag = 2 }
-    const request: number[] = []
-    pushProtoBytesField(request, 1, new TextEncoder().encode(address))
-    const protocolTag: number[] = []
-    pushProtoVarintField(protocolTag, 1, ALKANES_PROTOCOL_TAG)
-    pushProtoBytesField(request, 2, Uint8Array.from(protocolTag))
-
-    const response = await this.connection.view("protorunesbyaddress", Uint8Array.from(request))
+    const response = await this.connection.view("protorunesbyaddress", walletRequest(address))
     const totals = new Map<string, { block: bigint; tx: bigint; name: string; symbol: string; balance: bigint }>()
 
     // protorune.WalletResponse { outpoints: OutpointResponse[] = 1 }
@@ -1517,6 +2112,43 @@ export class LabcoatWebClient {
     }
     return { ...ref, id: `${ref.block}:${ref.tx}`, artifact }
   }
+}
+
+/** Confirmations a block reward needs before it can be spent. */
+const COINBASE_MATURITY = 100
+
+function outpointKey(output: { txid: string; vout: number }): string {
+  return `${output.txid}:${output.vout}`
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length && left.every((byte, i) => byte === right[i])
+}
+
+function isKeyHashScript(script: Uint8Array): boolean {
+  return script.length === 22 && script[0] === 0x00 && script[1] === 0x14
+}
+
+function walletRequest(address: string): Uint8Array {
+  // protorune.ProtorunesWalletRequest { wallet = 1, protocol_tag = 2 }
+  const request: number[] = []
+  pushProtoBytesField(request, 1, new TextEncoder().encode(address))
+  const protocolTag: number[] = []
+  pushProtoVarintField(protocolTag, 1, ALKANES_PROTOCOL_TAG)
+  pushProtoBytesField(request, 2, Uint8Array.from(protocolTag))
+  return Uint8Array.from(request)
+}
+
+function throwIfReverted(exit: TraceExit, txid: string, contract: string | null, method: string | null): void {
+  if (!exit.reverted) return
+  throw new ContractRevertError({
+    reason: traceRevertReason(exit.data),
+    contract: contract ?? "the contract",
+    method: method ?? "the call",
+    gasUsed: exit.gasUsed,
+    data: exit.data,
+    txid,
+  })
 }
 
 function describe(target: AlkaneIdLike): string {
@@ -1842,6 +2474,9 @@ mod tests {
                 "abi/token.ts",
                 "abi/index.ts",
                 "client.ts",
+                "errors.ts",
+                "transaction.ts",
+                "wallet.ts",
                 "exchange.ts"
             ]
         );

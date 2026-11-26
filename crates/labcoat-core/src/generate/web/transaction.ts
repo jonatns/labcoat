@@ -1,0 +1,970 @@
+//
+// Builds the unsigned transaction of a contract call, as a PSBT a wallet can
+// sign: input selection, outputs, protostone, fee, and change. Pure and
+// self-contained: no network access, no key material, no dependencies.
+//
+// It builds what `labcoat call` builds. For the same wallet outputs and the
+// same call, the unsigned transaction is byte-for-byte the one the CLI
+// signs; Labcoat's own tests hold the two together. `client.ts` gathers the
+// wallet's outputs and drives this module; most apps never import it.
+
+import { LabcoatClientError } from "./errors"
+
+/** Bitcoin network parameters an address belongs to. */
+export type BitcoinNetwork = "mainnet" | "testnet" | "signet" | "regtest"
+
+/** The smallest output value the builder creates, in sats. */
+export const DUST_SATS = 546n
+/** The most a transaction may pay in fees, in sats. */
+export const MAX_FEE_SATS = 100_000n
+
+/* ---------------------------------- bytes --------------------------------- */
+
+export function bytesToHex(bytes: Uint8Array): string {
+  let out = ""
+  for (const byte of bytes) out += byte.toString(16).padStart(2, "0")
+  return out
+}
+
+export function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex
+  if (clean.length % 2 !== 0 || /[^0-9a-fA-F]/.test(clean)) {
+    throw new LabcoatClientError("RESPONSE_INVALID", `invalid hex payload: ${hex.slice(0, 32)}…`)
+  }
+  const bytes = new Uint8Array(clean.length / 2)
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16)
+  }
+  return bytes
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+export function base64ToBytes(text: string): Uint8Array {
+  let binary: string
+  try {
+    binary = atob(text.trim())
+  } catch {
+    throw new LabcoatClientError("RESPONSE_INVALID", "invalid base64 payload")
+  }
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+function concat(parts: readonly (Uint8Array | readonly number[])[]): Uint8Array {
+  let length = 0
+  for (const part of parts) length += part.length
+  const out = new Uint8Array(length)
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.length
+  }
+  return out
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length && left.every((byte, i) => byte === right[i])
+}
+
+/* --------------------------------- SHA-256 -------------------------------- */
+
+// prettier-ignore
+const SHA256_K = new Uint32Array([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+])
+
+function rotr(value: number, bits: number): number {
+  return (value >>> bits) | (value << (32 - bits))
+}
+
+/** SHA-256, synchronous: script hashes and address checksums need one. */
+export function sha256(data: Uint8Array): Uint8Array {
+  const state = new Uint32Array([
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  ])
+  const padded = new Uint8Array((((data.length + 8) >> 6) + 1) << 6)
+  padded.set(data)
+  padded[data.length] = 0x80
+  const view = new DataView(padded.buffer)
+  view.setUint32(padded.length - 8, Math.floor(data.length / 0x20000000))
+  view.setUint32(padded.length - 4, (data.length << 3) >>> 0)
+
+  const w = new Uint32Array(64)
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4)
+    for (let i = 16; i < 64; i++) {
+      const w15 = w[i - 15] as number
+      const w2 = w[i - 2] as number
+      const s0 = rotr(w15, 7) ^ rotr(w15, 18) ^ (w15 >>> 3)
+      const s1 = rotr(w2, 17) ^ rotr(w2, 19) ^ (w2 >>> 10)
+      w[i] = ((w[i - 16] as number) + s0 + (w[i - 7] as number) + s1) >>> 0
+    }
+    let [a, b, c, d, e, f, g, h] = state as unknown as [
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+    ]
+    for (let i = 0; i < 64; i++) {
+      const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
+      const choice = (e & f) ^ (~e & g)
+      const t1 = (h + s1 + choice + (SHA256_K[i] as number) + (w[i] as number)) >>> 0
+      const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
+      const majority = (a & b) ^ (a & c) ^ (b & c)
+      const t2 = (s0 + majority) >>> 0
+      h = g
+      g = f
+      f = e
+      e = (d + t1) >>> 0
+      d = c
+      c = b
+      b = a
+      a = (t1 + t2) >>> 0
+    }
+    const next = [a, b, c, d, e, f, g, h]
+    for (let i = 0; i < 8; i++) state[i] = ((state[i] as number) + (next[i] as number)) >>> 0
+  }
+
+  const out = new Uint8Array(32)
+  const outView = new DataView(out.buffer)
+  state.forEach((word, i) => outView.setUint32(i * 4, word))
+  return out
+}
+
+/* -------------------------------- addresses ------------------------------- */
+
+const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+const BECH32_CONST = 1
+const BECH32M_CONST = 0x2bc830a3
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+const SEGWIT_PREFIX: Record<BitcoinNetwork, string> = {
+  mainnet: "bc",
+  testnet: "tb",
+  signet: "tb",
+  regtest: "bcrt",
+}
+
+function bech32Polymod(values: readonly number[]): number {
+  const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+  let checksum = 1
+  for (const value of values) {
+    const top = checksum >>> 25
+    checksum = ((checksum & 0x1ffffff) << 5) ^ value
+    generators.forEach((generator, i) => {
+      if ((top >>> i) & 1) checksum ^= generator
+    })
+  }
+  return checksum >>> 0
+}
+
+function invalidAddress(address: string, why: string): LabcoatClientError {
+  return new LabcoatClientError("ARG_INVALID", `"${address}" is not a bitcoin address: ${why}`)
+}
+
+function wrongNetwork(address: string, network: BitcoinNetwork): LabcoatClientError {
+  return new LabcoatClientError(
+    "ARG_INVALID",
+    `address ${address} does not belong to the ${network} network`,
+  )
+}
+
+function segwitScript(address: string, network: BitcoinNetwork): Uint8Array | null {
+  const lower = address.toLowerCase()
+  const separator = lower.lastIndexOf("1")
+  const known = Object.values(SEGWIT_PREFIX).includes(lower.slice(0, Math.max(separator, 0)))
+  if (!known) return null
+  if (address !== lower && address !== address.toUpperCase()) {
+    throw invalidAddress(address, "mixed upper and lower case")
+  }
+  const prefix = lower.slice(0, separator)
+  const data: number[] = []
+  for (const char of lower.slice(separator + 1)) {
+    const value = BECH32_CHARSET.indexOf(char)
+    if (value < 0) throw invalidAddress(address, `invalid character "${char}"`)
+    data.push(value)
+  }
+  if (data.length < 7) throw invalidAddress(address, "too short")
+  const expanded = [
+    ...Array.from(prefix, (char) => char.charCodeAt(0) >>> 5),
+    0,
+    ...Array.from(prefix, (char) => char.charCodeAt(0) & 31),
+  ]
+  const version = data[0] as number
+  const checksum = bech32Polymod([...expanded, ...data])
+  if (checksum !== (version === 0 ? BECH32_CONST : BECH32M_CONST)) {
+    throw invalidAddress(address, "bad checksum")
+  }
+
+  // Five-bit groups to bytes, with no padding bits left over.
+  const program: number[] = []
+  let accumulator = 0
+  let bits = 0
+  for (const value of data.slice(1, -6)) {
+    accumulator = (accumulator << 5) | value
+    bits += 5
+    if (bits >= 8) {
+      bits -= 8
+      program.push((accumulator >>> bits) & 0xff)
+    }
+  }
+  if (bits >= 5 || (accumulator & ((1 << bits) - 1)) !== 0) {
+    throw invalidAddress(address, "invalid padding")
+  }
+  const validLength =
+    version === 0 ? program.length === 20 || program.length === 32 : program.length >= 2 && program.length <= 40
+  if (version > 16 || !validLength) throw invalidAddress(address, "invalid witness program")
+  if (prefix !== SEGWIT_PREFIX[network]) throw wrongNetwork(address, network)
+  return Uint8Array.from([version === 0 ? 0 : 0x50 + version, program.length, ...program])
+}
+
+function legacyScript(address: string, network: BitcoinNetwork): Uint8Array {
+  let value = 0n
+  for (const char of address) {
+    const digit = BASE58_ALPHABET.indexOf(char)
+    if (digit < 0) throw invalidAddress(address, `invalid character "${char}"`)
+    value = value * 58n + BigInt(digit)
+  }
+  const bytes: number[] = []
+  for (; value > 0n; value >>= 8n) bytes.unshift(Number(value & 0xffn))
+  for (const char of address) {
+    if (char !== "1") break
+    bytes.unshift(0)
+  }
+  if (bytes.length !== 25) throw invalidAddress(address, "wrong length")
+  const payload = Uint8Array.from(bytes.slice(0, 21))
+  const checksum = sha256(sha256(payload)).subarray(0, 4)
+  if (!sameBytes(checksum, Uint8Array.from(bytes.slice(21)))) {
+    throw invalidAddress(address, "bad checksum")
+  }
+  const version = payload[0] as number
+  const hash = payload.subarray(1)
+  const [keyHash, scriptHash] = network === "mainnet" ? [0x00, 0x05] : [0x6f, 0xc4]
+  if (version === keyHash) return concat([[0x76, 0xa9, 0x14], hash, [0x88, 0xac]])
+  if (version === scriptHash) return concat([[0xa9, 0x14], hash, [0x87]])
+  if ([0x00, 0x05, 0x6f, 0xc4].includes(version)) throw wrongNetwork(address, network)
+  throw invalidAddress(address, "unknown address version")
+}
+
+/** The output script an address pays to; rejects an address of another network. */
+export function addressToScript(address: string, network: BitcoinNetwork): Uint8Array {
+  if (typeof address !== "string" || address.length === 0) {
+    throw invalidAddress(String(address), "empty")
+  }
+  return segwitScript(address, network) ?? legacyScript(address, network)
+}
+
+export function isTaprootScript(script: Uint8Array): boolean {
+  return script.length === 34 && script[0] === 0x51 && script[1] === 0x20
+}
+
+function isWitnessKeyHashScript(script: Uint8Array): boolean {
+  return script.length === 22 && script[0] === 0x00 && script[1] === 0x14
+}
+
+/**
+ * The key Esplora indexes an output script under: the hex of its SHA-256,
+ * byte-reversed.
+ */
+export function scriptHash(script: Uint8Array): string {
+  return bytesToHex(sha256(script).reverse())
+}
+
+/* ------------------------------ serialization ----------------------------- */
+
+function pushVarint(out: number[], value: bigint): void {
+  if (value < 0n) throw new LabcoatClientError("ARG_INVALID", "varint values must be non-negative")
+  let v = value
+  for (;;) {
+    const byte = Number(v & 0x7fn)
+    v >>= 7n
+    if (v === 0n) {
+      out.push(byte)
+      return
+    }
+    out.push(byte | 0x80)
+  }
+}
+
+/** LEB128 varint list — the cellpack encoding: [block, tx, opcode, ...args]. */
+export function encodeCellpack(values: readonly bigint[]): Uint8Array {
+  const out: number[] = []
+  for (const value of values) pushVarint(out, value)
+  return Uint8Array.from(out)
+}
+
+function compactSize(value: number): number[] {
+  if (value < 0xfd) return [value]
+  if (value <= 0xffff) return [0xfd, value & 0xff, value >>> 8]
+  return [0xfe, value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, value >>> 24]
+}
+
+function uint32(value: number): number[] {
+  return [value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, value >>> 24]
+}
+
+function uint64(value: bigint): number[] {
+  const out: number[] = []
+  for (let i = 0n; i < 8n; i++) out.push(Number((value >> (8n * i)) & 0xffn))
+  return out
+}
+
+function txidBytes(txid: string): Uint8Array {
+  if (!/^[0-9a-fA-F]{64}$/.test(txid)) {
+    throw new LabcoatClientError("RESPONSE_INVALID", `invalid transaction id: ${txid.slice(0, 80)}`)
+  }
+  return hexToBytes(txid).reverse()
+}
+
+export interface TransactionOutput {
+  script: Uint8Array
+  /** Sats. */
+  value: bigint
+}
+
+interface TransactionInput {
+  /** Display order, as explorers and RPCs write it. */
+  txid: string
+  vout: number
+  scriptSig: Uint8Array
+  sequence: number
+  witness: Uint8Array[]
+}
+
+interface Transaction {
+  version: number
+  inputs: TransactionInput[]
+  outputs: TransactionOutput[]
+  lockTime: number
+}
+
+function serializeOutput(output: TransactionOutput): number[] {
+  return [...uint64(output.value), ...compactSize(output.script.length), ...output.script]
+}
+
+function serializeTransaction(tx: Transaction, withWitness: boolean): Uint8Array {
+  const out: number[] = [...uint32(tx.version)]
+  if (withWitness) out.push(0x00, 0x01)
+  out.push(...compactSize(tx.inputs.length))
+  for (const input of tx.inputs) {
+    out.push(...txidBytes(input.txid), ...uint32(input.vout))
+    out.push(...compactSize(input.scriptSig.length), ...input.scriptSig)
+    out.push(...uint32(input.sequence))
+  }
+  out.push(...compactSize(tx.outputs.length))
+  for (const output of tx.outputs) out.push(...serializeOutput(output))
+  if (withWitness) {
+    for (const input of tx.inputs) {
+      out.push(...compactSize(input.witness.length))
+      for (const item of input.witness) out.push(...compactSize(item.length), ...item)
+    }
+  }
+  out.push(...uint32(tx.lockTime))
+  return Uint8Array.from(out)
+}
+
+class ByteReader {
+  private offset = 0
+  private readonly bytes: Uint8Array
+  private readonly what: string
+
+  constructor(bytes: Uint8Array, what: string) {
+    this.bytes = bytes
+    this.what = what
+  }
+
+  atEnd(): boolean {
+    return this.offset >= this.bytes.length
+  }
+
+  peek(): number {
+    return this.bytes[this.offset] ?? -1
+  }
+
+  take(length: number): Uint8Array {
+    if (length < 0 || this.offset + length > this.bytes.length) {
+      throw new LabcoatClientError("RESPONSE_INVALID", `truncated ${this.what}`)
+    }
+    const slice = this.bytes.subarray(this.offset, this.offset + length)
+    this.offset += length
+    return slice
+  }
+
+  uint32(): number {
+    const [a, b, c, d] = this.take(4) as unknown as [number, number, number, number]
+    return (a | (b << 8) | (c << 16) | (d << 24)) >>> 0
+  }
+
+  uint64(): bigint {
+    let value = 0n
+    this.take(8).forEach((byte, i) => {
+      value |= BigInt(byte) << BigInt(8 * i)
+    })
+    return value
+  }
+
+  compactSize(): number {
+    const first = this.take(1)[0] as number
+    if (first < 0xfd) return first
+    if (first === 0xfd) {
+      const [a, b] = this.take(2) as unknown as [number, number]
+      return a | (b << 8)
+    }
+    if (first === 0xfe) return this.uint32()
+    throw new LabcoatClientError("RESPONSE_INVALID", `oversized length in ${this.what}`)
+  }
+
+  sized(): Uint8Array {
+    return this.take(this.compactSize())
+  }
+}
+
+/** Decode a serialized transaction, with or without witness data. */
+function parseTransaction(bytes: Uint8Array): Transaction {
+  const reader = new ByteReader(bytes, "transaction")
+  const version = reader.uint32()
+  let segwit = false
+  if (reader.peek() === 0x00) {
+    reader.take(2)
+    segwit = true
+  }
+  const inputs: TransactionInput[] = []
+  for (let count = reader.compactSize(); count > 0; count--) {
+    const txid = bytesToHex(reader.take(32).slice().reverse())
+    const vout = reader.uint32()
+    const scriptSig = reader.sized()
+    inputs.push({ txid, vout, scriptSig, sequence: reader.uint32(), witness: [] })
+  }
+  const outputs: TransactionOutput[] = []
+  for (let count = reader.compactSize(); count > 0; count--) {
+    const value = reader.uint64()
+    outputs.push({ value, script: reader.sized() })
+  }
+  if (segwit) {
+    for (const input of inputs) {
+      for (let count = reader.compactSize(); count > 0; count--) input.witness.push(reader.sized())
+    }
+  }
+  return { version, inputs, outputs, lockTime: reader.uint32() }
+}
+
+/** A signed transaction (hex) without its signatures, for comparing with what was built. */
+export function unsignedTransaction(hex: string): Uint8Array {
+  const tx = parseTransaction(hexToBytes(hex))
+  for (const input of tx.inputs) input.scriptSig = new Uint8Array(0)
+  return serializeTransaction(tx, false)
+}
+
+/** How many outputs a serialized transaction has. */
+export function transactionOutputCount(bytes: Uint8Array): number {
+  return parseTransaction(bytes).outputs.length
+}
+
+/* -------------------------------- protostone ------------------------------ */
+
+/** One amount of one Alkane. */
+export interface AlkaneAmount {
+  block: bigint
+  tx: bigint
+  amount: bigint
+}
+
+interface Edict extends AlkaneAmount {
+  /** A physical output index, or the virtual output of a later protostone. */
+  output: bigint
+}
+
+interface Protostone {
+  pointer: number
+  refund: number
+  message: Uint8Array
+  edicts: Edict[]
+}
+
+const TAG_BODY = 0n
+const TAG_POINTER = 22n
+const TAG_MESSAGE = 81n
+const TAG_PROTO_POINTER = 91n
+const TAG_REFUND = 93n
+const TAG_PROTOCOL = 16383n
+const ALKANES_PROTOCOL_TAG = 1n
+const MAX_SCRIPT_PUSH = 520
+
+/** Bytes as little-endian integers of fifteen bytes each. */
+function splitBytes(bytes: Uint8Array): bigint[] {
+  const words: bigint[] = []
+  for (let i = 0; i < bytes.length; i += 15) {
+    let word = 0n
+    bytes.subarray(i, i + 15).forEach((byte, j) => {
+      word |= BigInt(byte) << BigInt(8 * j)
+    })
+    words.push(word)
+  }
+  return words
+}
+
+function protostoneIntegers(stone: Protostone): bigint[] {
+  const values = [TAG_PROTO_POINTER, BigInt(stone.pointer), TAG_REFUND, BigInt(stone.refund)]
+  for (const word of splitBytes(stone.message)) values.push(TAG_MESSAGE, word)
+  if (stone.edicts.length > 0) {
+    values.push(TAG_BODY)
+    const sorted = [...stone.edicts].sort((left, right) =>
+      left.block !== right.block ? (left.block < right.block ? -1 : 1) : left.tx < right.tx ? -1 : left.tx > right.tx ? 1 : 0,
+    )
+    let previous = { block: 0n, tx: 0n }
+    for (const edict of sorted) {
+      const block = edict.block - previous.block
+      values.push(block, block === 0n ? edict.tx - previous.tx : edict.tx, edict.amount, edict.output)
+      previous = edict
+    }
+  }
+  return values
+}
+
+/** The OP_RETURN script carrying the protostones: a runestone whose pointer is output 0. */
+function runestoneScript(stones: readonly Protostone[]): Uint8Array {
+  const values: bigint[] = []
+  for (const stone of stones) {
+    const integers = protostoneIntegers(stone)
+    values.push(ALKANES_PROTOCOL_TAG, BigInt(integers.length), ...integers)
+  }
+  const payload: number[] = []
+  pushVarint(payload, TAG_POINTER)
+  pushVarint(payload, 0n)
+  for (const word of splitBytes(encodeCellpack(values))) {
+    pushVarint(payload, TAG_PROTOCOL)
+    pushVarint(payload, word)
+  }
+  // OP_RETURN OP_13, then the payload in pushes a script accepts.
+  const script: number[] = [0x6a, 0x5d]
+  for (let offset = 0; offset < payload.length; offset += MAX_SCRIPT_PUSH) {
+    const chunk = payload.slice(offset, offset + MAX_SCRIPT_PUSH)
+    if (chunk.length <= 75) script.push(chunk.length)
+    else if (chunk.length <= 255) script.push(0x4c, chunk.length)
+    else script.push(0x4d, chunk.length & 0xff, chunk.length >>> 8)
+    script.push(...chunk)
+  }
+  return Uint8Array.from(script)
+}
+
+/* --------------------------------- building ------------------------------- */
+
+/** One unspent output of the wallet, as the builder needs it. */
+export interface SpendableOutput {
+  /** Display order, as explorers and RPCs write it. */
+  txid: string
+  vout: number
+  /** Sats. */
+  value: bigint
+  /** The output script (scriptPubKey). */
+  script: Uint8Array
+  /** For a taproot output: the 32-byte internal key the wallet reported, if any. */
+  internalKey: Uint8Array | null
+  /**
+   * Alkanes the index lists on this output, or null when it lists none.
+   * An output listed with no positive balance is still treated as carrying.
+   */
+  alkanes: readonly AlkaneAmount[] | null
+}
+
+export interface CallTransactionRequest {
+  /** `[block, tx, opcode, ...argument words]` of the call. */
+  cellpack: readonly bigint[]
+  /** The wallet's spendable outputs, oldest first. Order decides selection. */
+  utxos: readonly SpendableOutput[]
+  /** Script of output 0: where the call's Alkanes results and refunds land. */
+  recipient: Uint8Array
+  /** Script the bitcoin change is paid to. */
+  change: Uint8Array
+  /** Alkanes to send in with the call. */
+  alkanes: readonly AlkaneAmount[]
+  /** Plain bitcoin outputs, placed after output 0 in this order. */
+  payments: readonly { script: Uint8Array; sats: bigint }[]
+  /** Fee rate in sat/vB. */
+  feeRate: number
+}
+
+export interface BuiltTransaction {
+  /** The unsigned transaction as a BIP-174 PSBT, base64. */
+  psbt: string
+  /** The unsigned transaction, serialized. */
+  transaction: Uint8Array
+  /** Sats the transaction pays in fees. */
+  fee: bigint
+  inputs: SpendableOutput[]
+  outputs: TransactionOutput[]
+  /** Index of the change output, or null when the change was below dust and went to the fee. */
+  changeOutput: number | null
+  /** Indexes of the payment outputs, in the order requested. */
+  paymentOutputs: number[]
+  /** The virtual output the call's trace is indexed at. */
+  traceVout: number
+}
+
+const SEQUENCE_RBF = 0xfffffffd
+/** Witness of a taproot key-path spend: one 65-byte item. */
+const KEY_SPEND_WITNESS = 1 + 1 + 65
+/** Witness of a P2WPKH spend: a 72-byte signature and a 33-byte key. */
+const KEY_HASH_WITNESS = 1 + 1 + 72 + 1 + 33
+/** Virtual size the fee estimate charges one more input, in vbytes. */
+const MARGINAL_INPUT_VBYTES = 58
+/** Inputs selection may add only to keep the change above dust. */
+const MAX_HEADROOM_INPUTS = 4
+
+function key(id: { block: bigint; tx: bigint }): string {
+  return `${id.block}:${id.tx}`
+}
+
+/** `ceil(rate × vsize)` in the single precision the CLI computes it in. */
+function feeAt(rate: number, vsize: number): number {
+  return Math.ceil(Math.fround(Math.fround(rate) * vsize))
+}
+
+/** The size the fee is budgeted on before inputs are chosen. */
+function budgetedVsize(inputs: number, outputs: number): number {
+  const nonWitness = 10 + inputs * 41 + outputs * 43 + 150
+  return Math.floor((nonWitness * 4 + inputs * 65 + 3) / 4)
+}
+
+function virtualSize(inputs: readonly SpendableOutput[], outputs: readonly TransactionOutput[]): number {
+  let stripped = 4 + compactSize(inputs.length).length + inputs.length * 41 + compactSize(outputs.length).length + 4
+  for (const output of outputs) stripped += 8 + compactSize(output.script.length).length + output.script.length
+  let witness = 2
+  for (const input of inputs) {
+    witness += isWitnessKeyHashScript(input.script) ? KEY_HASH_WITNESS : KEY_SPEND_WITNESS
+  }
+  return Math.ceil((stripped * 4 + witness) / 4)
+}
+
+function requireSats(value: bigint, label: string): void {
+  if (typeof value !== "bigint" || value < 0n || value > 21_000_000n * 100_000_000n) {
+    throw new LabcoatClientError("ARG_INVALID", `${label} is not a valid amount of sats`)
+  }
+}
+
+function selectInputs(
+  request: CallTransactionRequest,
+  needed: Map<string, bigint>,
+  bitcoinNeeded: bigint,
+): SpendableOutput[] {
+  // An output that carries Alkanes is never spent as plain bitcoin: only an
+  // output holding an Alkane this call sends in may be an input at all.
+  const spendable = request.utxos.filter(
+    (utxo) => utxo.alkanes === null || utxo.alkanes.some((held) => held.amount > 0n && needed.has(key(held))),
+  )
+
+  const perInputFee = BigInt(Math.ceil(Math.max(Math.fround(request.feeRate), 0) * MARGINAL_INPUT_VBYTES))
+  const selected: SpendableOutput[] = []
+  const collected = new Map<string, bigint>()
+  let bitcoin = 0n
+  let headroomInputs = 0
+  // Beyond what the transaction needs, selection aims for change above
+  // dust, with a few more inputs at most.
+  const wantsMore = (): boolean =>
+    bitcoin < bitcoinNeeded ||
+    (headroomInputs < MAX_HEADROOM_INPUTS &&
+      bitcoin < bitcoinNeeded + DUST_SATS + perInputFee * BigInt(selected.length))
+  const satisfied = (): boolean =>
+    [...needed].every(([id, amount]) => (collected.get(id) ?? 0n) >= amount)
+
+  for (const utxo of spendable) {
+    if (needed.size === 0 && !wantsMore()) break
+    const held = (utxo.alkanes ?? []).filter((alkane) => alkane.amount > 0n)
+    let carriesNeeded = false
+    for (const alkane of held) {
+      const want = needed.get(key(alkane))
+      const have = collected.get(key(alkane)) ?? 0n
+      if (want !== undefined && have < want) {
+        carriesNeeded = true
+        collected.set(key(alkane), have + alkane.amount)
+      }
+    }
+    if (carriesNeeded) {
+      bitcoin += utxo.value
+      selected.push(utxo)
+    } else if (held.length === 0 && wantsMore()) {
+      if (bitcoin >= bitcoinNeeded) headroomInputs += 1
+      bitcoin += utxo.value
+      selected.push(utxo)
+    }
+    if (needed.size > 0 && !wantsMore() && satisfied()) break
+  }
+
+  for (const [id, amount] of needed) {
+    const have = collected.get(id) ?? 0n
+    if (have < amount) {
+      throw new LabcoatClientError(
+        "INSUFFICIENT_FUNDS",
+        `the wallet holds ${have} of Alkane ${id} in spendable outputs, and the call sends ${amount}`,
+      )
+    }
+  }
+  if (bitcoin < bitcoinNeeded) {
+    throw new LabcoatClientError(
+      "INSUFFICIENT_FUNDS",
+      `the wallet has ${bitcoin} sats in spendable outputs that carry no Alkanes, and the transaction needs ${bitcoinNeeded}`,
+    )
+  }
+
+  // Protorune hands every Alkane on the inputs to the first protostone, so
+  // an input must not bring along one the call did not ask for.
+  const unrequested = new Map<string, bigint>()
+  for (const utxo of selected) {
+    for (const alkane of utxo.alkanes ?? []) {
+      if (alkane.amount > 0n && !needed.has(key(alkane))) {
+        unrequested.set(key(alkane), (unrequested.get(key(alkane)) ?? 0n) + alkane.amount)
+      }
+    }
+  }
+  if (unrequested.size > 0) {
+    const list = [...unrequested].map(([id, amount]) => `${id} x${amount}`).join(", ")
+    throw new LabcoatClientError(
+      "TRANSACTION_INVALID",
+      `the outputs holding the Alkanes to send also hold others the call does not send (${list}); send those too, or move them to their own output first`,
+    )
+  }
+  return selected
+}
+
+function encodePsbt(tx: Transaction, inputs: readonly SpendableOutput[]): Uint8Array {
+  const pair = (keyBytes: readonly number[], value: Uint8Array | readonly number[]): number[] => [
+    ...compactSize(keyBytes.length),
+    ...keyBytes,
+    ...compactSize(value.length),
+    ...value,
+  ]
+  const out: number[] = [0x70, 0x73, 0x62, 0x74, 0xff]
+  out.push(...pair([0x00], serializeTransaction(tx, false)), 0x00)
+  for (const input of inputs) {
+    // PSBT_IN_WITNESS_UTXO, and PSBT_IN_TAP_INTERNAL_KEY for taproot.
+    out.push(...pair([0x01], serializeOutput({ value: input.value, script: input.script })))
+    if (isTaprootScript(input.script) && input.internalKey !== null) {
+      out.push(...pair([0x17], input.internalKey))
+    }
+    out.push(0x00)
+  }
+  for (let i = 0; i < tx.outputs.length; i++) out.push(0x00)
+  return Uint8Array.from(out)
+}
+
+/**
+ * Build the unsigned transaction of one contract call.
+ *
+ * Outputs, in order: the recipient (546 sats), each payment, the bitcoin
+ * change when it is at least 546 sats, and the OP_RETURN protostone.
+ */
+export function buildCallTransaction(request: CallTransactionRequest): BuiltTransaction {
+  if (!Number.isFinite(request.feeRate) || request.feeRate <= 0) {
+    throw new LabcoatClientError("ARG_INVALID", "feeRate must be a positive number of sat/vB")
+  }
+  const needed = new Map<string, bigint>()
+  for (const alkane of request.alkanes) {
+    if (alkane.amount <= 0n || alkane.amount > 0xffff_ffff_ffff_ffffn) {
+      throw new LabcoatClientError(
+        "ARG_INVALID",
+        `the amount of Alkane ${key(alkane)} to send must be between 1 and 2^64 - 1`,
+      )
+    }
+    needed.set(key(alkane), (needed.get(key(alkane)) ?? 0n) + alkane.amount)
+  }
+  for (const payment of request.payments) {
+    requireSats(payment.sats, "a payment")
+    if (payment.sats < DUST_SATS) {
+      throw new LabcoatClientError(
+        "ARG_INVALID",
+        `a payment of ${payment.sats} sats is below the dust limit (${DUST_SATS} sats)`,
+      )
+    }
+  }
+
+  const outputs: TransactionOutput[] = [
+    { script: request.recipient, value: DUST_SATS },
+    ...request.payments.map((payment) => ({ script: payment.script, value: payment.sats })),
+    // The change, filled in once the fee is known.
+    { script: request.change, value: 0n },
+  ]
+  const paymentOutputs = request.payments.map((_, i) => i + 1)
+  const changeIndex = outputs.length - 1
+  const outputTotal = outputs.reduce((sum, output) => sum + output.value, 0n)
+
+  // Inputs are chosen against a fee budgeted for a larger transaction; the
+  // fee paid is then sized on the transaction that results.
+  const budget = feeAt(request.feeRate, budgetedVsize(Math.max(request.alkanes.length + 1, 2), outputs.length + 1))
+  const inputs = selectInputs(request, needed, outputTotal + BigInt(Math.ceil(budget * 1.5)))
+
+  // Alkanes on the inputs all go to the first protostone. When the call
+  // takes some, a first protostone forwards exactly those amounts to the
+  // call and leaves the rest at output 0; otherwise the call is the first.
+  const call = (): Protostone => ({
+    pointer: 0,
+    refund: 0,
+    message: encodeCellpack(request.cellpack),
+    edicts: [],
+  })
+  const protostones = (physicalOutputs: number): Protostone[] =>
+    request.alkanes.length === 0
+      ? [call()]
+      : [
+          {
+            pointer: 0,
+            refund: 0,
+            message: new Uint8Array(0),
+            // Protostone 1, addressed past the physical outputs and the OP_RETURN.
+            edicts: request.alkanes.map((alkane) => ({ ...alkane, output: BigInt(physicalOutputs + 2 + 1) })),
+          },
+          call(),
+        ]
+  const callIndex = request.alkanes.length === 0 ? 0 : 1
+
+  const withRunestone = [...outputs, { script: runestoneScript(protostones(outputs.length)), value: 0n }]
+  const inputTotal = inputs.reduce((sum, input) => sum + input.value, 0n)
+  const sized = feeAt(request.feeRate, virtualSize(inputs, withRunestone))
+  let fee = BigInt(Math.ceil(sized * 1.01))
+  if (fee > MAX_FEE_SATS) fee = MAX_FEE_SATS
+  const change = inputTotal - outputTotal - fee > 0n ? inputTotal - outputTotal - fee : 0n
+
+  let final: TransactionOutput[]
+  let changeOutput: number | null
+  if (change < DUST_SATS) {
+    // Too small to be an output: it goes to the fee, and the protostone is
+    // addressed for the outputs that remain.
+    fee += change
+    changeOutput = null
+    final = [
+      ...outputs.slice(0, changeIndex),
+      { script: runestoneScript(protostones(callIndex === 0 ? outputs.length : outputs.length - 1)), value: 0n },
+    ]
+  } else {
+    changeOutput = changeIndex
+    final = withRunestone.map((output, i) => (i === changeIndex ? { ...output, value: change } : output))
+  }
+  if (inputTotal < outputTotal + fee) {
+    throw new LabcoatClientError(
+      "INSUFFICIENT_FUNDS",
+      `the selected inputs hold ${inputTotal} sats, and the transaction needs ${outputTotal + fee}`,
+    )
+  }
+  if (fee > MAX_FEE_SATS) {
+    throw new LabcoatClientError(
+      "TRANSACTION_INVALID",
+      `the transaction would pay ${fee} sats in fees, above the ${MAX_FEE_SATS} sat limit`,
+    )
+  }
+
+  const tx: Transaction = {
+    version: 2,
+    inputs: inputs.map((input) => ({
+      txid: input.txid,
+      vout: input.vout,
+      scriptSig: new Uint8Array(0),
+      sequence: SEQUENCE_RBF,
+      witness: [],
+    })),
+    outputs: final,
+    lockTime: 0,
+  }
+  for (const input of inputs) {
+    if (!isTaprootScript(input.script) && !isWitnessKeyHashScript(input.script)) {
+      throw new LabcoatClientError(
+        "TRANSACTION_INVALID",
+        `input ${input.txid}:${input.vout} is neither taproot nor native SegWit (P2WPKH); other input types are not supported`,
+      )
+    }
+  }
+  return {
+    psbt: bytesToBase64(encodePsbt(tx, inputs)),
+    transaction: serializeTransaction(tx, false),
+    fee,
+    inputs,
+    outputs: final,
+    changeOutput,
+    paymentOutputs,
+    traceVout: final.length + 1 + callIndex,
+  }
+}
+
+/* ------------------------------ signed PSBTs ------------------------------ */
+
+/** A PSBT as wallets hand it back: base64 or hex. */
+export function psbtBytes(psbt: string): Uint8Array {
+  const text = psbt.trim()
+  return /^[0-9a-fA-F]+$/.test(text) && text.length % 2 === 0 ? hexToBytes(text) : base64ToBytes(text)
+}
+
+/** The unsigned transaction a PSBT carries, serialized. */
+export function psbtUnsignedTransaction(psbt: string): Uint8Array {
+  return serializeTransaction(parsePsbt(psbtBytes(psbt)).tx, false)
+}
+
+function parsePsbt(bytes: Uint8Array): { tx: Transaction; inputs: Map<string, Uint8Array>[] } {
+  const reader = new ByteReader(bytes, "PSBT")
+  if (!sameBytes(reader.take(5), Uint8Array.from([0x70, 0x73, 0x62, 0x74, 0xff]))) {
+    throw new LabcoatClientError("RESPONSE_INVALID", "the wallet did not return a PSBT")
+  }
+  const readMap = (): Map<string, Uint8Array> => {
+    const map = new Map<string, Uint8Array>()
+    for (;;) {
+      const keyLength = reader.compactSize()
+      if (keyLength === 0) return map
+      const keyBytes = reader.take(keyLength)
+      map.set(bytesToHex(keyBytes), reader.sized())
+    }
+  }
+  const unsigned = readMap().get("00")
+  if (unsigned === undefined) {
+    throw new LabcoatClientError("RESPONSE_INVALID", "the PSBT has no unsigned transaction")
+  }
+  const tx = parseTransaction(unsigned)
+  return { tx, inputs: tx.inputs.map(() => readMap()) }
+}
+
+/**
+ * The signed transaction in a PSBT every input of which is signed, as hex
+ * ready to broadcast. Inputs a wallet signed without finalizing (a taproot
+ * key signature, or a single P2WPKH signature) are finalized here.
+ */
+export function extractTransaction(psbt: string): string {
+  const { tx, inputs } = parsePsbt(psbtBytes(psbt))
+  inputs.forEach((fields, index) => {
+    const input = tx.inputs[index] as TransactionInput
+    const finalWitness = fields.get("08")
+    const finalScriptSig = fields.get("07")
+    const keySignature = fields.get("13")
+    const partial = [...fields].filter(([name]) => name.startsWith("02"))
+    if (finalWitness !== undefined || finalScriptSig !== undefined) {
+      if (finalScriptSig !== undefined) input.scriptSig = finalScriptSig
+      if (finalWitness !== undefined) {
+        const reader = new ByteReader(finalWitness, "PSBT witness")
+        for (let count = reader.compactSize(); count > 0; count--) input.witness.push(reader.sized())
+      }
+    } else if (keySignature !== undefined) {
+      input.witness = [keySignature]
+    } else if (partial.length === 1) {
+      const [name, signature] = partial[0] as [string, Uint8Array]
+      input.witness = [signature, hexToBytes(name.slice(2))]
+    } else {
+      throw new LabcoatClientError(
+        "WALLET_ERROR",
+        `the wallet returned the transaction without a signature for input ${index}`,
+      )
+    }
+  })
+  return bytesToHex(serializeTransaction(tx, true))
+}

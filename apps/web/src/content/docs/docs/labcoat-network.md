@@ -105,6 +105,10 @@ While Labcoat Network is up, its JSON-RPC endpoint signs transactions for the
 built-in wallet. A web page or a headless test builds an unsigned PSBT, posts
 it, and gets it back signed, with no wallet extension and no key in the app.
 
+The client `labcoat generate web` writes uses it as its dev wallet; see
+[Send transactions](/docs/web-apps/#send-transactions). The rest of this
+section is the wire contract, for other clients.
+
 `labcoat up --ci` and `labcoat status --json` say whether it can sign and
 where, and `labcoat doctor` has a `dev signer` check:
 

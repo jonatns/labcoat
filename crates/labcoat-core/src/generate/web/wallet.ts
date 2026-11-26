@@ -1,0 +1,555 @@
+//
+// Wallets for the generated client: the one interface everything that signs
+// implements, the dev wallet backed by Labcoat Network's signer, and thin
+// adapters over the APIs browser wallet extensions inject.
+//
+// An app normally reaches these through `labcoat.connect()` in "./client".
+// Anything with the `LabcoatWallet` shape works wherever a wallet is taken,
+// so an app can bring its own.
+
+import { LabcoatClientError, WalletRejectedError } from "./errors"
+import type { BitcoinNetwork } from "./transaction"
+import { base64ToBytes, bytesToHex } from "./transaction"
+
+/* ------------------------------ the interface ----------------------------- */
+
+/** One address a wallet controls. */
+export interface WalletAccount {
+  address: string
+  /**
+   * The address's public key, hex: 33 bytes compressed, or 32 bytes x-only
+   * for a taproot address. For taproot it is the internal (untweaked) key.
+   */
+  publicKey: string
+  /**
+   * What the wallet keeps at this address, for wallets that separate the
+   * two: "payment" holds bitcoin, "ordinals" holds assets such as Alkanes.
+   * Absent when one address does both.
+   */
+  purpose?: "payment" | "ordinals"
+}
+
+/** What a transaction does, for a wallet that shows it before signing. */
+export interface TransactionSummary {
+  /** Bitcoin network the transaction is for. */
+  network: string
+  /** Alkanes id of the contract called, "block:tx". */
+  contract: string
+  /** ABI method name, or the opcode when no ABI names it. */
+  method: string
+  /** Sats paid in fees. */
+  fee: bigint
+  /** Address the call's results and refunds go to. */
+  recipient: string
+  /** Alkanes sent in with the call. */
+  alkanes: { id: string; amount: bigint }[]
+  /** Bitcoin payment outputs. */
+  payments: { address: string; sats: bigint }[]
+}
+
+export interface SignPsbtRequest {
+  /** The unsigned transaction: a BIP-174 PSBT, base64, with `witnessUtxo` on every input. */
+  psbt: string
+  /** The inputs to sign, each with the address that owns it. */
+  inputs: { index: number; address: string }[]
+  /** What the transaction does. */
+  summary: TransactionSummary
+}
+
+/**
+ * A wallet's answer: the PSBT with its inputs signed (base64 or hex,
+ * finalized or not), or the finished transaction as hex.
+ */
+export type SignedTransaction = { psbt: string } | { hex: string }
+
+/**
+ * Everything that signs for the generated client. Three members cover what
+ * building and signing a transaction needs; `afterBroadcast` is optional.
+ */
+export interface LabcoatWallet {
+  /** Shown in errors, and to people choosing a wallet. */
+  readonly name: string
+  /** The addresses to spend from and receive at, asking the person to connect if needed. */
+  getAccounts(): Promise<WalletAccount[]>
+  /** Sign the listed inputs. Throw `WalletRejectedError` when the person declines. */
+  signPsbt(request: SignPsbtRequest): Promise<SignedTransaction>
+  /** Called once the signed transaction has been broadcast. */
+  afterBroadcast?(txid: string): Promise<void>
+}
+
+/** One JSON-RPC call against the endpoint the client talks to. */
+export type RpcRequest = (method: string, params: unknown[]) => Promise<unknown>
+
+/* -------------------------------- dev wallet ------------------------------ */
+
+/** Decides whether the dev wallet signs: resolve true to sign, false to reject. */
+export type ApproveTransaction = (summary: TransactionSummary) => boolean | Promise<boolean>
+
+export interface DevWalletOptions {
+  /** The client's JSON-RPC call; `labcoat.connect()` passes its own. */
+  request: RpcRequest
+  /**
+   * Mine a block after each broadcast, as `labcoat call` does on Labcoat
+   * Network, so the transaction confirms without anyone asking for a block.
+   * Defaults to true. Pass false to see a transaction stay pending, then
+   * mine with `labcoat mine` or the endpoint's `generatetoaddress`.
+   */
+  mine?: boolean
+  /**
+   * Asked before every signature. Without it the dev wallet signs at once.
+   * `approvalPrompt()` is one that asks in the page.
+   */
+  approve?: ApproveTransaction
+}
+
+/**
+ * Where the dev wallet mines to: a regtest address nobody spends from (the
+ * key is the secp256k1 generator point), the same one the CLI mines to.
+ */
+const REGTEST_MINING_ADDRESS = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+
+function field(value: unknown, name: string): unknown {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>)[name] : undefined
+}
+
+/**
+ * The wallet Labcoat Network signs for: `labcoat up` creates and funds it,
+ * and the network's JSON-RPC endpoint signs with it for pages on this
+ * machine. It exists only on Labcoat Network; its coins are worthless.
+ */
+export function devWallet(options: DevWalletOptions): LabcoatWallet {
+  const name = "Labcoat dev wallet"
+  const call = async (method: string, params: unknown[]): Promise<unknown> => {
+    try {
+      return await options.request(method, params)
+    } catch (error) {
+      const code = error instanceof LabcoatClientError ? error.rpcCode : null
+      if (code === -32601) {
+        throw new LabcoatClientError(
+          "WALLET_UNAVAILABLE",
+          "this endpoint has no dev signer: the dev wallet exists only on Labcoat Network (run `labcoat up`)",
+        )
+      }
+      if (code === -32000) {
+        throw new LabcoatClientError(
+          "WALLET_UNAVAILABLE",
+          "the dev signer only answers pages served from this machine: open the app at http://localhost:<port>",
+        )
+      }
+      if (code === -18) {
+        throw new LabcoatClientError("WALLET_UNAVAILABLE", "the dev wallet does not exist yet: run `labcoat up`")
+      }
+      throw error
+    }
+  }
+  const wallet: LabcoatWallet = {
+    name,
+    async getAccounts() {
+      const result = await call("labcoat_dev_addresses", [])
+      const addresses = field(result, "addresses")
+      const primary: unknown = Array.isArray(addresses) ? addresses[0] : undefined
+      const address = field(primary, "address")
+      const internalKey = field(primary, "internalKey")
+      if (typeof address !== "string" || typeof internalKey !== "string") {
+        throw new LabcoatClientError("RESPONSE_INVALID", "labcoat_dev_addresses returned no address")
+      }
+      return [{ address, publicKey: internalKey }]
+    },
+    async signPsbt(request) {
+      if (options.approve !== undefined && !(await options.approve(request.summary))) {
+        throw new WalletRejectedError(name)
+      }
+      const result = await call("labcoat_dev_sign_psbt", [request.psbt])
+      const hex = field(result, "hex")
+      if (typeof hex !== "string") {
+        throw new LabcoatClientError(
+          "WALLET_ERROR",
+          `${name}: the dev signer could not sign every input; the transaction spends outputs of another wallet`,
+        )
+      }
+      return { hex }
+    },
+  }
+  if (options.mine !== false) {
+    wallet.afterBroadcast = async () => {
+      await call("generatetoaddress", [1, REGTEST_MINING_ADDRESS])
+    }
+  }
+  return wallet
+}
+
+/**
+ * An `approve` function for the dev wallet that asks in the page: a native
+ * `<dialog>` listing what the transaction does, with Approve and Reject
+ * buttons. Closing it (Escape) rejects. It uses no framework and no styles
+ * beyond its own inline ones; in a runtime without a DOM it rejects.
+ */
+export function approvalPrompt(): ApproveTransaction {
+  return (summary) =>
+    new Promise<boolean>((resolve) => {
+      if (typeof document === "undefined" || typeof document.createElement !== "function") {
+        resolve(false)
+        return
+      }
+      const dialog = document.createElement("dialog")
+      dialog.setAttribute("aria-label", "Approve transaction")
+      dialog.style.cssText =
+        "max-width:28rem;width:calc(100% - 2rem);padding:1.25rem;border:1px solid #8884;border-radius:12px;font:14px/1.5 system-ui,sans-serif"
+
+      const heading = document.createElement("h2")
+      heading.textContent = "Approve transaction"
+      heading.style.cssText = "margin:0 0 .25rem;font-size:1rem"
+      const note = document.createElement("p")
+      note.textContent = `Labcoat dev wallet · ${summary.network}`
+      note.style.cssText = "margin:0 0 .75rem;opacity:.7"
+
+      const rows: [string, string][] = [
+        ["Contract", summary.contract],
+        ["Method", summary.method],
+        ...summary.alkanes.map((alkane): [string, string] => ["Sends Alkane", `${alkane.amount} of ${alkane.id}`]),
+        ...summary.payments.map((payment): [string, string] => ["Pays", `${payment.sats} sats to ${payment.address}`]),
+        ["Results to", summary.recipient],
+        ["Fee", `${summary.fee} sats`],
+      ]
+      const list = document.createElement("dl")
+      list.style.cssText = "display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;margin:0 0 1rem"
+      for (const [label, value] of rows) {
+        const term = document.createElement("dt")
+        term.textContent = label
+        term.style.cssText = "opacity:.7"
+        const detail = document.createElement("dd")
+        detail.textContent = value
+        detail.style.cssText = "margin:0;overflow-wrap:anywhere;font-family:ui-monospace,monospace"
+        list.append(term, detail)
+      }
+
+      const actions = document.createElement("div")
+      actions.style.cssText = "display:flex;justify-content:flex-end;gap:.5rem"
+      const button = (label: string, value: string): HTMLButtonElement => {
+        const element = document.createElement("button")
+        element.type = "button"
+        element.textContent = label
+        element.style.cssText = "padding:.4rem .9rem;border-radius:8px;border:1px solid #8886;font:inherit;cursor:pointer"
+        element.addEventListener("click", () => dialog.close(value))
+        return element
+      }
+      const reject = button("Reject", "reject")
+      const approve = button("Approve", "approve")
+      approve.style.fontWeight = "600"
+      actions.append(reject, approve)
+
+      dialog.append(heading, note, list, actions)
+      dialog.addEventListener("close", () => {
+        dialog.remove()
+        resolve(dialog.returnValue === "approve")
+      })
+      document.body.append(dialog)
+      dialog.showModal()
+      approve.focus()
+    })
+}
+
+/* ----------------------------- browser wallets ---------------------------- */
+
+/** The browser wallets `connect()` knows, in the order it tries them. */
+export const BROWSER_WALLETS = ["unisat", "xverse", "okx", "leather"] as const
+export type BrowserWalletId = (typeof BROWSER_WALLETS)[number]
+
+/** `window`, or whatever stands in for it; adapters only read the wallet globals from it. */
+export type WalletHost = Record<string, unknown>
+
+function host(explicit: WalletHost | undefined): WalletHost {
+  return explicit ?? (globalThis as unknown as WalletHost)
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function method(provider: unknown, name: string): ((...args: unknown[]) => Promise<unknown>) | undefined {
+  const candidate = field(provider, name)
+  return typeof candidate === "function"
+    ? (...args: unknown[]) => Promise.resolve((candidate as (...a: unknown[]) => unknown).apply(provider, args))
+    : undefined
+}
+
+/** A wallet's refusal, whatever shape it arrives in, as the client's errors. */
+function walletError(name: string, error: unknown): LabcoatClientError {
+  if (error instanceof LabcoatClientError) return error
+  const inner = field(error, "error") ?? error
+  const code = field(inner, "code")
+  const message = typeof inner === "string" ? inner : String(field(inner, "message") ?? "the wallet failed")
+  // 4001 is the EIP-1193 code UniSat and Leather use; -32000 is Xverse's.
+  if (code === 4001 || code === -32000 || /reject|denied|cancel|closed the wallet/i.test(message)) {
+    return new WalletRejectedError(name, message)
+  }
+  return new LabcoatClientError("WALLET_ERROR", `${name}: ${message}`)
+}
+
+function wrongNetwork(name: string, network: BitcoinNetwork, found: string): LabcoatClientError {
+  return new LabcoatClientError(
+    "WALLET_ERROR",
+    `${name} is on ${found}; switch it to ${network}, the network this app was generated for`,
+  )
+}
+
+function unavailable(name: string, why: string): LabcoatClientError {
+  return new LabcoatClientError("WALLET_UNAVAILABLE", `${name} ${why}`)
+}
+
+function psbtHex(psbt: string): string {
+  return bytesToHex(base64ToBytes(psbt))
+}
+
+function indexesByAddress(inputs: SignPsbtRequest["inputs"]): Record<string, number[]> {
+  const byAddress: Record<string, number[]> = {}
+  for (const input of inputs) (byAddress[input.address] ??= []).push(input.index)
+  return byAddress
+}
+
+/**
+ * UniSat, through `window.unisat` (docs.unisat.io wallet API; `getChain`
+ * needs extension 1.4.0 or later). One address does both jobs.
+ */
+export function unisatWallet(network: BitcoinNetwork, from?: WalletHost): LabcoatWallet {
+  const name = "UniSat"
+  const provider = (): unknown => {
+    const injected = host(from)["unisat"]
+    if (!isObject(injected)) throw unavailable(name, "is not installed in this browser")
+    return injected
+  }
+  const chains: Record<BitcoinNetwork, string[]> = {
+    mainnet: ["BITCOIN_MAINNET"],
+    testnet: ["BITCOIN_TESTNET", "BITCOIN_TESTNET4"],
+    signet: ["BITCOIN_SIGNET"],
+    regtest: [],
+  }
+  return {
+    name,
+    async getAccounts() {
+      const unisat = provider()
+      try {
+        const accounts = await method(unisat, "requestAccounts")?.()
+        const address: unknown = Array.isArray(accounts) ? accounts[0] : undefined
+        // `network` on the chain only names the address format, so signet
+        // and testnet are told apart by `enum`.
+        const chain = field(await method(unisat, "getChain")?.(), "enum")
+        if (typeof chain === "string" && !chains[network].includes(chain)) {
+          throw wrongNetwork(name, network, chain)
+        }
+        const publicKey = await method(unisat, "getPublicKey")?.()
+        if (typeof address !== "string" || typeof publicKey !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no account`)
+        }
+        return [{ address, publicKey }]
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+    async signPsbt(request) {
+      try {
+        const signed = await method(provider(), "signPsbt")?.(psbtHex(request.psbt), {
+          autoFinalized: true,
+          toSignInputs: request.inputs.map(({ index, address }) => ({ index, address })),
+        })
+        if (typeof signed !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no signed transaction`)
+        }
+        return { psbt: signed }
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+  }
+}
+
+/**
+ * OKX Wallet, through `window.okxwallet.bitcoin` and its `bitcoinTestnet`
+ * and `bitcoinSignet` siblings (OKX "Bitcoin provider API"; signing options
+ * need extension 2.77.1 or later, signet 2.82.32). One address does both jobs.
+ */
+export function okxWallet(network: BitcoinNetwork, from?: WalletHost): LabcoatWallet {
+  const name = "OKX Wallet"
+  const provider = (): unknown => {
+    const okx = host(from)["okxwallet"]
+    if (!isObject(okx)) throw unavailable(name, "is not installed in this browser")
+    if (network === "regtest") throw unavailable(name, "has no regtest network")
+    const key = network === "mainnet" ? "bitcoin" : network === "testnet" ? "bitcoinTestnet" : "bitcoinSignet"
+    const injected = okx[key]
+    if (!isObject(injected)) throw unavailable(name, `has no ${network} provider; update the extension`)
+    return injected
+  }
+  return {
+    name,
+    async getAccounts() {
+      try {
+        const account = await method(provider(), "connect")?.()
+        const address = field(account, "address")
+        const publicKey = field(account, "publicKey")
+        if (typeof address !== "string" || typeof publicKey !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no account`)
+        }
+        return [{ address, publicKey }]
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+    async signPsbt(request) {
+      try {
+        const signed = await method(provider(), "signPsbt")?.(psbtHex(request.psbt), {
+          autoFinalized: true,
+          toSignInputs: request.inputs.map(({ index, address }) => ({ index, address })),
+        })
+        if (typeof signed !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no signed transaction`)
+        }
+        return { psbt: signed }
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+  }
+}
+
+/**
+ * Xverse, through `window.XverseProviders.BitcoinProvider.request` (the
+ * Sats Connect JSON-RPC methods, WBIP001: `wallet_connect` and `signPsbt`).
+ * It keeps bitcoin at a payment address and assets at an ordinals address.
+ */
+export function xverseWallet(network: BitcoinNetwork, from?: WalletHost): LabcoatWallet {
+  const name = "Xverse"
+  const request = async (rpcMethod: string, params: unknown): Promise<unknown> => {
+    const injected = field(host(from)["XverseProviders"], "BitcoinProvider")
+    const call = method(injected, "request")
+    if (call === undefined) throw unavailable(name, "is not installed in this browser")
+    // Xverse resolves with a JSON-RPC envelope even when the person declines.
+    const response = await call(rpcMethod, params)
+    if (isObject(response) && response["error"] != null) throw walletError(name, response)
+    return field(response, "result")
+  }
+  const names: Record<BitcoinNetwork, string[]> = {
+    mainnet: ["Mainnet"],
+    testnet: ["Testnet", "Testnet4"],
+    signet: ["Signet"],
+    regtest: ["Regtest"],
+  }
+  return {
+    name,
+    async getAccounts() {
+      try {
+        const result = await request("wallet_connect", { addresses: ["ordinals", "payment"] })
+        const current = field(field(field(result, "network"), "bitcoin"), "name")
+        if (typeof current === "string" && !names[network].includes(current)) {
+          throw wrongNetwork(name, network, current)
+        }
+        const listed = field(result, "addresses")
+        const accounts: WalletAccount[] = []
+        for (const entry of Array.isArray(listed) ? (listed as unknown[]) : []) {
+          const address = field(entry, "address")
+          const publicKey = field(entry, "publicKey")
+          const purpose = field(entry, "purpose")
+          if (typeof address !== "string" || typeof publicKey !== "string") continue
+          if (purpose === "ordinals" || purpose === "payment") accounts.push({ address, publicKey, purpose })
+        }
+        if (accounts.length === 0) throw new LabcoatClientError("WALLET_ERROR", `${name} returned no account`)
+        return accounts
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+    async signPsbt(signing) {
+      try {
+        const result = await request("signPsbt", {
+          psbt: signing.psbt,
+          signInputs: indexesByAddress(signing.inputs),
+          broadcast: false,
+        })
+        const signed = field(result, "psbt")
+        if (typeof signed !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no signed transaction`)
+        }
+        return { psbt: signed }
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+  }
+}
+
+/**
+ * Leather, through `window.LeatherProvider.request` (docs.leather.io,
+ * `@leather.io/rpc` 2.25: `getAddresses` and `signPsbt`). It keeps bitcoin
+ * at a native SegWit address and assets at a taproot address.
+ */
+export function leatherWallet(network: BitcoinNetwork, from?: WalletHost): LabcoatWallet {
+  const name = "Leather"
+  const request = async (rpcMethod: string, params: Record<string, unknown>): Promise<unknown> => {
+    const call = method(host(from)["LeatherProvider"], "request")
+    if (call === undefined) throw unavailable(name, "is not installed in this browser")
+    if (network === "regtest") throw unavailable(name, "has no regtest network")
+    return field(await call(rpcMethod, { ...params, network }), "result")
+  }
+  return {
+    name,
+    async getAccounts() {
+      try {
+        const listed = field(await request("getAddresses", {}), "addresses")
+        const accounts: WalletAccount[] = []
+        for (const entry of Array.isArray(listed) ? (listed as unknown[]) : []) {
+          const address = field(entry, "address")
+          const publicKey = field(entry, "publicKey")
+          const type = field(entry, "type")
+          if (field(entry, "symbol") !== "BTC" || typeof address !== "string" || typeof publicKey !== "string") {
+            continue
+          }
+          if (type === "p2tr") accounts.push({ address, publicKey, purpose: "ordinals" })
+          else if (type === "p2wpkh") accounts.push({ address, publicKey, purpose: "payment" })
+        }
+        if (accounts.length === 0) throw new LabcoatClientError("WALLET_ERROR", `${name} returned no account`)
+        return accounts
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+    async signPsbt(signing) {
+      try {
+        const result = await request("signPsbt", {
+          hex: psbtHex(signing.psbt),
+          signAtIndex: signing.inputs.map((input) => input.index),
+          broadcast: false,
+        })
+        const signed = field(result, "hex")
+        if (typeof signed !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no signed transaction`)
+        }
+        return { psbt: signed }
+      } catch (error) {
+        throw walletError(name, error)
+      }
+    },
+  }
+}
+
+const ADAPTERS: Record<BrowserWalletId, (network: BitcoinNetwork, from?: WalletHost) => LabcoatWallet> = {
+  unisat: unisatWallet,
+  xverse: xverseWallet,
+  okx: okxWallet,
+  leather: leatherWallet,
+}
+
+const GLOBALS: Record<BrowserWalletId, string> = {
+  unisat: "unisat",
+  xverse: "XverseProviders",
+  okx: "okxwallet",
+  leather: "LeatherProvider",
+}
+
+/** The adapter for one browser wallet. */
+export function browserWallet(id: BrowserWalletId, network: BitcoinNetwork, from?: WalletHost): LabcoatWallet {
+  return ADAPTERS[id](network, from)
+}
+
+/** The browser wallets installed in this page, in the order `connect()` tries them. */
+export function installedBrowserWallets(from?: WalletHost): BrowserWalletId[] {
+  return BROWSER_WALLETS.filter((id) => isObject(host(from)[GLOBALS[id]]))
+}

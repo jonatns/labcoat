@@ -221,7 +221,7 @@ pub fn payment_outputs(
 /// recipient, which would now include the payments; it is restated here as
 /// assignments to the addressed outputs alone, so it means what it meant
 /// without payments.
-fn layout_outputs(
+pub(crate) fn layout_outputs(
     to_address: String,
     mut requirements: Vec<InputRequirement>,
     payments: &[PaymentOutput],
@@ -266,7 +266,7 @@ fn layout_outputs(
 
 /// Refuse to sign a transaction whose payment outputs are not exactly the
 /// ones requested, at the outputs reported for them.
-fn verify_payments(tx: &bitcoin::Transaction, payments: &[PaymentOutput]) -> Result<()> {
+pub(crate) fn verify_payments(tx: &bitcoin::Transaction, payments: &[PaymentOutput]) -> Result<()> {
     for payment in payments {
         let built = tx.output.get(payment.index as usize);
         if !built.is_some_and(|output| {
@@ -285,7 +285,7 @@ fn verify_payments(tx: &bitcoin::Transaction, payments: &[PaymentOutput]) -> Res
     Ok(())
 }
 
-fn parse_spec(spec: &str) -> Result<Vec<ProtostoneSpec>> {
+pub(crate) fn parse_spec(spec: &str) -> Result<Vec<ProtostoneSpec>> {
     alkanes_cli_common::alkanes::parsing::parse_protostones(spec).map_err(|e| {
         LabcoatError::new(
             "ENVELOPE_INVALID",
@@ -513,37 +513,15 @@ pub(crate) async fn run_with_broadcast(
         ));
     }
 
-    let params = EnhancedExecuteParams {
+    let params = execute_params(ParamsInput {
         fee_rate: request.fee_rate.or(config.fee_rate),
         to_addresses,
-        from_addresses: None,
-        change_address: None,
-        alkanes_change_address: None,
         input_requirements,
         protostones,
-        envelope_data: request.envelope,
-        raw_output: true,
-        // Labcoat owns the regtest mine/sync/trace sequence. Upstream traces
-        // through bitcoind getrawtransaction, but Qubitcoin intentionally
-        // serves historical transaction hex through its Esplora secondary.
-        trace_enabled: false,
-        mine_enabled: false,
-        // Labcoat runs its own approval gate; the upstream stdin prompt
-        // stays disabled.
-        auto_confirm: true,
-        ordinals_strategy: OrdinalsStrategy::default(),
-        mempool_indexer: false,
-        split_transactions: false,
-        known_pending_tx_hexes: Vec::new(),
-        prefetched_utxos: Vec::new(),
+        envelope: request.envelope,
         excluded_utxos,
-        // No implicit DIESEL mint: it would land on the same pointer output
-        // as the transaction's own tokens, contaminating every minted UTXO
-        // with a stray asset that strict contracts then reject as incoming.
-        skip_diesel_mint: true,
         max_indexed_height: request.max_indexed_height,
-        utxo_source: UtxoDataSource::default(),
-    };
+    });
 
     let wallet_fingerprint = provider
         .get_keystore()
@@ -638,6 +616,54 @@ pub(crate) async fn run_with_broadcast(
     confirm_regtest(provider, config).await?;
 
     Ok(result)
+}
+
+/// What [`execute_params`] turns into the upstream executor's parameters.
+pub(crate) struct ParamsInput {
+    pub fee_rate: Option<f32>,
+    pub to_addresses: Vec<String>,
+    pub input_requirements: Vec<InputRequirement>,
+    pub protostones: Vec<ProtostoneSpec>,
+    pub envelope: Option<Vec<u8>>,
+    pub excluded_utxos: Vec<String>,
+    pub max_indexed_height: Option<u64>,
+}
+
+/// The upstream executor parameters every Labcoat transaction is built
+/// with. The generated web client builds call transactions to the same
+/// rules in TypeScript; `web_write_vectors` pins the two together.
+pub(crate) fn execute_params(input: ParamsInput) -> EnhancedExecuteParams {
+    EnhancedExecuteParams {
+        fee_rate: input.fee_rate,
+        to_addresses: input.to_addresses,
+        from_addresses: None,
+        change_address: None,
+        alkanes_change_address: None,
+        input_requirements: input.input_requirements,
+        protostones: input.protostones,
+        envelope_data: input.envelope,
+        raw_output: true,
+        // Labcoat owns the regtest mine/sync/trace sequence. Upstream traces
+        // through bitcoind getrawtransaction, but Qubitcoin intentionally
+        // serves historical transaction hex through its Esplora secondary.
+        trace_enabled: false,
+        mine_enabled: false,
+        // Labcoat runs its own approval gate; the upstream stdin prompt
+        // stays disabled.
+        auto_confirm: true,
+        ordinals_strategy: OrdinalsStrategy::default(),
+        mempool_indexer: false,
+        split_transactions: false,
+        known_pending_tx_hexes: Vec::new(),
+        prefetched_utxos: Vec::new(),
+        excluded_utxos: input.excluded_utxos,
+        // No implicit DIESEL mint: it would land on the same pointer output
+        // as the transaction's own tokens, contaminating every minted UTXO
+        // with a stray asset that strict contracts then reject as incoming.
+        skip_diesel_mint: true,
+        max_indexed_height: input.max_indexed_height,
+        utxo_source: UtxoDataSource::default(),
+    }
 }
 
 /// Payment outputs ride the single-transaction path; the reveal of a
@@ -1045,13 +1071,11 @@ async fn protected_outpoints(
             .await
             .map_err(|e| LabcoatError::classify(e.into()))?;
         for entry in holdings.balances {
-            let holds_required = entry
-                .balance_sheet
-                .cached
-                .balances
-                .iter()
-                .any(|(id, amount)| *amount > 0 && required_alkanes.contains(&(id.block, id.tx)));
-            if !holds_required {
+            let balances = entry.balance_sheet.cached.balances.iter();
+            if is_protected_carrier(
+                balances.map(|(id, amount)| ((id.block, id.tx), *amount)),
+                required_alkanes,
+            ) {
                 excluded.push(entry.outpoint.to_string());
             }
         }
@@ -1084,6 +1108,16 @@ async fn protected_outpoints(
         .filter(|(outpoint, _)| !excluded.contains(outpoint))
         .collect();
     Ok((excluded, spendable))
+}
+
+/// Whether an outpoint the indexer lists with these balances must be kept
+/// out of a transaction: true unless it holds an Alkane the transaction
+/// requires. An outpoint listed with only zero balances stays protected.
+pub(crate) fn is_protected_carrier(
+    mut balances: impl Iterator<Item = ((u128, u128), u128)>,
+    required_alkanes: &std::collections::BTreeSet<(u128, u128)>,
+) -> bool {
+    !balances.any(|(id, amount)| amount > 0 && required_alkanes.contains(&id))
 }
 
 /// Mine confirmations away from the project wallet. The public key is the

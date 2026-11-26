@@ -206,15 +206,22 @@ labcoat exchange token 100 usd 7500 --seller-wallet-file seller.json --json
 labcoat exchange-plan --request exchange-request.json --plan-out plan.json --psbt-out exchange.psbt --json
 ```
 
-`labcoat generate web` writes a typed, read-only TypeScript client
-(`generated/web/`: manifest, ABI descriptors, contract reads, balances, and
-an exchange request builder) from `labcoat.lock` and `build/*.abi.json` with
+`labcoat generate web` writes a typed TypeScript client
+(`generated/web/`: manifest, ABI descriptors, contract reads, wallet-signed
+writes, balances, and an exchange request builder) from `labcoat.lock` and `build/*.abi.json` with
 no network access; regenerate after every deploy or reset. In the app,
 `createClient({ rpc: "/rpc" }).contract("counter").read.getCount()` is typed
 from the ABI (method names in camelCase) and throws `ContractRevertError` on
 a revert; `tryRead` returns the revert instead, `contract("2:12", abi)` calls
 a contract that is not in `labcoat.lock`, and `at(height)` pins reads to one
-indexed height.
+indexed height. `write` has the same methods and sends the call as a
+transaction a wallet signs: `const wallet = await labcoat.connect()` (the dev
+wallet on Labcoat Network, a browser wallet elsewhere), then
+`const tx = await counter.write.increment({ wallet }); await tx.wait()`.
+Options are `alkanes`, `pay`, `to`, `feeRate`, and `simulate`; a rejection
+throws `WalletRejectedError`, and a revert, before signing or once mined,
+throws `ContractRevertError`. On Labcoat Network open the app at
+`http://localhost:<port>`, or the dev signer refuses it.
 `labcoat state migrate` opts a project into durable deployment history
 (`state list`, `state show <name> --history`); afterwards a deploy onto a
 reset chain fails with `STATE_CHAIN_MISMATCH` before broadcasting.

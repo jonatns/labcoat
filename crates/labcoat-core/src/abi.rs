@@ -262,7 +262,7 @@ fn ordered_args(method: &AbiMethod, args: &CallArgs) -> Result<Vec<String>> {
 
 /// Encode one shell argument per ABI parameter into the method's raw
 /// cellpack representation.
-fn encode_method_args(method: &AbiMethod, args: &[String]) -> Result<Vec<u128>> {
+pub(crate) fn encode_method_args(method: &AbiMethod, args: &[String]) -> Result<Vec<u128>> {
     if args.len() != method.params.len() {
         let expected = method
             .params
