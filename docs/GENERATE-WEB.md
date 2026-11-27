@@ -31,7 +31,12 @@ network access** and is safe to run in CI.
 
 ## Output
 
-`labcoat generate web --out-dir <dir>` (default `generated/web`) writes:
+`labcoat generate web --out-dir <dir>` writes the tree below. Left out,
+`--out-dir` is `generated/web` and `--build-dir` is `build`, both in the
+project root from any directory inside the project. A path that is passed is
+relative to the working directory, like every other path typed on the command
+line. The result reports both directories as absolute paths (`outDir`,
+`buildDir`).
 
 - `manifest.ts` — network target, Bitcoin network, RPC endpoint, the chain
   instance id when every record agrees, and one record per lockfile contract.
@@ -55,6 +60,12 @@ network access** and is safe to run in CI.
     argument types, and return types are derived from the ABI at the type
     level, with method names in camelCase. Methods whose camelCase names
     collide keep their exact ABI names;
+  - `decodeU128(bytes, offset?)`, `decodeAlkaneId(bytes, offset?)`, and
+    `decodeAlkaneIds(bytes)` — decoders for what contracts pack into a
+    `Vec<u8>`: a little-endian `u128`, an Alkane id (block then tx, 32
+    bytes), and a list of ids. Ids are `{ block, tx }` with decimal strings,
+    the shape a read returns for an `AlkaneId`, from the same decoder. Data
+    that does not fit throws `RESPONSE_INVALID`;
   - `at(height)` — a client sharing the same connection whose contract
     reads are pinned to one indexed height;
   - `getIndexedHeight()` — the Alkanes secondary-index height
@@ -94,7 +105,9 @@ network access** and is safe to run in CI.
   `signPsbt`, optional `afterBroadcast`), `devWallet` over
   `labcoat_dev_addresses` and `labcoat_dev_sign_psbt`, `approvalPrompt`, and
   adapters over the injected APIs of UniSat, Xverse, OKX Wallet, and
-  Leather.
+  Leather. The `TransactionSummary` a wallet is handed names the contract by
+  id, and by `contractName` when the call went through a manifest name; the
+  prompt shows `name (id)`.
 - `errors.ts` — `LabcoatClientError`, `ContractRevertError`, and
   `WalletRejectedError`, re-exported by `client.ts`.
 - `exchange.ts` — the exchange request builder for the CLI settlement

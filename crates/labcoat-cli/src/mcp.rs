@@ -47,7 +47,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"count": {"type": "integer", "minimum": 1}}), &[]),
         tool("wallet_utxos", "Spendable wallet UTXOs.", json!({}), &[]),
         tool("build", "Build Cargo contract packages and extract their Wasm-exported ABIs.",
-            json!({"package": {"type": "string"}, "outDir": {"type": "string"}}), &[]),
+            json!({"package": {"type": "string"}, "outDir": {"type": "string", "description": "output directory, relative to the server's working directory (default build in the project root)"}}), &[]),
         tool("test", "Build every contract for WASIp1 and run host integration tests; the first build may take several minutes.",
             json!({"package": {"type": "string"}}), &[]),
         tool("abi_fetch", "Fetch ABI metadata from the in-process Alkanes indexer.",
@@ -79,7 +79,7 @@ pub(crate) fn tools() -> Vec<Value> {
         tool("state_migrate", "Create version-2 durable state from labcoat.lock, backing up the ledger first. Refuses to overwrite existing state.",
             json!({}), &[]),
         tool("generate_web", "Write a typed TypeScript browser read client from labcoat.lock and built ABIs (no network access).",
-            json!({"outDir": {"type": "string", "description": "output directory (default generated/web)"}, "buildDir": {"type": "string", "description": "directory with <package>.abi.json files (default build)"}}), &[]),
+            json!({"outDir": {"type": "string", "description": "output directory, relative to the server's working directory (default generated/web in the project root)"}, "buildDir": {"type": "string", "description": "directory with <package>.abi.json files, relative to the server's working directory (default build in the project root)"}}), &[]),
     ]
 }
 
@@ -291,10 +291,7 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
         }
         "build" => {
             let package = args.get("package").and_then(|v| v.as_str());
-            let out_dir = args
-                .get("outDir")
-                .and_then(|v| v.as_str())
-                .unwrap_or("build");
+            let out_dir = args.get("outDir").and_then(|v| v.as_str());
             let (_, res) = contract::build(package, out_dir);
             res.map_err(fail)
         }
@@ -551,15 +548,10 @@ async fn dispatch(ctx: &Ctx, name: &str, args: &Value) -> Result<Value, (String,
             res.map_err(fail)
         }
         "generate_web" => {
-            let string = |key: &str, default: &str| {
-                args.get(key)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(default)
-                    .to_string()
-            };
+            let string = |key: &str| args.get(key).and_then(|v| v.as_str()).map(str::to_string);
             let cmd = contract::GenerateCmd::Web {
-                out_dir: string("outDir", "generated/web"),
-                build_dir: string("buildDir", "build"),
+                out_dir: string("outDir"),
+                build_dir: string("buildDir"),
             };
             let (_, res) = contract::generate(ctx, cmd);
             res.map_err(fail)
