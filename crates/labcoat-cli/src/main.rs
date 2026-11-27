@@ -181,9 +181,10 @@ enum Commands {
     Build {
         /// Optional Cargo package name (omitting it builds every contract)
         package: Option<String>,
-        /// Output directory
-        #[arg(long, default_value = "build")]
-        out_dir: String,
+        /// Output directory, relative to the working directory [default:
+        /// build in the project root]
+        #[arg(long)]
+        out_dir: Option<String>,
     },
     /// Fetch or verify Wasm-exported contract ABI metadata
     #[command(subcommand)]
@@ -643,7 +644,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
         }
         Commands::Build { package, out_dir } => {
             let progress = output::Progress::new("Building contract artifacts…", spinner);
-            let (cmd_name, res) = contract::build(package.as_deref(), &out_dir);
+            let (cmd_name, res) = contract::build(package.as_deref(), out_dir.as_deref());
             progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }

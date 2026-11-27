@@ -35,6 +35,12 @@ export interface TransactionSummary {
   network: string
   /** Alkanes id of the contract called, "block:tx". */
   contract: string
+  /**
+   * The contract's name in the generated manifest, when the call was made
+   * through it (`labcoat.contract("counter")`). Absent for a contract
+   * addressed by id.
+   */
+  contractName?: string
   /** ABI method name, or the opcode when no ABI names it. */
   method: string
   /** Sats paid in fees. */
@@ -204,7 +210,10 @@ export function approvalPrompt(): ApproveTransaction {
       note.style.cssText = "margin:0 0 .75rem;opacity:.7"
 
       const rows: [string, string][] = [
-        ["Contract", summary.contract],
+        [
+          "Contract",
+          summary.contractName === undefined ? summary.contract : `${summary.contractName} (${summary.contract})`,
+        ],
         ["Method", summary.method],
         ...summary.alkanes.map((alkane): [string, string] => ["Sends Alkane", `${alkane.amount} of ${alkane.id}`]),
         ...summary.payments.map((payment): [string, string] => ["Pays", `${payment.sats} sats to ${payment.address}`]),

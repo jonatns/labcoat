@@ -209,12 +209,16 @@ labcoat exchange-plan --request exchange-request.json --plan-out plan.json --psb
 `labcoat generate web` writes a typed TypeScript client
 (`generated/web/`: manifest, ABI descriptors, contract reads, wallet-signed
 writes, balances, and an exchange request builder) from `labcoat.lock` and `build/*.abi.json` with
-no network access; regenerate after every deploy or reset. In the app,
+no network access; regenerate after every deploy or reset. A typed
+`--out-dir` is relative to the working directory, and the result prints the
+absolute directory. In the app,
 `createClient({ rpc: "/rpc" }).contract("counter").read.getCount()` is typed
 from the ABI (method names in camelCase) and throws `ContractRevertError` on
 a revert; `tryRead` returns the revert instead, `contract("2:12", abi)` calls
 a contract that is not in `labcoat.lock`, and `at(height)` pins reads to one
-indexed height. `write` has the same methods and sends the call as a
+indexed height. `decodeAlkaneIds(bytes)`, `decodeAlkaneId(bytes, offset?)`,
+and `decodeU128(bytes, offset?)` decode ids and numbers a contract returns
+packed in a `Vec<u8>`. `write` has the same methods and sends the call as a
 transaction a wallet signs: `const wallet = await labcoat.connect()` (the dev
 wallet on Labcoat Network, a browser wallet elsewhere), then
 `const tx = await counter.write.increment({ wallet }); await tx.wait()`.

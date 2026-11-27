@@ -4,6 +4,10 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+### Breaking changes
+
+- resolve a relative `--out-dir` or `--build-dir` typed for `labcoat generate web`, and a relative `--out-dir` typed for `labcoat build`, against the directory the command is run in, like every other path on the command line. 0.4.0 resolved them against the project root, so `labcoat generate web --out-dir src/generated` in `web/` wrote to `src/generated` at the project root, with nothing in the output saying so. Left out, the defaults are unchanged: `generated/web` and `build` in the project root, from any directory inside the project. Nothing changes for commands run in the project root; a script that runs these commands in a subdirectory with a relative directory needs the path adjusted. The MCP `build` and `generate_web` tools follow the same rule for `outDir` and `buildDir`
+
 ### Added
 
 - sign transactions for the built-in wallet over Labcoat Network's JSON-RPC endpoint, so a web page or a headless test needs no wallet extension. `labcoat_dev_addresses` returns the wallet's primary taproot address with its internal key, output key, and script, and `labcoat_dev_sign_psbt` signs the wallet's key-path inputs of a base64 PSBT, leaves every other input untouched, and returns the raw transaction once every input is final. The dev signer exists only on Labcoat Network, signs only with the built-in wallet whatever `--wallet-file` or `LABCOAT_*` settings say, and answers only requests from this machine: a page on another origin, or one that reaches the port through DNS rebinding, gets error `-32000`. `labcoat up --ci` and `labcoat status --json` report it as `dev_signer`, `labcoat doctor` checks it, and `labcoat_info` answers `devSigner`
@@ -23,6 +27,9 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 - pin a set of reads to one indexed height with `labcoat.at(height)`, which returns a client whose contract reads run at that height without looking it up
 - send reads started together, as in a `Promise.all`, as one JSON-RPC batch request with one height lookup between them. They were two requests each. `createClient({ batch: false })` turns it off for an endpoint without batch support
 - export `CONTRACTS` and the `ContractName` type from the generated `manifest.ts`: the deployment records with literal types
+- decode Alkane ids and numbers a contract returns packed in a `Vec<u8>` with helpers the generated client exports: `decodeAlkaneIds(bytes)` for a list of ids at 32 bytes each (block, then tx, both little-endian `u128`s), such as a factory's list of clones, `decodeAlkaneId(bytes, offset?)` for one id, and `decodeU128(bytes, offset?)` for a number. Ids come back as `{ block, tx }` with decimal strings, what a read returns for an `AlkaneId`, so they go straight into `contract()` or an `AlkaneId` argument. Data that is too short, or a list whose length is not a multiple of 32, throws `RESPONSE_INVALID`. An app used to write these decoders itself
+- name the contract in the dev wallet's approval dialog: a call made through a manifest name, `labcoat.contract("factory")`, shows `factory (4:43793)` where it showed `4:43793`. The name is `contractName` on the `TransactionSummary` an `approve` function or a wallet's `signPsbt` receives; a contract addressed by id has none and still shows its id
+- report the directories `labcoat generate web` used as absolute paths: `Out dir` and `Build dir`, and `outDir` and `buildDir` in JSON, where `outDir` repeated what was typed and `buildDir` is new
 
 ### Changed
 

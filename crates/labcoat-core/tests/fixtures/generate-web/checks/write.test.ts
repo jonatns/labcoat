@@ -17,9 +17,16 @@ import {
   ContractRevertError,
   LabcoatClientError,
   WalletRejectedError,
+  approvalPrompt,
   createClient,
 } from "../expected/client"
-import type { LabcoatWallet, LabcoatWebClientOptions, SignPsbtRequest, WriteOptions } from "../expected/client"
+import type {
+  LabcoatWallet,
+  LabcoatWebClientOptions,
+  SignPsbtRequest,
+  TransactionSummary,
+  WriteOptions,
+} from "../expected/client"
 import type { AbiDocument } from "../expected/abi"
 import {
   addressToScript,
@@ -596,6 +603,87 @@ test("a rejection in the wallet is a WalletRejectedError and nothing is broadcas
   const approving = await labcoat.connect({ approve: () => true })
   const tx = await labcoat.contract("2:1", abiCounter).write.add(1n, { wallet: approving })
   assert.equal(tx.txid, BROADCAST_TXID)
+})
+
+test("a call through a manifest name carries the name in its summary", async () => {
+  const labcoat = stubEndpoint().client()
+  const summaries: TransactionSummary[] = []
+  const wallet = await labcoat.connect({
+    approve: (summary) => {
+      summaries.push(summary)
+      return false
+    },
+  })
+  await assert.rejects(labcoat.contract("fire").write.forward({ wallet }), WalletRejectedError)
+  // Addressed by the same id, the contract has no name to show.
+  await assert.rejects(labcoat.contract("4:65011", abiCounter).write.increment({ wallet }), WalletRejectedError)
+  assert.deepEqual(
+    summaries.map(({ contract, contractName, method }) => ({ contract, contractName, method })),
+    [
+      { contract: "4:65011", contractName: "fire", method: "forward" },
+      { contract: "4:65011", contractName: undefined, method: "increment" },
+    ],
+  )
+  assert.equal("contractName" in (summaries[1] as TransactionSummary), false)
+})
+
+test("the approval prompt shows a named contract as name (id), and an unnamed one as its id", async () => {
+  // Just enough of a DOM for the prompt: elements that record their text
+  // and children, and a dialog that closes when a button is clicked.
+  interface FakeElement {
+    tag: string
+    textContent: string
+    style: Record<string, string>
+    children: FakeElement[]
+    returnValue: string
+    listeners: Record<string, () => void>
+    [member: string]: unknown
+  }
+  const element = (tag: string): FakeElement => {
+    const self: FakeElement = {
+      tag,
+      textContent: "",
+      style: {},
+      children: [],
+      returnValue: "",
+      listeners: {},
+      setAttribute: () => undefined,
+      append: (...children: FakeElement[]) => void self.children.push(...children),
+      addEventListener: (event: string, listener: () => void) => void (self.listeners[event] = listener),
+      close: (value: string) => {
+        self.returnValue = value
+        self.listeners["close"]?.()
+      },
+      remove: () => undefined,
+      showModal: () => undefined,
+      focus: () => undefined,
+    }
+    return self
+  }
+  const body = element("body")
+  const scope = globalThis as { document?: unknown }
+  scope.document = { createElement: element, body }
+  try {
+    const shown = async (summary: TransactionSummary, answer: "Approve" | "Reject") => {
+      const answered = approvalPrompt()(summary)
+      const dialog = body.children.at(-1) as FakeElement
+      const [, , list, actions] = dialog.children as [FakeElement, FakeElement, FakeElement, FakeElement]
+      const rows = new Map<string, string>()
+      for (let i = 0; i < list.children.length; i += 2) {
+        rows.set((list.children[i] as FakeElement).textContent, (list.children[i + 1] as FakeElement).textContent)
+      }
+      ;(actions.children.find((button) => button.textContent === answer) as FakeElement).listeners["click"]?.()
+      return { rows, approved: await answered }
+    }
+    const named = await shown({ ...signing.summary, contract: "4:43793", contractName: "factory" }, "Approve")
+    assert.equal(named.rows.get("Contract"), "factory (4:43793)")
+    assert.equal(named.approved, true)
+    const byId = await shown({ ...signing.summary, contract: "4:43793" }, "Reject")
+    assert.equal(byId.rows.get("Contract"), "4:43793")
+    assert.equal(byId.approved, false)
+  } finally {
+    delete scope.document
+  }
 })
 
 test("the dev wallet does not mine when told not to", async () => {
