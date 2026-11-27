@@ -3,7 +3,7 @@
 // mistake the generated types must reject, and fails the build if they
 // stop rejecting it.
 
-import { createClient } from "../expected/client"
+import { createClient, decodeAlkaneId, decodeAlkaneIds, decodeU128 } from "../expected/client"
 import type {
   AbiArg,
   AbiValue,
@@ -14,6 +14,7 @@ import type {
   ReadMethods,
   ReadResult,
   TransactionReceipt,
+  TransactionSummary,
   TypedContractName,
   WriteMethods,
   WriteResult,
@@ -225,4 +226,10 @@ export type Checks = [
       Promise<ReadResult<AlkaneRef>>
     >
   >,
+  // The decode helpers return what reads return: a bigint, and `AlkaneRef`s.
+  Expect<Equal<typeof decodeU128, (bytes: Uint8Array, offset?: number) => bigint>>,
+  Expect<Equal<typeof decodeAlkaneId, (bytes: Uint8Array, offset?: number) => AlkaneRef>>,
+  Expect<Equal<typeof decodeAlkaneIds, (bytes: Uint8Array) => AlkaneRef[]>>,
+  // A summary names its contract only when the call went through a manifest name.
+  Expect<Equal<TransactionSummary["contractName"], string | undefined>>,
 ]

@@ -62,12 +62,16 @@ pub enum GenerateCmd {
     /// indexed height, Alkanes balances, and ABI-typed simulate calls.
     /// Reads labcoat.lock and built ABIs only — no network access.
     Web {
-        /// Output directory for the generated TypeScript module tree
-        #[arg(long, default_value = "generated/web")]
-        out_dir: String,
-        /// Directory containing <package>.abi.json build artifacts
-        #[arg(long, default_value = "build")]
-        build_dir: String,
+        /// Output directory for the generated TypeScript module tree,
+        /// relative to the working directory [default: generated/web in
+        /// the project root]
+        #[arg(long)]
+        out_dir: Option<String>,
+        /// Directory containing <package>.abi.json build artifacts,
+        /// relative to the working directory [default: build in the
+        /// project root]
+        #[arg(long)]
+        build_dir: Option<String>,
     },
 }
 
@@ -747,7 +751,7 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, Cmd
     }
 }
 
-pub fn build(package: Option<&str>, out_dir: &str) -> (&'static str, CmdResult) {
+pub fn build(package: Option<&str>, out_dir: Option<&str>) -> (&'static str, CmdResult) {
     let res = build_selected(package, out_dir)
         .map(|outcomes| serde_json::json!({ "contracts": outcomes }));
     ("build", to_envelope(res))
@@ -755,14 +759,14 @@ pub fn build(package: Option<&str>, out_dir: &str) -> (&'static str, CmdResult) 
 
 fn build_selected(
     package: Option<&str>,
-    out_dir: &str,
+    out_dir: Option<&str>,
 ) -> Result<Vec<labcoat_core::compile::CompileOutcome>, labcoat_core::LabcoatError> {
     let workspace = labcoat_core::workspace::discover(&crate::project::root())?;
     let packages = labcoat_core::workspace::select(&workspace, package)?;
     labcoat_core::compile::compile_packages(
         &workspace,
         &packages,
-        &PathBuf::from(out_dir),
+        &crate::project::resolve_dir(out_dir, "build"),
         "wasm32-unknown-unknown",
     )
 }
@@ -1536,10 +1540,13 @@ pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
     match cmd {
         GenerateCmd::Web { out_dir, build_dir } => {
             let res: Result<serde_json::Value, labcoat_core::LabcoatError> = (|| {
-                // Relative directories are the project's, like `build`'s.
+                // A typed directory is relative to where the command ran;
+                // the defaults are the project's, like `build`'s.
                 let cwd = ctx.config.project_root();
+                let out_root = crate::project::resolve_dir(out_dir.as_deref(), "generated/web");
+                let build_root = crate::project::resolve_dir(build_dir.as_deref(), "build");
                 let lockfile = labcoat_core::lockfile::load(&cwd)?;
-                let abis = labcoat_core::generate::load_build_abis(&cwd.join(&build_dir))?;
+                let abis = labcoat_core::generate::load_build_abis(&build_root)?;
                 let inputs = labcoat_core::generate::WebInputs {
                     network: ctx.config.network_id(),
                     bitcoin_network: ctx.config.bitcoin_network_id(),
@@ -1548,7 +1555,6 @@ pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
                     abis: &abis,
                 };
                 let files = labcoat_core::generate::generate_web(&inputs)?;
-                let out_root = cwd.join(&out_dir);
                 labcoat_core::generate::write_files(&out_root, &files)?;
                 let contracts = lockfile
                     .networks
@@ -1557,7 +1563,8 @@ pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
                     .unwrap_or(0);
                 Ok(serde_json::json!({
                     "network": ctx.config.network_id(),
-                    "outDir": out_dir,
+                    "outDir": out_root.display().to_string(),
+                    "buildDir": build_root.display().to_string(),
                     "contracts": contracts,
                     "abis": abis.iter().map(|a| a.artifact.as_str()).collect::<Vec<_>>(),
                     "files": files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),

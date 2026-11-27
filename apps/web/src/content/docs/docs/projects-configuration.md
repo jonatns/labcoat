@@ -48,9 +48,9 @@ Commands work from any directory inside the project. Labcoat finds the
 project root, the nearest directory above the working directory that holds
 `labcoat.toml`, and reads settings, `deploy.rs`, build artifacts, and
 deployment records from there. A relative `wallet_file` in `labcoat.toml` is
-relative to that file, and relative `--out-dir` and `--build-dir` values are
-relative to the project root. Other paths typed on the command line are
-relative to the working directory.
+relative to that file. Paths typed on the command line are relative to the
+working directory, `--out-dir` and `--build-dir` included; left out, those
+two default to `build` and `generated/web` in the project root.
 
 Before `deploy`, `import`, `call`, and the exchange commands write to
 anything other than Labcoat Network on this machine, they print the network

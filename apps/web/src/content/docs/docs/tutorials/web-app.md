@@ -42,13 +42,13 @@ labcoat deploy
 ✓ Executed 1 of 1 step(s)
 
 Network  labcoat
-Chain    397e13d66510912ef70b47f6b57b2ca32b20e8495389ea6eb81609eacc1366c2
+Chain    0c22a27a01b2878b53d8effa2ef970dbf37a949fedf19888b1dfa5470198627b
 
 Kind      Name     Outcome   Id   Change
 contract  counter  executed  2:1
 
 Step     Transaction
-counter  7f7d4acec7616d3e9fef65295607646e3ebd0307697581c1815ef888942cae88
+counter  6f7fa1e389267d4a686892be45f7f7fdbfd4ad83ff6ed9e97d66e1594868787e
 ```
 
 `labcoat up` starts Labcoat Network, a private Bitcoin chain on your machine
@@ -82,11 +82,14 @@ labcoat generate web --out-dir web/src/labcoat
 ✓ Generate web succeeded
 
 Abis       counter
+Build dir  /path/to/counter-app/build
 Contracts  1
 Files      manifest.ts, abi/document.ts, abi/counter.ts, abi/index.ts, client.ts, errors.ts, transaction.ts, wallet.ts, exchange.ts
 Network    labcoat
-Out dir    web/src/labcoat
+Out dir    /path/to/counter-app/web/src/labcoat
 ```
+
+`Out dir` is where the files went, as a full path on your machine.
 
 These files are plain TypeScript with no dependencies, so there is no package
 to install. `manifest.ts` records what you deployed and where, `abi/counter.ts`
@@ -168,7 +171,7 @@ npm --prefix web run dev
 ```
 
 ```text
-  VITE v8.4.0  ready in 383 ms
+  VITE v8.4.0  ready in 389 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -260,7 +263,7 @@ The page reloads by itself. Click **+1**:
 ```text
 Count: 2
 
-Transaction ad86f1f80413eed3a1f294ef77015d19d3334da01b2a826d636f13da6e5c0d15 set the count to 2.
+Transaction e6191d238f6bedb10453038f5ea0b0e581ed6aa8bdc4ec5eca6a2d36eb0d5467 set the count to 2.
 ```
 
 Three lines did that:
@@ -286,7 +289,7 @@ labcoat trace <txid>
 ```text
 › Transaction trace
 
-Transaction  ad86f1f80413eed3a1f294ef77015d19d3334da01b2a826d636f13da6e5c0d15
+Transaction  e6191d238f6bedb10453038f5ea0b0e581ed6aa8bdc4ec5eca6a2d36eb0d5467
 
 • Protostone 1
   • call 0:0 -> 2:1  inputs [1, …]  fuel 3500000
@@ -331,13 +334,13 @@ labcoat deploy
 ✓ Executed 1 of 1 step(s)
 
 Network  labcoat
-Chain    397e13d66510912ef70b47f6b57b2ca32b20e8495389ea6eb81609eacc1366c2
+Chain    0c22a27a01b2878b53d8effa2ef970dbf37a949fedf19888b1dfa5470198627b
 
 Kind      Name     Outcome     Id   Change
 contract  counter  redeployed  2:2  2:1 → 2:2
 
 Step     Transaction
-counter  2a25917ba723b6b3cc855889d1528fef270b78ecc97a189a0c08c6117c878808
+counter  78d17bf9f7a14c528ced44f399f1754b5f85b7487b6085c918ca126e57a029b3
 
 A redeployed contract has a new id and empty storage; the earlier one stays on chain.
 ```
@@ -426,9 +429,9 @@ The build now ends with:
 
 ```text
 dist/index.html                 0.46 kB │ gzip:  0.29 kB
-dist/assets/index-B6zc4koq.js  44.01 kB │ gzip: 15.72 kB
+dist/assets/index-C1Ly2kmK.js  44.16 kB │ gzip: 15.78 kB
 
-✓ built in 25ms
+✓ built in 23ms
 ```
 
 The page reloads and says `Count: 0`. It now reads `2:2`, whose storage
@@ -450,7 +453,7 @@ Approve transaction
 
 Labcoat dev wallet · regtest
 
-Contract    2:2
+Contract    counter (2:2)
 Method      increment
 Results to  bcrt1psjun8sn0t5clxdlnrdyu0usnnk5hsc76mnnv5638p7mfle26e3pqhgkg2u
 Fee         600 sats

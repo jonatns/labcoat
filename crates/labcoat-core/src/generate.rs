@@ -1079,6 +1079,62 @@ function decodeLeU128(bytes: Uint8Array): bigint {
   return value
 }
 
+/** The Alkane id packed at `offset`: block then tx, 16 bytes each. */
+function alkaneRefAt(bytes: Uint8Array, offset: number): AlkaneRef {
+  return {
+    block: decodeLeU128(bytes.subarray(offset, offset + 16)).toString(),
+    tx: decodeLeU128(bytes.subarray(offset + 16, offset + 32)).toString(),
+  }
+}
+
+function requireBytes(bytes: Uint8Array, offset: number, size: number, what: string): void {
+  if (!Number.isInteger(offset) || offset < 0 || offset + size > bytes.length) {
+    throw new LabcoatClientError(
+      "RESPONSE_INVALID",
+      `${what} needs ${size} bytes at offset ${offset}, and the data is ${bytes.length} byte(s) long`,
+    )
+  }
+}
+
+/**
+ * Decode a little-endian u128 from the 16 bytes at `offset` (default 0), as
+ * contracts pack numbers into a `Vec<u8>` return. Bytes after it are left
+ * alone. Throws `RESPONSE_INVALID` when fewer than 16 bytes are there.
+ */
+export function decodeU128(bytes: Uint8Array, offset = 0): bigint {
+  requireBytes(bytes, offset, 16, "a u128")
+  return decodeLeU128(bytes.subarray(offset, offset + 16))
+}
+
+/**
+ * Decode an Alkane id from the 32 bytes at `offset` (default 0): block then
+ * tx, each a little-endian u128. It returns `{ block, tx }`, the shape a
+ * read returns for an `AlkaneId` and one `contract()` and `AlkaneId`
+ * arguments accept. Bytes after it are left alone. Throws `RESPONSE_INVALID`
+ * when fewer than 32 bytes are there.
+ */
+export function decodeAlkaneId(bytes: Uint8Array, offset = 0): AlkaneRef {
+  requireBytes(bytes, offset, 32, "an Alkane id")
+  return alkaneRefAt(bytes, offset)
+}
+
+/**
+ * Decode a list of Alkane ids packed 32 bytes each, such as a factory's
+ * list of the clones it made. Empty data is an empty list. Throws
+ * `RESPONSE_INVALID` when the length is not a multiple of 32.
+ */
+export function decodeAlkaneIds(bytes: Uint8Array): AlkaneRef[] {
+  if (bytes.length % 32 !== 0) {
+    throw new LabcoatClientError(
+      "RESPONSE_INVALID",
+      `a list of Alkane ids is 32 bytes per id, and the data is ${bytes.length} byte(s) long`,
+    )
+  }
+  const ids: AlkaneRef[] = []
+  for (let offset = 0; offset < bytes.length; offset += 32) ids.push(alkaneRefAt(bytes, offset))
+  return ids
+}
+
 /** Lenient decoding for `simulate`: null where the bytes do not fit the type. */
 function decodeReturn(returns: string, data: Uint8Array): SimulateValue {
   if (returns === "u128") {
@@ -1093,10 +1149,7 @@ function decodeReturn(returns: string, data: Uint8Array): SimulateValue {
   }
   if (returns === "AlkaneId") {
     if (data.length !== 32) return null
-    return {
-      block: decodeLeU128(data.subarray(0, 16)).toString(),
-      tx: decodeLeU128(data.subarray(16, 32)).toString(),
-    }
+    return alkaneRefAt(data, 0)
   }
   return null
 }
@@ -1478,6 +1531,8 @@ interface ResolvedContract {
   tx: bigint
   /** Canonical "block:tx". */
   id: string
+  /** The manifest name the contract was addressed by, if it was. */
+  name: string | null
   artifact: string | null
 }
 
@@ -1786,6 +1841,7 @@ export class LabcoatWebClient {
       summary: {
         network,
         contract: contract.id,
+        ...(contract.name !== null ? { contractName: contract.name } : {}),
         method: method.name,
         fee: built.fee,
         recipient,
@@ -2099,6 +2155,7 @@ export class LabcoatWebClient {
   private resolveContract(contract: AlkaneIdLike): ResolvedContract {
     let ref: { block: bigint; tx: bigint }
     let artifact: string | null = null
+    let name: string | null = null
     if (typeof contract === "string" && !contract.includes(":")) {
       const deployment = (CONTRACTS as Record<string, ContractDeployment>)[contract]
       if (deployment === undefined) {
@@ -2110,10 +2167,11 @@ export class LabcoatWebClient {
       }
       ref = parseAlkaneRef(deployment.id, `manifest id for ${contract}`)
       artifact = deployment.artifact
+      name = contract
     } else {
       ref = parseAlkaneRef(contract, "contract id")
     }
-    return { ...ref, id: `${ref.block}:${ref.tx}`, artifact }
+    return { ...ref, id: `${ref.block}:${ref.tx}`, name, artifact }
   }
 }
 

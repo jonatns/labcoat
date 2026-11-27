@@ -5,7 +5,14 @@
 import { test } from "node:test"
 import { strict as assert } from "node:assert"
 
-import { ContractRevertError, LabcoatClientError, createClient } from "../expected/client"
+import {
+  ContractRevertError,
+  LabcoatClientError,
+  createClient,
+  decodeAlkaneId,
+  decodeAlkaneIds,
+  decodeU128,
+} from "../expected/client"
 import type { LabcoatWebClientOptions } from "../expected/client"
 import { abiOverwriteTestToken } from "../expected/abi/overwrite-test-token"
 import type { AbiDocument } from "../expected/abi"
@@ -432,6 +439,38 @@ test("unknown contracts, missing ABIs, and bad arguments fail before any request
     { code: "ARG_INVALID" },
   )
   assert.equal(endpoint.posts.length, 0)
+})
+
+/* ------------------------------ decode helpers ----------------------------- */
+
+test("decodeU128, decodeAlkaneId, and decodeAlkaneIds unpack what contracts return as bytes", () => {
+  const le16 = (value: bigint) => Array.from({ length: 16 }, (_, i) => Number((value >> BigInt(8 * i)) & 0xffn))
+  const id = (block: bigint, tx: bigint) => [...le16(block), ...le16(tx)]
+  const max = (1n << 128n) - 1n
+  const packed = Uint8Array.from([...id(2n, 7n), ...id(4n, 43793n), ...id(2n, max)])
+
+  assert.equal(decodeU128(packed), 2n)
+  assert.equal(decodeU128(packed, 48), 43793n)
+  assert.equal(decodeU128(packed, 80), max)
+  // The same shape a read returns for an AlkaneId.
+  assert.deepEqual(decodeAlkaneId(packed), { block: "2", tx: "7" })
+  assert.deepEqual(decodeAlkaneId(packed, 32), { block: "4", tx: "43793" })
+  assert.deepEqual(decodeAlkaneIds(packed), [
+    { block: "2", tx: "7" },
+    { block: "4", tx: "43793" },
+    { block: "2", tx: max.toString() },
+  ])
+  assert.deepEqual(decodeAlkaneIds(new Uint8Array()), [])
+
+  const invalid = (error: unknown) => error instanceof LabcoatClientError && error.code === "RESPONSE_INVALID"
+  assert.throws(() => decodeU128(new Uint8Array(15)), invalid)
+  assert.throws(() => decodeU128(packed, 81), invalid)
+  assert.throws(() => decodeU128(packed, -16), invalid)
+  assert.throws(() => decodeU128(packed, 0.5), invalid)
+  assert.throws(() => decodeAlkaneId(new Uint8Array(31)), invalid)
+  assert.throws(() => decodeAlkaneId(packed, 65), invalid)
+  assert.throws(() => decodeAlkaneIds(packed.subarray(0, 33)), invalid)
+  assert.throws(() => decodeAlkaneIds(packed.subarray(0, 16)), invalid)
 })
 
 /* ---------------------------------- balances ------------------------------- */

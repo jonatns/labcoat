@@ -14,9 +14,19 @@ labcoat generate web
 Generation reads `labcoat.lock` and the `build/*.abi.json` files written by
 `labcoat build`. It makes no network requests, so it is safe in CI. Pass
 `--out-dir` to change the default `generated/web` destination and
-`--build-dir` to read ABIs from somewhere other than `build`. A relative
-directory is resolved against the project root, not the directory you run the
-command in.
+`--build-dir` to read ABIs from somewhere other than `build`.
+
+Both defaults are in the project root, from any directory inside the project.
+A path you pass is relative to the directory you run the command in, so in an
+app that lives in `web/`:
+
+```bash
+cd web
+labcoat generate web --out-dir src/generated   # writes web/src/generated
+```
+
+The command prints the directories it used as absolute paths (`Out dir` and
+`Build dir`; `outDir` and `buildDir` with `--json`).
 
 This page is the reference. To build a page step by step, from `labcoat init`
 to a signed transaction in the browser, follow the
@@ -75,6 +85,37 @@ name; use [`simulate`](#raw-calls) with its opcode.
 If two methods of one contract have the same camelCase name, such as
 `get_count` and `getCount`, both keep their exact ABI names and neither is
 renamed.
+
+### Ids and numbers packed into bytes
+
+A contract often returns a `Vec<u8>` that packs Alkane ids, 32 bytes each:
+the block, then the tx, both little-endian `u128`s. A factory's list of the
+clones it made is one, and so is the id a `mint` returns. The client exports
+decoders for these bytes:
+
+```ts
+import { decodeAlkaneId, decodeAlkaneIds, decodeU128 } from './generated/web/client';
+
+const clones = decodeAlkaneIds(await factory.read.getClones());
+// [{ block: "2", tx: "12" }, { block: "2", tx: "13" }]
+
+const receipt = await (await factory.write.mint({ wallet })).wait();
+const minted = decodeAlkaneId(receipt.value);
+const clone = labcoat.contract(minted, abiOrganism);
+```
+
+| Function                         | Reads                           | Returns           |
+| -------------------------------- | ------------------------------- | ----------------- |
+| `decodeU128(bytes, offset?)`     | 16 bytes at `offset`, default 0 | `bigint`          |
+| `decodeAlkaneId(bytes, offset?)` | 32 bytes at `offset`, default 0 | `{ block, tx }`   |
+| `decodeAlkaneIds(bytes)`         | all of it, 32 bytes per id      | `{ block, tx }[]` |
+
+An id is `{ block, tx }` with decimal strings, the shape a read returns for
+an `AlkaneId`, so it can be passed to `contract()` or as an `AlkaneId`
+argument as it is; `` `${id.block}:${id.tx}` `` is its `"block:tx"` form. The
+offset forms read a value out of a larger layout and ignore the bytes after
+it. Data too short for the value, or a list whose length is not a multiple of
+32, throws `LabcoatClientError` with code `RESPONSE_INVALID`.
 
 ### Contracts that are not in labcoat.lock
 
@@ -339,10 +380,14 @@ const wallet = await labcoat.connect({ approve: true });
 ```
 
 `approve: true` shows a dialog in the page before each signature, listing the
-contract, the method, what is sent and paid, and the fee. Rejecting, or
-closing it, throws `WalletRejectedError`. It is a native `<dialog>` with no
-framework and no stylesheet. Pass a function instead to decide in code:
-`approve: (summary) => summary.fee < 1_000n`.
+contract, the method, what is sent and paid, and the fee. A contract called
+through its name is shown as `counter (2:5)`, and one addressed by id as the
+id. Rejecting, or closing it, throws `WalletRejectedError`. It is a native
+`<dialog>` with no framework and no stylesheet. Pass a function instead to
+decide in code: `approve: (summary) => summary.fee < 1_000n`. The summary
+has `contract` (the id), `contractName` (set when the call went through a
+manifest name), `method`, `fee`, `recipient`, `alkanes`, `payments`, and
+`network`; a wallet of your own gets the same object in `signPsbt`.
 
 ### Local and public networks
 

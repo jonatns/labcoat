@@ -241,6 +241,38 @@ pub(crate) fn root_from(cwd: &Path) -> PathBuf {
         .to_path_buf()
 }
 
+/// Where a directory option points. A path typed on the command line is
+/// relative to the directory the command was run from, like every other
+/// path argument; left out, the default is the project's.
+pub(crate) fn resolve_dir(typed: Option<&str>, default: &str) -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    resolve_dir_from(typed, default, &cwd, &root())
+}
+
+pub(crate) fn resolve_dir_from(
+    typed: Option<&str>,
+    default: &str,
+    cwd: &Path,
+    root: &Path,
+) -> PathBuf {
+    let joined = match typed {
+        Some(typed) => cwd.join(typed),
+        None => root.join(default),
+    };
+    // Drop `.` and `..` so the path reported is the one a person would type.
+    let mut resolved = PathBuf::new();
+    for component in joined.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other),
+        }
+    }
+    resolved
+}
+
 pub(crate) fn find_project_root(start: &Path) -> Option<PathBuf> {
     start.ancestors().find_map(|candidate| {
         (candidate.join("labcoat.toml").is_file() && candidate.join("Cargo.toml").is_file())
@@ -347,6 +379,38 @@ mod tests {
         assert_eq!(root_from(&nested), root);
         assert_eq!(root_from(&root), root);
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_typed_directory_is_relative_to_where_the_command_ran_and_a_default_to_the_project() {
+        let root = Path::new("/work/app");
+        let cwd = root.join("web");
+        // `labcoat generate web --out-dir src/generated` in web/.
+        assert_eq!(
+            resolve_dir_from(Some("src/generated"), "generated/web", &cwd, root),
+            cwd.join("src/generated")
+        );
+        assert_eq!(
+            resolve_dir_from(Some("../build"), "build", &cwd, root),
+            root.join("build")
+        );
+        assert_eq!(
+            resolve_dir_from(Some("./out/"), "build", &cwd, root),
+            cwd.join("out")
+        );
+        assert_eq!(
+            resolve_dir_from(Some("/elsewhere/out"), "build", &cwd, root),
+            Path::new("/elsewhere/out")
+        );
+        // Left out, the defaults stay the project's from any directory in it.
+        assert_eq!(
+            resolve_dir_from(None, "generated/web", &cwd, root),
+            root.join("generated/web")
+        );
+        assert_eq!(
+            resolve_dir_from(None, "build", &cwd, root),
+            root.join("build")
+        );
     }
 
     use std::io::Cursor;
