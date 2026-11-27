@@ -536,6 +536,12 @@ public network such as signet.
 address of another network, and `/rpc` has to lead to that network's
 endpoint: the rewrite follows `MANIFEST.rpcUrl`, which regenerating updates.
 
+That endpoint has to speak the JSON-RPC Labcoat Network speaks. The default
+signet and mainnet endpoints, Subfrost's, do not: they refuse the client's
+index queries (`secondaryview`, `secondaryheight`) with "method not
+permitted". Until the client supports them, a page on signet needs an
+endpoint of your own that serves those methods.
+
 **`connect()` returns a browser wallet.** There is no dev wallet off Labcoat
 Network. `connect()` returns the first installed wallet of UniSat, Xverse,
 OKX Wallet, and Leather, and the wallet asks the person to connect. Pass
