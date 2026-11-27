@@ -1,0 +1,81 @@
+//
+// Errors the generated client throws. Imported through "./client", which
+// re-exports them.
+
+export type LabcoatClientErrorCode =
+  | "RPC_UNREACHABLE"
+  | "RPC_ERROR"
+  | "RESPONSE_INVALID"
+  | "CONTRACT_UNKNOWN"
+  | "ABI_UNKNOWN"
+  | "METHOD_UNKNOWN"
+  | "ARG_INVALID"
+  | "CONTRACT_REVERT"
+  | "WALLET_UNAVAILABLE"
+  | "WALLET_REJECTED"
+  | "WALLET_ERROR"
+  | "INSUFFICIENT_FUNDS"
+  | "TRANSACTION_INVALID"
+  | "TRANSACTION_TIMEOUT"
+
+export class LabcoatClientError extends Error {
+  readonly code: LabcoatClientErrorCode
+  /** The JSON-RPC error code, when the endpoint answered with an error. */
+  readonly rpcCode: number | null
+
+  constructor(code: LabcoatClientErrorCode, message: string, rpcCode: number | null = null) {
+    super(message)
+    this.code = code
+    this.rpcCode = rpcCode
+    this.name = "LabcoatClientError"
+  }
+}
+
+/**
+ * Thrown when a contract reverts: by `contract.read.<method>()`, by
+ * `contract.write.<method>()` when the simulation it runs before signing
+ * reverts, and by waiting for a transaction that reverted on chain.
+ */
+export class ContractRevertError extends LabcoatClientError {
+  /** The contract's own message, without the indexer's "ALKANES: revert: " prefix. */
+  readonly reason: string
+  /** Alkanes id of the contract that was called, as "block:tx". */
+  readonly contract: string
+  /** ABI name of the method that was called, or its opcode when no ABI named it. */
+  readonly method: string
+  readonly gasUsed: bigint
+  /** Raw return bytes of the reverted call. */
+  readonly data: Uint8Array
+  /** The transaction that reverted on chain; null for a read or a simulation. */
+  readonly txid: string | null
+
+  constructor(details: {
+    reason: string
+    contract: string
+    method: string
+    gasUsed: bigint
+    data: Uint8Array
+    txid?: string | null
+  }) {
+    super("CONTRACT_REVERT", `${details.method} on ${details.contract} reverted: ${details.reason}`)
+    this.name = "ContractRevertError"
+    this.reason = details.reason
+    this.contract = details.contract
+    this.method = details.method
+    this.gasUsed = details.gasUsed
+    this.data = details.data
+    this.txid = details.txid ?? null
+  }
+}
+
+/** Thrown when the person using the wallet declines to connect or to sign. */
+export class WalletRejectedError extends LabcoatClientError {
+  /** Name of the wallet that was asked. */
+  readonly wallet: string
+
+  constructor(wallet: string, message = "the request was rejected in the wallet") {
+    super("WALLET_REJECTED", `${wallet}: ${message}`)
+    this.name = "WalletRejectedError"
+    this.wallet = wallet
+  }
+}

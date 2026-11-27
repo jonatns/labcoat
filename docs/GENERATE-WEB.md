@@ -1,14 +1,16 @@
 # Generated web artifacts
 
-Status: implemented for the read path and the exchange request builder
-(`labcoat generate web`); unsigned transaction-plan builders beyond the
-request file are future work, as are wallet-signed writes
-(`contract.write.<method>` beside `contract.read`).
+Status: implemented for reads, wallet-signed contract calls, and the
+exchange request builder (`labcoat generate web`). Unsigned transaction-plan
+builders beyond the request file are future work, as are deploys, plain
+Alkane transfers, nested SegWit inputs, and a key-holding signer for public
+networks.
 
 ## Decision
 
 `labcoat generate web` emits a deterministic, self-contained TypeScript module
-tree that browser applications import to read a Labcoat-deployed project. The
+tree that browser applications import to read a Labcoat-deployed project and
+send calls to it. The
 output is *derived code* over verified local state — the same posture as
 `labcoat.lock` in the durable-state plan: the lockfile is the per-network
 ledger of verified deployments, and generated artifacts are a projection of
@@ -42,7 +44,7 @@ network access** and is safe to run in CI.
   from the existing ABI model, one module per build artifact. Each is
   `as const satisfies AbiDocument`: the client's types are computed from
   these literals, so no per-contract client code is generated.
-- `client.ts` — a dependency-free, fetch-based read client, made with
+- `client.ts` — a dependency-free, fetch-based client, made with
   `createClient({ rpc })`:
   - `contract(name)` and `contract(id, abi)` — a handle on one contract.
     `read.<method>(...args)` simulates the call (`secondaryview` →
@@ -65,6 +67,36 @@ network access** and is safe to run in CI.
 
   Calls made in the same tick are sent as one JSON-RPC batch request, and
   unpinned reads that start together share one height lookup.
+
+  Writes:
+  - `contract(...).write.<method>(...args, options)` — simulates the call,
+    lists the wallet's outputs (`secondaryview` → `esplora` →
+    `utxosbyscripthash`, and `protorunesbyaddress` for what each carries),
+    builds the unsigned transaction, has the wallet sign it, checks that the
+    signed transaction is the one it built, and broadcasts it
+    (`sendrawtransaction`). Options: `wallet`, `alkanes`, `pay`, `to`,
+    `feeRate`, `simulate`. It resolves to `{ txid, fee, payments, wait() }`;
+  - `connect(options)` — the dev wallet on Labcoat Network, else an
+    installed browser wallet; `availableWallets()` lists them;
+  - `waitForTransaction(txid)` and `wait()` — poll the `trace` view at the
+    call's virtual output until the index has it, and return the return
+    data or throw `ContractRevertError`.
+- `transaction.ts` — the transaction builder, with no network access:
+  address decoding, input selection, the protostone, fee and change, the
+  PSBT (`witnessUtxo`, and `tapInternalKey` on taproot inputs), and turning
+  a signed PSBT into a transaction. It mirrors the Rust call path
+  (`toolkit::call`, `execute::spec_with_options`, the pinned upstream
+  executor) rule for rule: outputs that carry Alkanes are spent only when
+  they hold one the call sends in; Alkanes sent in go through a first
+  protostone that forwards the exact amounts; fees are computed in the same
+  single-precision arithmetic.
+- `wallet.ts` — the `LabcoatWallet` interface (`name`, `getAccounts`,
+  `signPsbt`, optional `afterBroadcast`), `devWallet` over
+  `labcoat_dev_addresses` and `labcoat_dev_sign_psbt`, `approvalPrompt`, and
+  adapters over the injected APIs of UniSat, Xverse, OKX Wallet, and
+  Leather.
+- `errors.ts` — `LabcoatClientError`, `ContractRevertError`, and
+  `WalletRejectedError`, re-exported by `client.ts`.
 - `exchange.ts` — the exchange request builder for the CLI settlement
   ceremony:
   - `serializeExchangeRequest(request)` — validates an
@@ -85,11 +117,24 @@ hand-written files in the same directory survive.
 
 ## Boundaries
 
-- **Read-only.** The client signs nothing, holds no key material, and cannot
-  mutate state. The exchange builder only serializes a *request* — planning
+- **No keys.** The client holds no key material: every transaction is signed
+  by a wallet behind the `LabcoatWallet` interface. The dev wallet's key
+  stays in Labcoat Network, which signs only for pages served from this
+  machine. The exchange builder only serializes a *request* — planning
   (UTXO selection, PSBT construction), signing, and settlement all stay in
   the CLI ceremony. Builders for richer unsigned transaction plans remain
   gated on the durable-state transaction-plan work.
+- **One builder, two languages.** The Rust builder depends on tokio and the
+  upstream provider, so it is not compiled for the browser; the TypeScript
+  one is a second implementation, and test vectors keep it honest (see
+  Verification). A change to how `labcoat call` builds a transaction must be
+  made in both.
+- **Who mines.** Labcoat Network mines nothing by itself. The dev wallet
+  asks for a block after each broadcast (`afterBroadcast`), because it is
+  the one component that exists only there; `waitForTransaction` never
+  mines, so it does the same thing on every network.
+- **Not in a write.** `--pointer`, `--refund`, `--edict`, and bitcoin
+  `--inputs` have no option; results and refunds go to output 0.
 - **No application semantics.** Labcoat emits network identity, ids, ABI
   shapes, and transport. What a contract's bytes *mean* stays in the
   application that consumes them.
@@ -117,6 +162,28 @@ hand-written files in the same directory survive.
   compile error) and runs runtime checks against a stub `fetch`
   (`checks/runtime.test.ts`). CI runs it in the `guards` job. The output
   needs TypeScript 4.9 or newer.
+- Write vectors. `crates/labcoat-core/src/web_write_vectors.rs` runs the
+  Rust call path over a fixed wallet (the options and spec `labcoat call`
+  produces, Labcoat's protection of Alkane-carrying outputs, the pinned
+  upstream executor with its mock wallet) for a set of calls, and records
+  each unsigned transaction in `checks/write-vectors.json`; the test fails
+  if the Rust path stops building them. `checks/write.test.ts`, run by the
+  same script, sends each case through the generated client against a stub
+  endpoint and compares the PSBT's transaction byte for byte. The cases
+  cover arguments of every type, change kept and dropped, several inputs,
+  fractional and high fee rates, another recipient, payments to every
+  address type, and Alkanes sent in from one and several outputs. Not
+  covered: a cellpack of 48 bytes or more (the upstream mock wallet cannot
+  build one), and non-taproot inputs, which the Rust wallet never has.
+  The same file tests the dev wallet, the wallet adapters against stub
+  providers, rejection, and waiting.
+- `scripts/tests/generate-web-write-e2e.sh` (not run in CI, which has no
+  Alkanes indexer): starts a Labcoat Network of its own, deploys the counter
+  template, generates the client, and from Node sends writes with the dev
+  wallet, waits for them, reads the new value back, sends one that reverts,
+  rejects one, and leaves one pending.
+- Browser wallets are checked by hand on signet; the checklist is in the
+  Web apps guide.
 - Manual against-live check (not run in CI): with a project's stack up and
   seeded (`labcoat up`, deploys applied), run `labcoat generate web` in the
   project, point the app's dev proxy at the unified endpoint, and confirm

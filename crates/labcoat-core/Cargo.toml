@@ -31,5 +31,7 @@ alkanes-cli-common.workspace = true
 ordinals.workspace = true
 
 [dev-dependencies]
+# The upstream mock wallet drives the executor in `web_write_vectors`.
+alkanes-cli-common = { workspace = true, features = ["test-utils"] }
 labcoat-deploy = { path = "../labcoat-deploy" }
 wat = "1"

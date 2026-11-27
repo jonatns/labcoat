@@ -46,6 +46,16 @@ pnpm --filter @labcoat/web test:e2e
 git diff --check
 ```
 
+A change to how a call transaction is built, in `crates/labcoat-core` or in
+the generated web client, also needs the end-to-end write check, which CI
+cannot run because it has no Alkanes indexer. It starts a Labcoat Network of
+its own and leaves yours alone:
+
+```sh
+cargo build --locked -p labcoat-cli
+./scripts/tests/generate-web-write-e2e.sh
+```
+
 Run the narrowest relevant checks while iterating and the complete affected suite before opening a pull request.
 
 ## Pull requests
