@@ -8,19 +8,20 @@ project starts with. The page shows the count, and a button changes it by
 sending a signed transaction. Everything runs on Labcoat Network, so you need
 no wallet extension and no coins.
 
-It assumes you know some Rust and some TypeScript, and have at least skimmed
+It assumes you know some Rust and some TypeScript, can read a React component
+that uses `useState`, and have at least skimmed
 [Your first contract](/docs/tutorials/first-contract/).
 
 You need a [Labcoat installation](/docs/getting-started/installation/) with
 its [compilation prerequisites](/docs/getting-started/installation/#compilation-prerequisites),
-Node.js 22.12 or newer, and about twenty minutes. The first build compiles
+Node.js 20.9 or newer, and about twenty minutes. The first build compiles
 the Alkanes runtime and takes the longest.
 
 ## How the pieces fit
 
 ```text
 browser page ──▶ /rpc on the page's own address ──▶ Labcoat Network
-   │                 (your dev server forwards it)     the chain, the Alkanes
+   │                 (Next.js forwards it)             the chain, the Alkanes
    │                                                   index, the dev signer
    └─ imports the client that `labcoat generate web` writes
 ```
@@ -42,13 +43,13 @@ labcoat deploy
 ✓ Executed 1 of 1 step(s)
 
 Network  labcoat
-Chain    0c22a27a01b2878b53d8effa2ef970dbf37a949fedf19888b1dfa5470198627b
+Chain    7b013d15daef39428bff7a9b1cfc98b3428847c75fdf963bebd72c73c43a7e37
 
 Kind      Name     Outcome   Id   Change
 contract  counter  executed  2:1
 
 Step     Transaction
-counter  6f7fa1e389267d4a686892be45f7f7fdbfd4ad83ff6ed9e97d66e1594868787e
+counter  79f21ed1e50a012c05765cbf4b512fa7e5316caa41e3409c1435976681d14425
 ```
 
 `labcoat up` starts Labcoat Network, a private Bitcoin chain on your machine
@@ -56,21 +57,19 @@ with a funded wallet. `labcoat deploy` builds the Counter and deploys it. It
 is now the contract `counter`, at the Alkane ID `2:1`.
 
 Keep this terminal in `counter-app`. Every command in this tutorial runs from
-here, except the dev server.
+this directory.
 
 ## Create the web app
 
-The page is a [Vite](https://vite.dev/) app in plain TypeScript, in a `web`
-directory inside the project:
+The page is a [Next.js](https://nextjs.org/) app in a `web` directory inside
+the project:
 
 ```bash
-npm create vite@latest web -- --template vanilla-ts --no-interactive
-npm --prefix web install
-rm -r web/src/counter.ts web/src/style.css web/src/assets web/public
+npx create-next-app@latest web --ts --app --src-dir --empty --no-tailwind --no-eslint --no-react-compiler --import-alias "@/*" --disable-git --use-npm --yes
 ```
 
-The last line removes the template's demo page. You will replace its
-`index.html` and `src/main.ts` below.
+The flags ask for the smallest app `create-next-app` makes: TypeScript, the
+App Router, one page, and no styling or lint setup to explain.
 
 Now generate the client into the app's source directory:
 
@@ -95,31 +94,46 @@ These files are plain TypeScript with no dependencies, so there is no package
 to install. `manifest.ts` records what you deployed and where, `abi/counter.ts`
 lists the Counter's methods, and `client.ts` is what the page imports.
 
+They need one change to the app. Alkanes amounts are 128-bit numbers, so the
+client uses `bigint`, and TypeScript only accepts `bigint` literals when it
+targets ES2020 or later. A new Next.js app targets ES2017. In
+`web/tsconfig.json`, change
+
+```json
+    "target": "ES2017",
+```
+
+to
+
+```json
+    "target": "ES2020",
+```
+
+This setting only affects type checking. Next.js compiles the code itself and
+every current browser has `bigint`.
+
 ## Reach the network from the page
 
 Labcoat Network listens on `http://127.0.0.1:18443`. Your page will be served
-from `http://localhost:5173`. To a browser those are two different sites, and
+from `http://localhost:3000`. To a browser those are two different sites, and
 it refuses to let a page call another site that has not opted in. Labcoat
 Network does not opt in.
 
-So the page calls `/rpc` on its own address, and the dev server forwards
-those requests to the network. Create `web/vite.config.ts`:
+So the page calls `/rpc` on its own address, and Next.js forwards those
+requests to the network. Replace `web/next.config.ts`:
 
 ```ts
-import { defineConfig } from 'vite';
-import { MANIFEST } from './src/labcoat/manifest.ts';
+import type { NextConfig } from 'next';
+import { MANIFEST } from './src/labcoat/manifest';
 
-export default defineConfig({
-  server: {
-    proxy: {
-      // The page calls /rpc on its own address; Vite forwards it to Labcoat Network.
-      '/rpc': {
-        target: MANIFEST.rpcUrl,
-        rewrite: (path) => path.replace(/^\/rpc/, ''),
-      },
-    },
+const nextConfig: NextConfig = {
+  // The page calls /rpc on its own address; Next.js forwards it to Labcoat Network.
+  async rewrites() {
+    return [{ source: '/rpc', destination: MANIFEST.rpcUrl }];
   },
-});
+};
+
+export default nextConfig;
 ```
 
 `MANIFEST.rpcUrl` is the network's address as `labcoat generate web` recorded
@@ -127,41 +141,39 @@ it, so the port is not written down twice.
 
 ## Read the count
 
-Replace `web/index.html`:
+Replace `web/src/app/page.tsx`:
 
-```html
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Counter</title>
-  </head>
-  <body>
-    <h1>Counter</h1>
-    <p>Count: <output id="count">…</output></p>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
-</html>
-```
+```tsx
+'use client';
 
-Replace `web/src/main.ts`:
-
-```ts
-import { createClient } from './labcoat/client';
+import { useEffect, useState } from 'react';
+import { createClient } from '@/labcoat/client';
 
 const labcoat = createClient({ rpc: '/rpc' });
 const counter = labcoat.contract('counter');
 
-const countEl = document.querySelector<HTMLOutputElement>('#count')!;
+export default function Home() {
+  const [count, setCount] = useState<bigint | null>(null);
 
-async function refresh() {
-  const count = await counter.read.getCount(); // bigint
-  countEl.textContent = count.toString();
+  async function refresh() {
+    setCount(await counter.read.getCount()); // bigint
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  return (
+    <main>
+      <h1>Counter</h1>
+      <p>Count: {count === null ? '…' : count.toString()}</p>
+    </main>
+  );
 }
-
-refresh();
 ```
+
+`'use client'` makes the page a client component: it runs in the browser,
+which is where the wallet will be.
 
 Start the dev server in a **second terminal**, also in `counter-app`, and
 leave it running:
@@ -171,14 +183,17 @@ npm --prefix web run dev
 ```
 
 ```text
-  VITE v8.4.0  ready in 389 ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
+▲ Next.js 16.4.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.0.0.2:3000
+✓ Ready in 151ms
 ```
 
-Open `http://localhost:5173/`. If that port was taken, Vite prints the
-address it chose instead. The page says `Count: 0`.
+Open `http://localhost:3000/`, the `Local` address. If that port was taken,
+Next.js prints the one it chose instead. The page says `Count: 0`.
+
+Use the `localhost` address, not the `Network` one: the dev wallet you will
+connect later only signs for pages opened on this machine's own address.
 
 `contract('counter')` looked the name up in the manifest and found `2:1`.
 `read.getCount()` ran the contract's `get_count` method against the current
@@ -197,21 +212,22 @@ The page says `Count: 1`.
 ### The methods are typed
 
 `read` has one function per contract method, with the argument and return
-types the contract declares. In `web/src/main.ts`, misspell `getCount` as
-`getCont`, then build the app:
+types the contract declares. In `web/src/app/page.tsx`, misspell `getCount`
+as `getCont`, then build the app:
 
 ```bash
 npm --prefix web run build
 ```
 
-```text
-> web@0.0.0 build
-> tsc && vite build
+The build stops at:
 
-src/main.ts(9,36): error TS2551: Property 'getCont' does not exist on type 'ReadMethods<{ readonly contract: "Counter"; readonly methods: readonly [{ readonly name: "initialize"; readonly opcode: 0n; readonly params: readonly []; readonly returns: "void"; }, { readonly name: "increment"; readonly opcode: 1n; readonly params: readonly []; readonly returns: "u128"; }, { ...; }]; }>'. Did you mean 'getCount'?
+```text
+  Running TypeScript ...
+src/app/page.tsx(13,33): error TS2551: Property 'getCont' does not exist on type 'ReadMethods<{ readonly contract: "Counter"; readonly methods: readonly [{ readonly name: "initialize"; readonly opcode: 0n; readonly params: readonly []; readonly returns: "void"; }, { readonly name: "increment"; readonly opcode: 1n; readonly params: readonly []; readonly returns: "u128"; }, { ...; }]; }>'. Did you mean 'getCount'?
+Failed to type check.
 ```
 
-The type TypeScript prints is the Counter's ABI, and the last sentence is the
+The type TypeScript prints is the Counter's ABI, and its last sentence is the
 useful part. Your editor shows the same error as you type. The dev server
 does not check types, which is why this took a build. Put `getCount` back.
 
@@ -220,50 +236,57 @@ does not check types, which is why this took a build. Put `getCount` back.
 A read costs nothing and changes nothing. Changing the count takes a
 transaction, and a transaction needs a wallet to pay for it and sign it.
 
-In `web/index.html`, add a button and a status line under the count:
+Replace `web/src/app/page.tsx`:
 
-```html
-    <button id="increment">+1</button>
-    <p id="status"></p>
-```
+```tsx
+'use client';
 
-Replace `web/src/main.ts`:
-
-```ts
-import { createClient } from './labcoat/client';
+import { useEffect, useState } from 'react';
+import { createClient } from '@/labcoat/client';
 
 const labcoat = createClient({ rpc: '/rpc' });
 const counter = labcoat.contract('counter');
 
-const countEl = document.querySelector<HTMLOutputElement>('#count')!;
-const statusEl = document.querySelector<HTMLParagraphElement>('#status')!;
-const incrementButton = document.querySelector<HTMLButtonElement>('#increment')!;
+export default function Home() {
+  const [count, setCount] = useState<bigint | null>(null);
+  const [status, setStatus] = useState('');
 
-async function refresh() {
-  const count = await counter.read.getCount(); // bigint
-  countEl.textContent = count.toString();
+  async function refresh() {
+    setCount(await counter.read.getCount()); // bigint
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function increment() {
+    setStatus('Sending…');
+
+    const wallet = await labcoat.connect();
+    const tx = await counter.write.increment({ wallet });
+    const { value } = await tx.wait();
+
+    setStatus(`Transaction ${tx.txid} set the count to ${value}.`);
+    await refresh();
+  }
+
+  return (
+    <main>
+      <h1>Counter</h1>
+      <p>Count: {count === null ? '…' : count.toString()}</p>
+      <button onClick={increment}>+1</button>
+      <p>{status}</p>
+    </main>
+  );
 }
-
-incrementButton.addEventListener('click', async () => {
-  statusEl.textContent = 'Sending…';
-
-  const wallet = await labcoat.connect();
-  const tx = await counter.write.increment({ wallet });
-  const { value } = await tx.wait();
-
-  statusEl.textContent = `Transaction ${tx.txid} set the count to ${value}.`;
-  await refresh();
-});
-
-refresh();
 ```
 
-The page reloads by itself. Click **+1**:
+The page updates by itself. Click **+1**:
 
 ```text
 Count: 2
 
-Transaction e6191d238f6bedb10453038f5ea0b0e581ed6aa8bdc4ec5eca6a2d36eb0d5467 set the count to 2.
+Transaction 5edc226e334d115b0c63fd1bc1e656da5371e7ae4e9338bd8627be7d84c23606 set the count to 2.
 ```
 
 Three lines did that:
@@ -289,7 +312,7 @@ labcoat trace <txid>
 ```text
 › Transaction trace
 
-Transaction  e6191d238f6bedb10453038f5ea0b0e581ed6aa8bdc4ec5eca6a2d36eb0d5467
+Transaction  5edc226e334d115b0c63fd1bc1e656da5371e7ae4e9338bd8627be7d84c23606
 
 • Protostone 1
   • call 0:0 -> 2:1  inputs [1, …]  fuel 3500000
@@ -334,13 +357,13 @@ labcoat deploy
 ✓ Executed 1 of 1 step(s)
 
 Network  labcoat
-Chain    0c22a27a01b2878b53d8effa2ef970dbf37a949fedf19888b1dfa5470198627b
+Chain    7b013d15daef39428bff7a9b1cfc98b3428847c75fdf963bebd72c73c43a7e37
 
 Kind      Name     Outcome     Id   Change
 contract  counter  redeployed  2:2  2:1 → 2:2
 
 Step     Transaction
-counter  78d17bf9f7a14c528ced44f399f1754b5f85b7487b6085c918ca126e57a029b3
+counter  9c5bb837d97ce7da2e94f8cbcd2f783e143307f399203748de8b72af241ba5ba
 
 A redeployed contract has a new id and empty storage; the earlier one stays on chain.
 ```
@@ -350,72 +373,76 @@ Reload the page. It still says `Count: 2`: the client was generated when
 are a snapshot of your deployments, and nothing updates them but you.
 
 Use the new method before regenerating, to see what the snapshot does for
-you. In `web/index.html`, add a second button above the first:
+you. Replace `web/src/app/page.tsx`:
 
-```html
-    <button id="decrement">−1</button>
-```
+```tsx
+'use client';
 
-Replace `web/src/main.ts`:
-
-```ts
+import { useEffect, useState } from 'react';
 import {
   ContractRevertError,
   WalletRejectedError,
   createClient,
   type LabcoatWallet,
   type WriteResult,
-} from './labcoat/client';
+} from '@/labcoat/client';
 
 const labcoat = createClient({ rpc: '/rpc' });
 const counter = labcoat.contract('counter');
 
-const countEl = document.querySelector<HTMLOutputElement>('#count')!;
-const statusEl = document.querySelector<HTMLParagraphElement>('#status')!;
+export default function Home() {
+  const [count, setCount] = useState<bigint | null>(null);
+  const [status, setStatus] = useState('');
 
-async function refresh() {
-  const count = await counter.read.getCount(); // bigint
-  countEl.textContent = count.toString();
-}
-
-async function send(write: (wallet: LabcoatWallet) => Promise<WriteResult<bigint>>) {
-  statusEl.textContent = 'Sending…';
-  try {
-    const wallet = await labcoat.connect({ approve: true });
-    const tx = await write(wallet);
-    const { value } = await tx.wait();
-    statusEl.textContent = `Transaction ${tx.txid} set the count to ${value}.`;
-  } catch (error) {
-    if (error instanceof WalletRejectedError) {
-      statusEl.textContent = 'Rejected in the wallet. Nothing was sent.';
-    } else if (error instanceof ContractRevertError) {
-      statusEl.textContent = `The contract reverted: ${error.reason}`;
-    } else {
-      throw error;
-    }
+  async function refresh() {
+    setCount(await counter.read.getCount()); // bigint
   }
-  await refresh();
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function send(write: (wallet: LabcoatWallet) => Promise<WriteResult<bigint>>) {
+    setStatus('Sending…');
+    try {
+      const wallet = await labcoat.connect({ approve: true });
+      const tx = await write(wallet);
+      const { value } = await tx.wait();
+      setStatus(`Transaction ${tx.txid} set the count to ${value}.`);
+    } catch (error) {
+      if (error instanceof WalletRejectedError) {
+        setStatus('Rejected in the wallet. Nothing was sent.');
+      } else if (error instanceof ContractRevertError) {
+        setStatus(`The contract reverted: ${error.reason}`);
+      } else {
+        throw error;
+      }
+    }
+    await refresh();
+  }
+
+  return (
+    <main>
+      <h1>Counter</h1>
+      <p>Count: {count === null ? '…' : count.toString()}</p>
+      <button onClick={() => send((wallet) => counter.write.decrement({ wallet }))}>−1</button>
+      <button onClick={() => send((wallet) => counter.write.increment({ wallet }))}>+1</button>
+      <p>{status}</p>
+    </main>
+  );
 }
-
-document.querySelector('#increment')!.addEventListener('click', () => {
-  send((wallet) => counter.write.increment({ wallet }));
-});
-document.querySelector('#decrement')!.addEventListener('click', () => {
-  send((wallet) => counter.write.decrement({ wallet }));
-});
-
-refresh();
 ```
 
 ```bash
 npm --prefix web run build
 ```
 
-```text
-> web@0.0.0 build
-> tsc && vite build
+The build stops at:
 
-src/main.ts(43,34): error TS2339: Property 'decrement' does not exist on type 'WriteMethods<{ readonly contract: "Counter"; readonly methods: readonly [{ readonly name: "initialize"; readonly opcode: 0n; readonly params: readonly []; readonly returns: "void"; }, { readonly name: "increment"; readonly opcode: 1n; readonly params: readonly []; readonly returns: "u128"; }, { ...; }]; }>'.
+```text
+  Running TypeScript ...
+src/app/page.tsx(50,61): error TS2339: Property 'decrement' does not exist on type 'WriteMethods<{ readonly contract: "Counter"; readonly methods: readonly [{ readonly name: "initialize"; readonly opcode: 0n; readonly params: readonly []; readonly returns: "void"; }, { readonly name: "increment"; readonly opcode: 1n; readonly params: readonly []; readonly returns: "u128"; }, { ...; }]; }>'.
+Failed to type check.
 ```
 
 The client does not know `decrement` yet. Regenerate it and build again:
@@ -428,13 +455,15 @@ npm --prefix web run build
 The build now ends with:
 
 ```text
-dist/index.html                 0.46 kB │ gzip:  0.29 kB
-dist/assets/index-C1Ly2kmK.js  44.16 kB │ gzip: 15.78 kB
+Route (app)
+┌ ○ /
+└ ○ /_not-found
 
-✓ built in 23ms
+
+○  (Static)  prerendered as static content
 ```
 
-The page reloads and says `Count: 0`. It now reads `2:2`, whose storage
+Reload the page. It says `Count: 0`: it now reads `2:2`, whose storage
 starts empty, and `counter.write.decrement` exists and is typed.
 
 That is the whole loop for a contract change: edit, `labcoat deploy`,
@@ -443,7 +472,7 @@ the build says so.
 
 ## Approve, reject, and revert
 
-The new `main.ts` does three things the first one did not.
+The new page does three things the first one did not.
 
 **It asks before signing.** `connect({ approve: true })` makes the dev wallet
 show a dialog before each signature, as a browser wallet would. Click **+1**:
@@ -504,7 +533,7 @@ public network such as signet.
 **The client is generated for one network.** Deploy there, then run
 `labcoat generate web --network signet`. The client refuses a wallet or an
 address of another network, and `/rpc` has to lead to that network's
-endpoint.
+endpoint: the rewrite follows `MANIFEST.rpcUrl`, which regenerating updates.
 
 **`connect()` returns a browser wallet.** There is no dev wallet off Labcoat
 Network. `connect()` returns the first installed wallet of UniSat, Xverse,

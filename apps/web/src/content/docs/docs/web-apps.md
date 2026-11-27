@@ -50,6 +50,10 @@ carrying that header, so hand-written files in the same directory survive and
 removed contracts leave no stale modules. Commit the output or regenerate it
 in your build.
 
+The files need TypeScript 4.9 or newer and a `target` of ES2020 or later in
+`tsconfig.json`, because they use `bigint` literals. A new Next.js app targets
+ES2017; raise it, or type checking fails with TS2737 in every generated file.
+
 ## Read contract state
 
 ```ts
