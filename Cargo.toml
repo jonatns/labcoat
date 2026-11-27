@@ -37,6 +37,7 @@ alkanes-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "ea3
 # (without it every RPC method returns "not available in WASM environment").
 alkanes-cli-common = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "ea38c878931ff4b6dd64dd011962f2203d6e0a35", default-features = false, features = ["std", "native-deps"] }
 ordinals = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "ea38c878931ff4b6dd64dd011962f2203d6e0a35" }
+protorune-support = { git = "https://github.com/kungfuflex/alkanes-rs", rev = "ea38c878931ff4b6dd64dd011962f2203d6e0a35" }
 
 # NOTE on transitive git deps: alkanes-rs declares metashrew by tag and emasm
 # by a moving branch ref. Cargo forbids [patch]-ing a git source with itself at a rev,

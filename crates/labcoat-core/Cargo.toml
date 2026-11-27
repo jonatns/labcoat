@@ -29,6 +29,7 @@ sha2 = "0.10"
 alkanes-support.workspace = true
 alkanes-cli-common.workspace = true
 ordinals.workspace = true
+protorune-support.workspace = true
 
 [dev-dependencies]
 # The upstream mock wallet drives the executor in `web_write_vectors`.

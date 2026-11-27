@@ -21,7 +21,7 @@
 use crate::abi::{encode_method_args, AbiMethod, AbiParam};
 use crate::execute::{
     execute_params, is_protected_carrier, layout_outputs, parse_spec, payment_outputs,
-    verify_payments, ParamsInput, TxOptions,
+    readdress_protostones, verify_payments, ParamsInput, TxOptions,
 };
 use crate::toolkit::call_spec;
 use alkanes_cli_common::alkanes::execute::EnhancedAlkanesExecutor;
@@ -172,6 +172,25 @@ fn cases() -> Vec<Case> {
                     coin(60_000),
                 ],
                 2.0,
+            )
+        },
+        // The carrier and a 700 sat output cover the 546 sat output and the
+        // fee at 1 sat/vB and leave less than a dust output of change. The
+        // change output is dropped, and the Alkanes must still reach the
+        // call.
+        Case {
+            method: method("deposit", 50, &[]),
+            alkanes_in: vec![(2, 5, 300)],
+            ..plain(
+                "Alkanes sent in, change below dust is dropped",
+                vec![
+                    Coin {
+                        sats: 546,
+                        alkanes: &[(2, 5, 1_000)],
+                    },
+                    coin(700),
+                ],
+                1.0,
             )
         },
         Case {
@@ -328,11 +347,12 @@ fn build(case: &Case) -> Value {
         .map(|(_, outpoint)| outpoint.to_string())
         .collect();
 
+    let protostones = parse_spec(&spec).unwrap();
     let params = execute_params(ParamsInput {
         fee_rate: Some(case.fee_rate),
         to_addresses,
         input_requirements,
-        protostones: parse_spec(&spec).unwrap(),
+        protostones: protostones.clone(),
         envelope: None,
         excluded_utxos,
         max_indexed_height: None,
@@ -342,9 +362,11 @@ fn build(case: &Case) -> Value {
         .unwrap()
         .block_on(EnhancedAlkanesExecutor::new(&mut provider).execute(params))
         .unwrap_or_else(|error| panic!("{}: {error}", case.name));
-    let ExecutionState::ReadyToSign(ready) = state else {
+    let ExecutionState::ReadyToSign(mut ready) = state else {
         panic!("{}: a call is a single transaction", case.name);
     };
+    // As `labcoat call` does before it signs.
+    readdress_protostones(&mut ready.psbt.unsigned_tx, &protostones).unwrap();
     let tx = &ready.psbt.unsigned_tx;
     verify_payments(tx, &payments).unwrap();
 
@@ -447,4 +469,43 @@ fn the_rust_call_path_builds_the_recorded_transactions() {
         "the Rust call path no longer builds the transactions in {} — if intentional, bless with LABCOAT_BLESS=1 and make the generated web client match",
         path.display(),
     );
+}
+
+/// The output each edict of the first protostone names.
+fn splitter_targets(case: &Value) -> (usize, Vec<u128>) {
+    use protorune_support::protostone::Protostone;
+    let bytes = hex::decode(case["expected"]["transaction"].as_str().unwrap()).unwrap();
+    let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&bytes).unwrap();
+    let Some(ordinals::Artifact::Runestone(runestone)) = ordinals::Runestone::decipher(&tx) else {
+        panic!("{}: no runestone", case["name"]);
+    };
+    let protostones = Protostone::from_runestone(&runestone).unwrap();
+    (
+        tx.output.len(),
+        protostones[0]
+            .edicts
+            .iter()
+            .map(|edict| edict.output)
+            .collect(),
+    )
+}
+
+#[test]
+fn alkanes_sent_in_reach_the_call_when_the_change_is_dropped() {
+    let cases: Vec<Value> = cases().iter().map(build).collect();
+    for name in [
+        "Alkanes sent in",
+        "Alkanes sent in, change below dust is dropped",
+    ] {
+        let case = cases.iter().find(|case| case["name"] == name).unwrap();
+        let (outputs, targets) = splitter_targets(case);
+        // The indexer puts protostone N at virtual output `outputs + 1 + N`;
+        // the call is protostone 1.
+        assert_eq!(targets, vec![outputs as u128 + 2], "{name}");
+    }
+    let dropped = cases
+        .iter()
+        .find(|case| case["name"] == "Alkanes sent in, change below dust is dropped")
+        .unwrap();
+    assert_eq!(dropped["expected"]["outputs"], json!([546, 0]));
 }

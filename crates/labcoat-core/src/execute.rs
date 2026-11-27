@@ -285,6 +285,147 @@ pub(crate) fn verify_payments(tx: &bitcoin::Transaction, payments: &[PaymentOutp
     Ok(())
 }
 
+/// Make every `pN` reference in the transaction's protostones name the
+/// virtual output of protostone `N` in the transaction as built.
+///
+/// The indexer puts protostone `N` at virtual output `tx.output.len() + 1 +
+/// N`. The pinned executor encodes `pN` while its bitcoin change placeholder
+/// still counts as an output, then removes the placeholder when the change
+/// is below dust. Every `pN` then names one past its protostone, and the
+/// Alkanes an edict sends to the call are destroyed instead. The references
+/// are rewritten here, before anything is shown or signed.
+///
+/// What the executor encoded is compared with the specs first: a protostone
+/// that differs from them in anything but one shared offset on its `pN`
+/// references is refused.
+pub(crate) fn readdress_protostones(
+    tx: &mut bitcoin::Transaction,
+    specs: &[ProtostoneSpec],
+) -> Result<()> {
+    use alkanes_cli_common::alkanes::protostone_ext::Protostones;
+    use protorune_support::protostone::Protostone;
+
+    let is_protostone =
+        |target: &Option<OutputTarget>| matches!(target, Some(OutputTarget::Protostone(_)));
+    let references_protostones = specs.iter().any(|spec| {
+        is_protostone(&spec.pointer)
+            || is_protostone(&spec.refund)
+            || spec
+                .edicts
+                .iter()
+                .any(|edict| matches!(edict.target, OutputTarget::Protostone(_)))
+    });
+    if !references_protostones {
+        return Ok(());
+    }
+
+    let mismatch = |detail: &str| {
+        LabcoatError::new(
+            "TOOLKIT_ERROR",
+            format!("the built transaction's protostones do not match the request: {detail}"),
+            "nothing was signed; report this as a Labcoat bug",
+        )
+    };
+    let Some(ordinals::Artifact::Runestone(runestone)) = ordinals::Runestone::decipher(tx) else {
+        return Err(mismatch("it has no runestone"));
+    };
+    let position = tx
+        .output
+        .iter()
+        .position(|output| output.script_pubkey.is_op_return())
+        .ok_or_else(|| mismatch("it has no OP_RETURN output"))?;
+    let mut protostones =
+        Protostone::from_runestone(&runestone).map_err(|e| mismatch(&e.to_string()))?;
+    let encode = |protostones: &Vec<Protostone>| -> Result<bitcoin::ScriptBuf> {
+        let protocol = protostones
+            .encipher()
+            .map_err(|e| mismatch(&e.to_string()))?;
+        Ok(ordinals::Runestone {
+            edicts: runestone.edicts.clone(),
+            etching: runestone.etching,
+            mint: runestone.mint,
+            pointer: runestone.pointer,
+            protocol: Some(protocol),
+        }
+        .encipher())
+    };
+    if encode(&protostones)? != tx.output[position].script_pubkey {
+        return Err(mismatch(
+            "its runestone does not decode and encode to itself",
+        ));
+    }
+    if protostones.len() != specs.len() {
+        return Err(mismatch("the number of protostones differs"));
+    }
+
+    // Protostone N's virtual output in this transaction.
+    let base = tx.output.len() as u128 + 1;
+    let mut offset: Option<u128> = None;
+    let mut readdress = |encoded: u128, protostone: u32| -> Result<u128> {
+        let wanted = base + protostone as u128;
+        let found = encoded
+            .checked_sub(wanted)
+            .ok_or_else(|| mismatch("a pN reference names a physical output"))?;
+        if *offset.get_or_insert(found) != found {
+            return Err(mismatch("its pN references disagree"));
+        }
+        Ok(wanted)
+    };
+    for (protostone, spec) in protostones.iter_mut().zip(specs) {
+        for (field, target) in [
+            (&mut protostone.pointer, &spec.pointer),
+            (&mut protostone.refund, &spec.refund),
+        ] {
+            if let Some(OutputTarget::Protostone(index)) = target {
+                let encoded = field.ok_or_else(|| mismatch("a pN reference is missing"))?;
+                *field = Some(readdress(encoded as u128, *index)? as u32);
+            }
+        }
+
+        // Encoding orders edicts by Alkane id, so the two sides are paired
+        // by id and amount; a physical output always sorts below a virtual
+        // one, so equal edicts to different outputs still pair up.
+        if protostone.edicts.len() != spec.edicts.len() {
+            return Err(mismatch("the number of edicts differs"));
+        }
+        let rank = |target: &OutputTarget| match target {
+            OutputTarget::Split => (0, 0),
+            OutputTarget::Output(index) => (0, *index),
+            OutputTarget::Protostone(index) => (1, *index),
+        };
+        let mut wanted: Vec<_> = spec.edicts.iter().collect();
+        wanted.sort_by_key(|edict| {
+            (
+                edict.alkane_id.block,
+                edict.alkane_id.tx,
+                edict.amount,
+                rank(&edict.target),
+            )
+        });
+        let mut encoded: Vec<_> = protostone.edicts.iter_mut().collect();
+        encoded.sort_by_key(|edict| (edict.id.block, edict.id.tx, edict.amount, edict.output));
+        for (encoded, wanted) in encoded.into_iter().zip(wanted) {
+            if (encoded.id.block, encoded.id.tx, encoded.amount)
+                != (
+                    wanted.alkane_id.block as u128,
+                    wanted.alkane_id.tx as u128,
+                    wanted.amount as u128,
+                )
+            {
+                return Err(mismatch("an edict differs"));
+            }
+            if let OutputTarget::Protostone(index) = wanted.target {
+                encoded.output = readdress(encoded.output, index)?;
+            }
+        }
+    }
+
+    if offset.is_some_and(|offset| offset > 0) {
+        tx.output[position].script_pubkey = encode(&protostones)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn parse_spec(spec: &str) -> Result<Vec<ProtostoneSpec>> {
     alkanes_cli_common::alkanes::parsing::parse_protostones(spec).map_err(|e| {
         LabcoatError::new(
@@ -537,7 +678,11 @@ pub(crate) async fn run_with_broadcast(
 
         match state {
             ExecutionState::Complete(result) => result,
-            ExecutionState::ReadyToSign(tx) => {
+            ExecutionState::ReadyToSign(mut tx) => {
+                readdress_protostones(&mut tx.psbt.unsigned_tx, &params.protostones)?;
+                tx.analysis = alkanes_cli_common::transaction::analysis::analyze_transaction(
+                    &tx.psbt.unsigned_tx,
+                );
                 verify_payments(&tx.psbt.unsigned_tx, &payments)?;
                 approve_transaction(
                     config,
@@ -1355,6 +1500,130 @@ mod tests {
     fn serde_json_preserves_full_u128_cellpack_values() {
         let value = serde_json::json!(u128::MAX);
         assert_eq!(value.to_string(), u128::MAX.to_string());
+    }
+
+    /// A transaction of `outputs` outputs whose runestone encodes `spec`
+    /// the way the pinned executor does when it counts `counted` physical
+    /// outputs: `pN` as `counted + 2 + N`.
+    fn transaction_encoding(spec: &str, outputs: usize, counted: u32) -> bitcoin::Transaction {
+        use alkanes_cli_common::alkanes::protostone_ext::Protostones;
+        use protorune_support::balance_sheet::ProtoruneRuneId;
+        use protorune_support::protostone::{Protostone, ProtostoneEdict};
+
+        let encode = |target: &OutputTarget| match target {
+            OutputTarget::Output(index) => *index,
+            OutputTarget::Protostone(index) => counted + 2 + index,
+            OutputTarget::Split => 0,
+        };
+        let protostones: Vec<Protostone> = parse_spec(spec)
+            .unwrap()
+            .iter()
+            .map(|spec| Protostone {
+                protocol_tag: 1,
+                burn: None,
+                from: None,
+                pointer: Some(spec.pointer.as_ref().map_or(0, encode)),
+                refund: Some(spec.refund.as_ref().map_or(0, encode)),
+                message: spec
+                    .cellpack
+                    .as_ref()
+                    .map(|cellpack| cellpack.encipher())
+                    .unwrap_or_default(),
+                edicts: spec
+                    .edicts
+                    .iter()
+                    .map(|edict| ProtostoneEdict {
+                        id: ProtoruneRuneId {
+                            block: edict.alkane_id.block as u128,
+                            tx: edict.alkane_id.tx as u128,
+                        },
+                        amount: edict.amount as u128,
+                        output: encode(&edict.target) as u128,
+                    })
+                    .collect(),
+            })
+            .collect();
+        let runestone = ordinals::Runestone {
+            protocol: Some(protostones.encipher().unwrap()),
+            pointer: Some(0),
+            ..Default::default()
+        };
+        let mut output = vec![
+            bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(546),
+                script_pubkey: bitcoin::ScriptBuf::from_bytes(vec![0x51, 0x20]),
+            };
+            outputs - 1
+        ];
+        output.push(bitcoin::TxOut {
+            value: bitcoin::Amount::ZERO,
+            script_pubkey: runestone.encipher(),
+        });
+        bitcoin::Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: Vec::new(),
+            output,
+        }
+    }
+
+    /// A splitter that also keeps some at `v0`, and a call that points at
+    /// a third protostone.
+    const REFERENCING: &str =
+        "v0:v0:[2:5:300:p1]:[2:5:300:v0]:[2:3:7:p1],[4,65014,1]:p2:p2,[4,65014,2]:v0:v0";
+
+    #[test]
+    fn protostone_references_follow_a_dropped_change_output() {
+        let specs = parse_spec(REFERENCING).unwrap();
+        // Encoded for a recipient and a change output; the change was
+        // dropped, leaving the recipient and the OP_RETURN.
+        let mut tx = transaction_encoding(REFERENCING, 2, 2);
+        readdress_protostones(&mut tx, &specs).unwrap();
+        assert_eq!(tx, transaction_encoding(REFERENCING, 2, 1));
+        // Protostone 1 is at virtual output `outputs + 1 + 1`.
+        let Some(ordinals::Artifact::Runestone(runestone)) = ordinals::Runestone::decipher(&tx)
+        else {
+            panic!("no runestone");
+        };
+        let protostones =
+            protorune_support::protostone::Protostone::from_runestone(&runestone).unwrap();
+        let mut targets: Vec<u128> = protostones[0].edicts.iter().map(|e| e.output).collect();
+        targets.sort();
+        assert_eq!(targets, vec![0, 4, 4]);
+        assert_eq!(protostones[1].pointer, Some(5));
+    }
+
+    #[test]
+    fn protostone_references_are_left_alone_when_they_are_right() {
+        let specs = parse_spec(REFERENCING).unwrap();
+        let built = transaction_encoding(REFERENCING, 3, 2);
+        let mut tx = built.clone();
+        readdress_protostones(&mut tx, &specs).unwrap();
+        assert_eq!(tx, built);
+
+        // Nothing to check without a `pN` reference, whatever was built.
+        let plain = "[4,65014,1]:v0:v0";
+        let built = transaction_encoding(REFERENCING, 3, 2);
+        let mut tx = built.clone();
+        readdress_protostones(&mut tx, &parse_spec(plain).unwrap()).unwrap();
+        assert_eq!(tx, built);
+    }
+
+    #[test]
+    fn protostones_that_do_not_match_the_request_are_refused() {
+        // Another amount, another target, and another protostone count.
+        for other in [
+            "v0:v0:[2:5:301:p1]:[2:5:300:v0]:[2:3:7:p1],[4,65014,1]:p2:p2,[4,65014,2]:v0:v0",
+            "v0:v0:[2:5:300:p1]:[2:5:300:v0]:[2:3:7:p2],[4,65014,1]:p2:p2,[4,65014,2]:v0:v0",
+            "v0:v0:[2:5:300:p1]:[2:5:300:v0]:[2:3:7:p1],[4,65014,1]:p2:p2",
+        ] {
+            let built = transaction_encoding(other, 2, 2);
+            let mut tx = built.clone();
+            let error =
+                readdress_protostones(&mut tx, &parse_spec(REFERENCING).unwrap()).unwrap_err();
+            assert_eq!(error.code, "TOOLKIT_ERROR", "{other}");
+            assert_eq!(tx, built, "{other}");
+        }
     }
 
     #[test]
