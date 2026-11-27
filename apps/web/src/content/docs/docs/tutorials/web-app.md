@@ -179,21 +179,22 @@ Start the dev server in a **second terminal**, also in `counter-app`, and
 leave it running:
 
 ```bash
-npm --prefix web run dev
+npm --prefix web run dev -- --hostname localhost
 ```
 
 ```text
 ▲ Next.js 16.4.6 (Turbopack)
 - Local:         http://localhost:3000
-- Network:       http://192.0.0.2:3000
-✓ Ready in 151ms
+- Network:       http://localhost:3000
+✓ Ready in 570ms
 ```
 
-Open `http://localhost:3000/`, the `Local` address. If that port was taken,
-Next.js prints the one it chose instead. The page says `Count: 0`.
+`--hostname localhost` keeps the server on this machine. Without it Next.js
+also listens on your network address, and then anything on your network can
+reach Labcoat Network, and the wallet it signs for, through `/rpc`.
 
-Use the `localhost` address, not the `Network` one: the dev wallet you will
-connect later only signs for pages opened on this machine's own address.
+Open `http://localhost:3000/`. If that port was taken, Next.js prints the
+one it chose instead. The page says `Count: 0`.
 
 `contract('counter')` looked the name up in the manifest and found `2:1`.
 `read.getCount()` ran the contract's `get_count` method against the current
