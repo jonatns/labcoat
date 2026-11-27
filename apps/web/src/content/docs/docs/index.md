@@ -55,10 +55,10 @@ labcoat test
     </a>
   </li>
   <li>
-    <a href="/docs/web-apps/">
+    <a href="/docs/tutorials/web-app/">
       <span class="path-label">Web</span>
-      <strong>Read from a browser</strong>
-      Generate a typed TypeScript client from your deployments.
+      <strong>Build a web app</strong>
+      Show a contract's state in a page and change it with a signed transaction.
       <code>labcoat generate web</code>
     </a>
   </li>

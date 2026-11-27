@@ -104,6 +104,8 @@ labcoat down
 
 - [Your first contract](/docs/tutorials/first-contract/) explains the
   Counter, then adds a method and deploys the change.
+- [A web app](/docs/tutorials/web-app/) puts a browser page in front of the
+  Counter, with reads and wallet-signed writes.
 - [Tokens and exchanges](/docs/tutorials/token-exchange/) builds on this
   project: a fixed-supply token, two wallets, and an atomic swap.
 - [Deployment scripts](/docs/deployments/) covers `deploy.rs` in full:

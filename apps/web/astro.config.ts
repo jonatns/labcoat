@@ -52,6 +52,7 @@ export default defineConfig({
             { label: 'Tutorial: your first contract', slug: 'docs/tutorials/first-contract' },
             { label: 'Tutorial: tokens & exchanges', slug: 'docs/tutorials/token-exchange' },
             { label: 'Tutorial: an upgradeable contract', slug: 'docs/tutorials/upgradeable-contract' },
+            { label: 'Tutorial: a web app', slug: 'docs/tutorials/web-app' },
           ],
         },
         {

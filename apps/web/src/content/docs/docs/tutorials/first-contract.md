@@ -263,6 +263,8 @@ labcoat down
 
 ## Next steps
 
+- [A web app](/docs/tutorials/web-app/) puts a page in front of this Counter
+  that reads the count and changes it with a signed transaction.
 - [Tokens and exchanges](/docs/tutorials/token-exchange/) writes a token and
   swaps it between two wallets.
 - [An upgradeable contract](/docs/tutorials/upgradeable-contract/) changes a

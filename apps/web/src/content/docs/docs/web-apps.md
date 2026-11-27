@@ -14,7 +14,13 @@ labcoat generate web
 Generation reads `labcoat.lock` and the `build/*.abi.json` files written by
 `labcoat build`. It makes no network requests, so it is safe in CI. Pass
 `--out-dir` to change the default `generated/web` destination and
-`--build-dir` to read ABIs from somewhere other than `build`.
+`--build-dir` to read ABIs from somewhere other than `build`. A relative
+directory is resolved against the project root, not the directory you run the
+command in.
+
+This page is the reference. To build a page step by step, from `labcoat init`
+to a signed transaction in the browser, follow the
+[web app tutorial](/docs/tutorials/web-app/).
 
 ## What it writes
 

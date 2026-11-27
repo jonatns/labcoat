@@ -23,6 +23,7 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 - pin a set of reads to one indexed height with `labcoat.at(height)`, which returns a client whose contract reads run at that height without looking it up
 - send reads started together, as in a `Promise.all`, as one JSON-RPC batch request with one height lookup between them. They were two requests each. `createClient({ batch: false })` turns it off for an endpoint without batch support
 - export `CONTRACTS` and the `ContractName` type from the generated `manifest.ts`: the deployment records with literal types
+- add a web app tutorial: from `labcoat init` to a Vite page that reads the starter Counter and changes it with a transaction the dev wallet signs, then a contract change through redeploy and regenerate, and the approval, rejection, and revert paths
 
 ### Changed
 
@@ -36,6 +37,7 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 - keep the Alkanes a call sends in when the transaction has no bitcoin change output. `labcoat call --inputs <block:tx:amount>`, a `d.call(..)` step that sends Alkanes, and any protostone that names another as `pN` addressed that protostone one virtual output too far whenever the change was under 546 sats and went to the fee: the call ran without the Alkanes and reverted, and the amount sent was destroyed. It took a wallet whose spendable bitcoin barely covered the fee, so a funded Labcoat Network wallet did not hit it. The references are now corrected for the outputs the transaction has before it is shown or signed, and a transaction whose protostones differ from the request in any other way is refused with `TOOLKIT_ERROR`. The generated web client already addressed this case correctly, and the shared test vectors now cover it
 - report the fuel each call used in `labcoat trace` and in the trace a `labcoat call` returns. Every `return` and `revert` event said `fuel_used: 0`, although the indexer had recorded the figure
 - report the reason of a reverted top-level call in `labcoat-test`. `call_method` returned a runtime error reading `WASM abort at 0:0`; it now returns `HarnessError::Revert` with the message of the error the contract returned, such as `already initialized`. A contract that reads the revert data of a call it made now finds the indexer's text, `ALKANES: revert: <message>`, where the harness used to write `contract trapped or reverted: <message>`
+- compile the generated web client under TypeScript's `erasableSyntaxOnly`, which the tsconfig of a new Vite app turns on. `client.ts` and `exchange.ts` each declared a field in a constructor's parameter list, so `tsc` failed with TS1294 in a fresh `npm create vite` project before any app code was written
 - explain a contract whose struct is not named after its message enum. The compiler reports the mismatch at `derive(MessageDispatch)` without naming the cause; `COMPILE_FAILED` now carries a hint, and generated contracts note the rule beside the struct
 
 ## [0.4.0](https://github.com/jonatns/labcoat/compare/cli-v0.3.0...cli-v0.4.0) - 2026-11-25

@@ -20,6 +20,7 @@ Source: https://github.com/jonatns/labcoat
 - [Tutorial: your first contract](https://labcoat.sh/docs/tutorials/first-contract/): Read the starter Counter, deploy and call it, then add a method
 - [Tutorial: tokens and exchanges](https://labcoat.sh/docs/tutorials/token-exchange/): Write a token, deploy two copies with deploy.rs, and swap atomically
 - [Tutorial: an upgradeable contract](https://labcoat.sh/docs/tutorials/upgradeable-contract/): Put a contract behind a beacon proxy and upgrade it
+- [Tutorial: a web app](https://labcoat.sh/docs/tutorials/web-app/): Show a contract's state in a browser page and change it with a signed transaction, with no wallet extension
 - [Automation](https://labcoat.sh/docs/automation/): JSON envelopes and MCP
 
 ## Build with Labcoat
@@ -28,7 +29,7 @@ Source: https://github.com/jonatns/labcoat
 - [Contracts](https://labcoat.sh/docs/contracts/): Test, build, deploy, simulate, call, and trace
 - [Deployment scripts](https://labcoat.sh/docs/deployments/): deploy.rs, plan/deploy/import, upgradeable contracts, and e2e tests
 - [Atomic exchanges](https://labcoat.sh/docs/exchanges/): Two-wallet asset swaps and the PSBT ceremony
-- [Web apps](https://labcoat.sh/docs/web-apps/): Generated TypeScript read client
+- [Web apps](https://labcoat.sh/docs/web-apps/): Generated TypeScript client: typed reads and wallet-signed writes
 - [Deployment state](https://labcoat.sh/docs/deployment-state/): Durable per-environment deployment history
 
 ## Reference
