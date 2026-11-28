@@ -40,6 +40,7 @@ import {
   browserWallet,
   installedBrowserWallets,
   leatherWallet,
+  subfrostWallet,
   okxWallet,
   unisatWallet,
   xverseWallet,
@@ -194,6 +195,15 @@ interface EndpointOptions {
   /** Outpoints `gettxout` reports as spent. */
   spent?: string[]
   trace?: { reverted: boolean; data: number[]; gas: bigint } | null
+  /**
+   * "alkanes" makes the stub a hosted provider of the standard Alkanes
+   * JSON-RPC, as Subfrost's public endpoint answered on 2026-11-27: it
+   * refuses the secondary views and the dev signer, answers a batch with a
+   * parse error, and returns Esplora results as JSON.
+   */
+  dialect?: "labcoat" | "alkanes"
+  /** Block heights of `utxos`, by position. Defaults to 100 for each. */
+  heights?: number[]
 }
 
 const WALLET_SCRIPT = addressToScript(vectors.wallet.address, "regtest")
@@ -202,48 +212,72 @@ const BROADCAST_TXID = "5e".repeat(32)
 function stubEndpoint(options: EndpointOptions = {}) {
   const calls: Call[] = []
   const utxos = options.utxos ?? [{ txid: "c1".repeat(32), vout: 0, value: 100_000, alkanes: [] }]
-  const state = { trace: options.trace ?? null, traceVouts: [] as number[], broadcast: [] as string[] }
+  const state = { trace: options.trace ?? null, traceVouts: [] as number[], broadcast: [] as string[], posts: 0 }
 
   const answer = (request: Call & { id: number }): unknown => {
     calls.push({ method: request.method, params: request.params })
     const reply = (result: unknown) => ({ jsonrpc: "2.0", id: request.id, result })
     const fail = (code: number, message: string) => ({ jsonrpc: "2.0", id: request.id, error: { code, message } })
     const [first, second, third] = request.params
+    const hosted = options.dialect === "alkanes"
+    const refused = () => fail(-32601, `method not permitted on the public endpoint: ${request.method}`)
+    const listed = () =>
+      utxos.map(({ txid, vout, value }, index) => ({
+        txid,
+        vout,
+        value,
+        status: { confirmed: true, block_height: options.heights?.[index] ?? 100 },
+      }))
+    const view = (name: unknown, input: unknown) => {
+      const payload = fromHex(input as string)
+      if (name === "protorunesbyaddress") return reply(walletResponse(utxos))
+      if (name === "simulate") {
+        const error = options.simulateError
+        return reply(
+          `0x${toHex([...bytesField(1, bytesField(3, [])), ...(error === undefined ? [] : bytesField(3, utf8(error)))])}`,
+        )
+      }
+      if (name === "trace") {
+        // alkanes.Outpoint { txid = 1, vout = 2 }: the vout follows the 34-byte txid field.
+        state.traceVouts.push(payload[35] as number)
+        return reply(state.trace === null ? "0x" : traceResponse(state.trace))
+      }
+      return fail(-1, `unknown view ${String(name)}`)
+    }
     switch (request.method) {
       case "secondaryheight":
+        if (hosted) return refused()
         return reply(options.height ?? 300)
       case "secondaryview": {
+        if (hosted) return refused()
         const payload = fromHex(third as string)
         if (first === "esplora" && second === "utxosbyscripthash") {
           const expected = createHash("sha256").update(WALLET_SCRIPT).digest().reverse().toString("hex")
-          const listed =
-            Buffer.from(payload).toString() === expected
-              ? utxos.map(({ txid, vout, value }) => ({
-                  txid,
-                  vout,
-                  value,
-                  status: { confirmed: true, block_height: 100 },
-                }))
-              : []
-          return reply(`0x${toHex(utf8(JSON.stringify(listed)))}`)
+          return reply(
+            `0x${toHex(utf8(JSON.stringify(Buffer.from(payload).toString() === expected ? listed() : [])))}`,
+          )
         }
         if (first === "esplora" && second === "txhex") {
           return reply(`0x${toHex(utf8(state.broadcast[0] ?? "tx not found"))}`)
         }
-        if (second === "protorunesbyaddress") return reply(walletResponse(utxos))
-        if (second === "simulate") {
-          const error = options.simulateError
-          return reply(
-            `0x${toHex([...bytesField(1, bytesField(3, [])), ...(error === undefined ? [] : bytesField(3, utf8(error)))])}`,
-          )
-        }
-        if (second === "trace") {
-          // alkanes.Outpoint { txid = 1, vout = 2 }: the vout follows the 34-byte txid field.
-          state.traceVouts.push(payload[35] as number)
-          return reply(state.trace === null ? "0x" : traceResponse(state.trace))
-        }
-        return fail(-1, `unknown view ${String(second)}`)
+        return view(second, third)
       }
+      // The standard Alkanes JSON-RPC: the height is a string, a view names
+      // its block tag, and Esplora answers in JSON.
+      case "metashrew_height":
+        if (!hosted) return fail(-32601, "Method not found")
+        return reply(String(options.height ?? 300))
+      case "metashrew_view":
+        if (!hosted) return fail(-32601, "Method not found")
+        if (third !== "latest") return fail(-32602, `unexpected block tag ${String(third)}`)
+        return view(first, second)
+      case "esplora_address::utxo":
+        if (!hosted) return fail(-32601, "Method not found")
+        // Esplora promises no order: list newest first.
+        return reply(first === vectors.wallet.address ? listed().reverse() : [])
+      case "esplora_tx::hex":
+        if (!hosted) return fail(-32601, "Method not found")
+        return reply(state.broadcast[0] ?? "Transaction not found")
       case "gettxout":
         return reply(
           (options.spent ?? []).includes(`${String(first)}:${String(second)}`)
@@ -251,12 +285,14 @@ function stubEndpoint(options: EndpointOptions = {}) {
             : { confirmations: 201, coinbase: false },
         )
       case "labcoat_dev_addresses":
+        if (hosted) return refused()
         if (options.devSigner === false) return fail(-32601, "Method not found")
         return reply({
           network: "regtest",
           addresses: [{ address: vectors.wallet.address, type: "p2tr", internalKey: vectors.wallet.publicKey }],
         })
       case "labcoat_dev_sign_psbt": {
+        if (hosted) return refused()
         const decoded = decodePsbt(first as string)
         return reply({ complete: true, hex: withWitnesses(decoded.transaction, decoded.inputs.length) })
       }
@@ -264,6 +300,7 @@ function stubEndpoint(options: EndpointOptions = {}) {
         state.broadcast.push(first as string)
         return reply(BROADCAST_TXID)
       case "generatetoaddress":
+        if (hosted) return refused()
         return reply(["00".repeat(32)])
       default:
         return fail(-32601, "Method not found")
@@ -272,14 +309,46 @@ function stubEndpoint(options: EndpointOptions = {}) {
 
   const fetchFn = (async (_url: unknown, init?: { body?: unknown }) => {
     const body = JSON.parse(String(init?.body)) as (Call & { id: number }) | (Call & { id: number })[]
-    const result = Array.isArray(body) ? body.map(answer) : answer(body)
+    state.posts += 1
+    let result: unknown
+    if (!Array.isArray(body)) {
+      result = answer(body)
+    } else if (options.dialect === "alkanes") {
+      result = {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700, message: "Parse error: invalid type: map, expected a string at line 1 column 1" },
+      }
+    } else {
+      result = body.map(answer)
+    }
     return new Response(JSON.stringify(result), { headers: { "content-type": "application/json" } })
   }) as typeof fetch
 
   const client = (extra: LabcoatWebClientOptions = {}) =>
-    createClient({ rpc: "http://stub.invalid/rpc", fetchFn, ...extra })
+    createClient({
+      rpc: "http://stub.invalid/rpc",
+      fetchFn,
+      ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
+      ...extra,
+    })
   const called = (method: string): Call[] => calls.filter((call) => call.method === method)
-  return { calls, called, client, state }
+  return { calls, called, client, state, fetchFn }
+}
+
+/** A wallet that signs whatever it is asked to, as a browser wallet would after approval. */
+function signingWallet() {
+  const requests: SignPsbtRequest[] = []
+  const wallet: LabcoatWallet = {
+    name: "Signer",
+    getAccounts: async () => [{ address: vectors.wallet.address, publicKey: vectors.wallet.publicKey }],
+    signPsbt: async (request) => {
+      requests.push(request)
+      const decoded = decodePsbt(request.psbt)
+      return { hex: withWitnesses(decoded.transaction, decoded.inputs.length) }
+    },
+  }
+  return { wallet, requests }
 }
 
 /** A wallet that records what it is asked to sign and then declines. */
@@ -739,6 +808,112 @@ test("a write needs a wallet, and takes the client's when none is passed", async
   assert.ok((requests[0]?.summary.fee ?? 0n) > (requests[1]?.summary.fee ?? 0n))
 })
 
+/* ----------------------- the standard Alkanes JSON-RPC --------------------- */
+
+test("a write through a hosted Alkanes endpoint uses only the methods it serves", async () => {
+  const endpoint = stubEndpoint({ dialect: "alkanes" })
+  const labcoat = endpoint.client()
+  assert.equal(labcoat.dialect, "alkanes")
+  const { wallet } = signingWallet()
+
+  const tx = await labcoat.contract("2:1", abiCounter).write.add(5n, { wallet })
+  assert.equal(tx.txid, BROADCAST_TXID)
+  endpoint.state.trace = { reverted: false, data: u128le(12n), gas: 4_321n }
+  const receipt = await tx.wait({ pollMs: 1 })
+  assert.equal(receipt.value, 12n)
+  assert.deepEqual(endpoint.state.traceVouts, [4])
+  const bare = await labcoat.waitForTransaction(tx.txid, { pollMs: 1 })
+  assert.deepEqual(Array.from(bare.value), u128le(12n))
+
+  const methods = new Set(endpoint.calls.map((call) => call.method))
+  assert.deepEqual(
+    [...methods].sort(),
+    [
+      "esplora_address::utxo",
+      "esplora_tx::hex",
+      "gettxout",
+      "metashrew_height",
+      "metashrew_view",
+      "sendrawtransaction",
+    ],
+  )
+  // Nothing was batched, so nothing was refused: one call per request.
+  assert.equal(endpoint.state.posts, endpoint.calls.length)
+  assert.deepEqual(endpoint.called("esplora_address::utxo")[0]?.params, [vectors.wallet.address])
+  assert.ok(endpoint.called("metashrew_view").every((call) => call.params[2] === "latest"))
+})
+
+test("both dialects build the same transaction from the same outputs", async () => {
+  const utxos = [
+    { txid: "d1".repeat(32), vout: 0, value: 600, alkanes: [] },
+    { txid: "d2".repeat(32), vout: 1, value: 700, alkanes: [] },
+    { txid: "d3".repeat(32), vout: 2, value: 60_000, alkanes: [] },
+  ]
+  const built = async (dialect: "labcoat" | "alkanes", heights: number[]) => {
+    const endpoint = stubEndpoint({ utxos, dialect, heights })
+    const { wallet, requests } = recordingWallet()
+    await assert.rejects(endpoint.client().contract("2:1", abiCounter).write.add(5n, { wallet }), WalletRejectedError)
+    return requests[0]?.psbt
+  }
+  const local = await built("labcoat", [100, 101, 102])
+  assert.ok(local !== undefined)
+  // The hosted stub lists newest first; the client puts the oldest first again.
+  assert.equal(await built("alkanes", [100, 101, 102]), local)
+  // Same block: transaction id, then output index, decides.
+  assert.equal(await built("alkanes", [100, 100, 100]), local)
+})
+
+test("the dialect a hosted endpoint refuses is reported as the endpoint reports it", async () => {
+  const endpoint = stubEndpoint({ dialect: "alkanes" })
+  const { wallet } = recordingWallet()
+  const counter = endpoint.client({ dialect: "labcoat", batch: false }).contract("2:1", abiCounter)
+  await assert.rejects(counter.write.increment({ wallet }), (error: unknown) => {
+    assert.ok(error instanceof LabcoatClientError)
+    assert.equal(error.code, "RPC_ERROR")
+    assert.equal(error.rpcCode, -32601)
+    assert.match(error.message, /method not permitted on the public endpoint: secondary/)
+    return true
+  })
+})
+
+test("a hosted endpoint has no dev wallet and is never asked for one", async () => {
+  const endpoint = stubEndpoint({ dialect: "alkanes" })
+  const unisat = {
+    requestAccounts: async () => [vectors.wallet.address],
+    getPublicKey: async () => `02${vectors.wallet.publicKey}`,
+  }
+  // The golden manifest is Labcoat Network's, so `connect` does look for a
+  // dev signer; the refusal sends it on to the browser wallet.
+  assert.equal((await endpoint.client().connect({ host: { unisat } })).name, "UniSat")
+})
+
+test("waiting outlasts a hosted endpoint's request limit", async () => {
+  const endpoint = stubEndpoint({ dialect: "alkanes", trace: { reverted: false, data: u128le(3n), gas: 1n } })
+  let limited = 2
+  const fetchFn = (async (url: unknown, init?: { body?: unknown }) => {
+    const body = JSON.parse(String(init?.body)) as Call
+    if (body.method === "metashrew_view" && body.params[0] === "trace" && limited-- > 0) {
+      return new Response(JSON.stringify({ error: "Rate limit exceeded (20 req/min).", code: "IP_RATE_LIMIT" }), {
+        status: 429,
+        headers: { "retry-after": "60" },
+      })
+    }
+    return endpoint.fetchFn(url as string, init as RequestInit)
+  }) as typeof fetch
+  const labcoat = endpoint.client({ fetchFn })
+  const tx = await labcoat.contract("2:1", abiCounter).write.add(3n, { wallet: signingWallet().wallet })
+  assert.equal((await tx.wait({ pollMs: 1 })).value, 3n)
+  assert.equal(limited, -1)
+})
+
+test("a transaction a hosted endpoint does not know is an argument error", async () => {
+  const endpoint = stubEndpoint({ dialect: "alkanes" })
+  await assert.rejects(
+    endpoint.client().waitForTransaction("ab".repeat(32)),
+    (error: unknown) => error instanceof LabcoatClientError && error.code === "ARG_INVALID",
+  )
+})
+
 /* --------------------------------- connecting ------------------------------ */
 
 test("connect returns the dev wallet on Labcoat Network and a browser wallet otherwise", async () => {
@@ -931,7 +1106,60 @@ test("Leather: addresses by type, hex PSBTs, rejection", async () => {
   await assert.rejects(wallet.signPsbt(signing), rejected("Leather"))
 })
 
+test("Subfrost: the selected taproot address, hex PSBTs, network from the address, rejection", async () => {
+  const seen: unknown[][] = []
+  const signet = "tb1pz9vq0dgghu69wrhv4435ps5d5a3rwl4rr9s539d7avzlzqpg4naq2q2a3k"
+  const subfrost = {
+    requestAccounts: async () => [signet],
+    getPublicKey: async () => "11".repeat(32),
+    // The extension answers "mainnet" whatever it is on.
+    getNetwork: async () => "mainnet",
+    signPsbt: async (...args: unknown[]) => {
+      seen.push(args)
+      return "70736274ff00"
+    },
+  }
+  const wallet = subfrostWallet("signet", { subfrost })
+  assert.equal(wallet.name, "Subfrost")
+  assert.deepEqual(await wallet.getAccounts(), [{ address: signet, publicKey: "11".repeat(32) }])
+  assert.deepEqual(await wallet.signPsbt(signing), { psbt: "70736274ff00" })
+  assert.deepEqual(seen, [[PSBT_HEX]])
+
+  await assert.rejects(
+    subfrostWallet("mainnet", { subfrost }).getAccounts(),
+    /Subfrost is on another network: tb1p\S+ is not a mainnet address; switch the wallet to mainnet/,
+  )
+  const segwit = { ...subfrost, requestAccounts: async () => ["tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"] }
+  await assert.rejects(subfrostWallet("signet", { subfrost: segwit }).getAccounts(), /select its taproot address/)
+
+  // A declined prompt has no code of its own.
+  const declining = {
+    ...subfrost,
+    requestAccounts: async () => Promise.reject(new Error("[UNKNOWN_ERROR] El usuario rechazó la solicitud")),
+    signPsbt: async () => Promise.reject(new Error("[UNKNOWN_ERROR] El usuario rechazó la solicitud")),
+  }
+  await assert.rejects(subfrostWallet("signet", { subfrost: declining }).getAccounts(), rejected("Subfrost"))
+  await assert.rejects(subfrostWallet("signet", { subfrost: declining }).signPsbt(signing), rejected("Subfrost"))
+
+  const silent = {
+    ...subfrost,
+    signPsbt: async () => Promise.reject(new Error("[REQUEST_TIMEOUT] subfrost: request timed out")),
+  }
+  await assert.rejects(subfrostWallet("signet", { subfrost: silent }).signPsbt(signing), (error: unknown) => {
+    assert.ok(error instanceof LabcoatClientError && !(error instanceof WalletRejectedError))
+    assert.equal(error.code, "WALLET_ERROR")
+    assert.match(error.message, /did not answer in time/)
+    return true
+  })
+  await assert.rejects(
+    subfrostWallet("signet", {}).getAccounts(),
+    (error: unknown) => error instanceof LabcoatClientError && error.code === "WALLET_UNAVAILABLE",
+  )
+})
+
 test("installed wallets are found by their globals", () => {
+  assert.deepEqual(installedBrowserWallets({ subfrost: {} }), ["subfrost"])
+  assert.equal(browserWallet("subfrost", "signet", { subfrost: {} }).name, "Subfrost")
   const host = { LeatherProvider: {}, unisat: {}, okxwallet: undefined }
   assert.deepEqual(installedBrowserWallets(host), ["unisat", "leather"])
   assert.equal(browserWallet("xverse", "mainnet", host).name, "Xverse")

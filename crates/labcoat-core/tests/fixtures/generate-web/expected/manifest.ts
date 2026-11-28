@@ -23,11 +23,18 @@ export interface WebManifest {
   /** Bitcoin network parameters underneath the target. */
   bitcoinNetwork: string
   /**
-   * The unified JSON-RPC endpoint (node + Alkanes secondary view) at
-   * generation time. Browsers normally reach it through a same-origin dev
-   * proxy or rewrite instead of calling it directly.
+   * The JSON-RPC endpoint (node and Alkanes index) at generation time.
+   * Browsers normally reach it through a same-origin proxy or rewrite
+   * instead of calling it directly.
    */
   rpcUrl: string
+  /**
+   * The JSON-RPC dialect that endpoint speaks: "labcoat" for a Labcoat or
+   * Qubitcoin node, which serves its indexers through `secondaryview`, or
+   * "alkanes" for a hosted provider of the standard Alkanes JSON-RPC
+   * (`metashrew_view`, `esplora_*`), such as Subfrost.
+   */
+  rpcDialect: "labcoat" | "alkanes"
   /**
    * Chain instance id shared by every deployment record, or null when
    * records are missing one or disagree. Compare against live chain state
@@ -81,6 +88,7 @@ export const MANIFEST: WebManifest = {
   network: "labcoat",
   bitcoinNetwork: "regtest",
   rpcUrl: "http://127.0.0.1:18443",
+  rpcDialect: "labcoat",
   chainId: null,
   contracts: CONTRACTS,
 }

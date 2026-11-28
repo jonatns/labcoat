@@ -10,7 +10,7 @@
 
 import { LabcoatClientError, WalletRejectedError } from "./errors"
 import type { BitcoinNetwork } from "./transaction"
-import { base64ToBytes, bytesToHex } from "./transaction"
+import { addressToScript, base64ToBytes, bytesToHex, isTaprootScript } from "./transaction"
 
 /* ------------------------------ the interface ----------------------------- */
 
@@ -262,7 +262,7 @@ export function approvalPrompt(): ApproveTransaction {
 /* ----------------------------- browser wallets ---------------------------- */
 
 /** The browser wallets `connect()` knows, in the order it tries them. */
-export const BROWSER_WALLETS = ["unisat", "xverse", "okx", "leather"] as const
+export const BROWSER_WALLETS = ["unisat", "xverse", "okx", "leather", "subfrost"] as const
 export type BrowserWalletId = (typeof BROWSER_WALLETS)[number]
 
 /** `window`, or whatever stands in for it; adapters only read the wallet globals from it. */
@@ -540,11 +540,97 @@ export function leatherWallet(network: BitcoinNetwork, from?: WalletHost): Labco
   }
 }
 
+/**
+ * The Subfrost wallet, through `window.subfrost` (docs.subfrost.io,
+ * "Connecting a wallet"). It reports the one address selected in the
+ * wallet, and its public key is always the taproot one, so that address has
+ * to be the taproot address.
+ *
+ * Two things the extension does differently from the others:
+ *
+ * - Its `getNetwork` answers "mainnet" whatever it is on, so the network is
+ *   read from the address instead.
+ * - A declined prompt and any other failure both arrive as
+ *   `[UNKNOWN_ERROR]` with a localized message. They are reported as a
+ *   rejection, the usual cause; only `[REQUEST_TIMEOUT]` is told apart.
+ *
+ * The wallet may raise a fee it finds too low by changing the transaction.
+ * The client refuses a transaction it did not build, so pass a `feeRate` at
+ * least as high as the wallet's own.
+ */
+export function subfrostWallet(network: BitcoinNetwork, from?: WalletHost): LabcoatWallet {
+  const name = "Subfrost"
+  const provider = (): unknown => {
+    const injected = host(from)["subfrost"]
+    if (!isObject(injected)) throw unavailable(name, "is not installed in this browser")
+    return injected
+  }
+  const failure = (error: unknown): LabcoatClientError => {
+    if (error instanceof LabcoatClientError) return error
+    const message = String(field(error, "message") ?? error)
+    if (message.startsWith("[REQUEST_TIMEOUT]")) {
+      return new LabcoatClientError(
+        "WALLET_ERROR",
+        `${name} did not answer in time; open the wallet, unlock it, and try again`,
+      )
+    }
+    if (message.startsWith("[UNKNOWN_ERROR]")) {
+      return new WalletRejectedError(name, message.slice("[UNKNOWN_ERROR]".length).trim() || undefined)
+    }
+    return walletError(name, error)
+  }
+  return {
+    name,
+    async getAccounts() {
+      const subfrost = provider()
+      try {
+        const accounts = await method(subfrost, "requestAccounts")?.()
+        const address: unknown = Array.isArray(accounts) ? accounts[0] : undefined
+        const publicKey = await method(subfrost, "getPublicKey")?.()
+        if (typeof address !== "string" || typeof publicKey !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no account`)
+        }
+        let script: Uint8Array
+        try {
+          script = addressToScript(address, network)
+        } catch {
+          throw new LabcoatClientError(
+            "WALLET_ERROR",
+            `${name} is on another network: ${address} is not a ${network} address; switch the wallet to ${network}, the network this app was generated for`,
+          )
+        }
+        if (!isTaprootScript(script)) {
+          throw new LabcoatClientError(
+            "WALLET_ERROR",
+            `${name} has a non-taproot address selected (${address}); select its taproot address`,
+          )
+        }
+        return [{ address, publicKey }]
+      } catch (error) {
+        throw failure(error)
+      }
+    },
+    async signPsbt(request) {
+      try {
+        // Without options the wallet signs every input it owns and finalizes.
+        const signed = await method(provider(), "signPsbt")?.(psbtHex(request.psbt))
+        if (typeof signed !== "string") {
+          throw new LabcoatClientError("WALLET_ERROR", `${name} returned no signed transaction`)
+        }
+        return { psbt: signed }
+      } catch (error) {
+        throw failure(error)
+      }
+    },
+  }
+}
+
 const ADAPTERS: Record<BrowserWalletId, (network: BitcoinNetwork, from?: WalletHost) => LabcoatWallet> = {
   unisat: unisatWallet,
   xverse: xverseWallet,
   okx: okxWallet,
   leather: leatherWallet,
+  subfrost: subfrostWallet,
 }
 
 const GLOBALS: Record<BrowserWalletId, string> = {
@@ -552,6 +638,7 @@ const GLOBALS: Record<BrowserWalletId, string> = {
   xverse: "XverseProviders",
   okx: "okxwallet",
   leather: "LeatherProvider",
+  subfrost: "subfrost",
 }
 
 /** The adapter for one browser wallet. */

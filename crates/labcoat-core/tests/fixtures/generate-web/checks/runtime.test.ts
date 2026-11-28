@@ -120,18 +120,42 @@ interface Simulated {
 
 type Outcome = { data?: number[]; gas?: bigint; error?: string } | { rpcError: string }
 
-/** A stub endpoint: answers `secondaryheight` and routes `simulate` to `respond`. */
-function stubEndpoint(respond: (call: Simulated) => Outcome, height = 100) {
+/**
+ * A stub endpoint: answers the indexed height and routes `simulate` to
+ * `respond`. With `dialect: "alkanes"` it is a hosted provider of the
+ * standard Alkanes JSON-RPC, as Subfrost's public endpoint answered on
+ * 2026-11-27: it refuses `secondaryheight` and `secondaryview`, answers a
+ * batch with a parse error, and limits requests when `limit` is set.
+ */
+function stubEndpoint(
+  respond: (call: Simulated) => Outcome,
+  height = 100,
+  hosted: { dialect?: "alkanes"; limit?: number } = {},
+) {
   const posts: unknown[] = []
+  const sent: Record<string, string>[] = []
   const calls: Call[] = []
   const simulated: Simulated[] = []
 
   const answer = (request: Call & { id: number }) => {
     calls.push({ method: request.method, params: request.params })
     const reply = (result: unknown) => ({ jsonrpc: "2.0", id: request.id, result })
-    if (request.method === "secondaryheight") return reply(height)
-    if (request.method === "secondaryview" && request.params[1] === "simulate") {
-      const call = parseParcel(request.params[2] as string)
+    const standard = hosted.dialect === "alkanes"
+    if (standard && request.method.startsWith("secondary")) {
+      return {
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32601, message: `method not permitted on the public endpoint: ${request.method}` },
+      }
+    }
+    if (request.method === (standard ? "metashrew_height" : "secondaryheight")) {
+      return reply(standard ? String(height) : height)
+    }
+    const simulate = standard
+      ? request.method === "metashrew_view" && request.params[0] === "simulate" && request.params[2] === "latest"
+      : request.method === "secondaryview" && request.params[1] === "simulate"
+    if (simulate) {
+      const call = parseParcel(request.params[standard ? 1 : 2] as string)
       simulated.push(call)
       const outcome = respond(call)
       if ("rpcError" in outcome) {
@@ -142,17 +166,40 @@ function stubEndpoint(respond: (call: Simulated) => Outcome, height = 100) {
     return { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } }
   }
 
-  const fetchFn = (async (_url: unknown, init?: { body?: unknown }) => {
+  const fetchFn = (async (_url: unknown, init?: { body?: unknown; headers?: Record<string, string> }) => {
     const body = JSON.parse(String(init?.body))
     posts.push(body)
-    // A batch is answered out of order: answers are matched by id.
-    const result = Array.isArray(body) ? body.map(answer).reverse() : answer(body)
+    sent.push(init?.headers ?? {})
+    if (hosted.limit !== undefined && posts.length > hosted.limit) {
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded (20 req/min).", code: "IP_RATE_LIMIT" }),
+        { status: 429, headers: { "retry-after": "60" } },
+      )
+    }
+    let result: unknown
+    if (!Array.isArray(body)) {
+      result = answer(body)
+    } else if (hosted.dialect === "alkanes") {
+      result = {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700, message: "Parse error: invalid type: map, expected a string at line 1 column 1" },
+      }
+    } else {
+      // A batch is answered out of order: answers are matched by id.
+      result = body.map(answer).reverse()
+    }
     return new Response(JSON.stringify(result), { headers: { "content-type": "application/json" } })
   }) as typeof fetch
 
   const client = (options: LabcoatWebClientOptions = {}) =>
-    createClient({ rpc: "http://stub.invalid/rpc", fetchFn, ...options })
-  return { posts, calls, simulated, client }
+    createClient({
+      rpc: "http://stub.invalid/rpc",
+      fetchFn,
+      ...(hosted.dialect === undefined ? {} : { dialect: hosted.dialect }),
+      ...options,
+    })
+  return { posts, calls, simulated, sent, client }
 }
 
 const methodsCalled = (calls: Call[]): string[] => calls.map((call) => call.method)
@@ -374,6 +421,99 @@ test("an endpoint that does not answer a batch as a batch says how to turn batch
   const [first] = await Promise.allSettled([fire.read.getName(), fire.read.getSymbol()])
   assert.ok(first.status === "rejected")
   assert.match(String(first.reason.message), /batch: false/)
+})
+
+/* ----------------------- the standard Alkanes JSON-RPC --------------------- */
+
+test("the dialect defaults to the manifest's and is named on the client", () => {
+  const fetchFn = (async () => new Response("{}")) as typeof fetch
+  assert.equal(createClient({ fetchFn }).dialect, "labcoat")
+  assert.equal(createClient({ fetchFn, dialect: "alkanes" }).dialect, "alkanes")
+  assert.throws(
+    () => createClient({ fetchFn, dialect: "subfrost" as "alkanes" }),
+    (error: unknown) => error instanceof LabcoatClientError && error.code === "ARG_INVALID",
+  )
+})
+
+test("reads from a hosted Alkanes endpoint use metashrew_height and metashrew_view, unbatched", async () => {
+  const endpoint = stubEndpoint(
+    ({ cellpack }) => (cellpack[2] === 99n ? { data: utf8("Fire") } : { data: u128le(21n) }),
+    332_769,
+    { dialect: "alkanes" },
+  )
+  const labcoat = endpoint.client()
+  assert.equal(await labcoat.getIndexedHeight(), 332_769)
+
+  const fire = labcoat.contract("fire")
+  const [name, supply] = await Promise.all([fire.read.getName(), fire.read.getTotalSupply()])
+  assert.equal(name, "Fire")
+  assert.equal(supply, 21n)
+  assert.ok(endpoint.posts.every((post) => !Array.isArray(post)))
+  assert.deepEqual([...new Set(methodsCalled(endpoint.calls))].sort(), ["metashrew_height", "metashrew_view"])
+  // The two reads still share one height lookup, and run at that height.
+  assert.equal(methodsCalled(endpoint.calls).filter((method) => method === "metashrew_height").length, 2)
+  assert.deepEqual(
+    endpoint.simulated.map((call) => call.height),
+    [332_769, 332_769],
+  )
+})
+
+test("a hosted endpoint's refusal of a batch says how to turn batching off", async () => {
+  const endpoint = stubEndpoint(() => ({ data: u128le(1n) }), 100, { dialect: "alkanes" })
+  const fire = endpoint.client({ batch: true }).at(1).contract("fire")
+  const [first] = await Promise.allSettled([fire.read.getName(), fire.read.getSymbol()])
+  assert.ok(first.status === "rejected")
+  assert.match(String(first.reason.message), /batch: false/)
+})
+
+test("the Labcoat dialect against a hosted endpoint fails with the endpoint's refusal", async () => {
+  const endpoint = stubEndpoint(() => ({ data: u128le(1n) }), 100, { dialect: "alkanes" })
+  await assert.rejects(endpoint.client({ dialect: "labcoat" }).getIndexedHeight(), (error: unknown) => {
+    assert.ok(error instanceof LabcoatClientError)
+    assert.equal(error.rpcCode, -32601)
+    assert.match(error.message, /method not permitted on the public endpoint: secondaryheight/)
+    return true
+  })
+})
+
+test("HTTP 429 is RPC_RATE_LIMITED", async () => {
+  const endpoint = stubEndpoint(() => ({ data: u128le(1n) }), 100, { dialect: "alkanes", limit: 2 })
+  const labcoat = endpoint.client()
+  await labcoat.getIndexedHeight()
+  await labcoat.getIndexedHeight()
+  await assert.rejects(labcoat.getIndexedHeight(), (error: unknown) => {
+    assert.ok(error instanceof LabcoatClientError)
+    assert.equal(error.code, "RPC_RATE_LIMITED")
+    assert.match(error.message, /ask again in 60 s/)
+    return true
+  })
+})
+
+test("a failed fetch to another origin says to forward a same-origin path", async () => {
+  const fetchFn = (async () => {
+    throw new TypeError("Failed to fetch")
+  }) as typeof fetch
+  const page = globalThis as { location?: unknown }
+  const unreachable = async (rpc: string): Promise<string> => {
+    const error = await createClient({ rpc, fetchFn }).getIndexedHeight().catch((caught: unknown) => caught)
+    assert.ok(error instanceof LabcoatClientError && error.code === "RPC_UNREACHABLE")
+    return error.message
+  }
+  assert.doesNotMatch(await unreachable("https://signet.subfrost.io/v4/jsonrpc"), /same-origin/)
+  page.location = { origin: "http://localhost:3000" }
+  try {
+    assert.match(await unreachable("https://signet.subfrost.io/v4/jsonrpc"), /forward a same-origin path/)
+    assert.doesNotMatch(await unreachable("/rpc"), /same-origin/)
+    assert.doesNotMatch(await unreachable("http://localhost:3000/rpc"), /same-origin/)
+  } finally {
+    delete page.location
+  }
+})
+
+test("headers are sent with every request, beside the content type", async () => {
+  const endpoint = stubEndpoint(() => ({ data: u128le(1n) }), 100, { dialect: "alkanes" })
+  await endpoint.client({ headers: { "x-subfrost-api-key": "server-side-key" } }).getIndexedHeight()
+  assert.deepEqual(endpoint.sent[0], { "x-subfrost-api-key": "server-side-key", "content-type": "application/json" })
 })
 
 /* ------------------------------- raw simulate ------------------------------ */
