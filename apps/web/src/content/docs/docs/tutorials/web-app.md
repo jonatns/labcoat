@@ -12,10 +12,9 @@ It assumes you know some Rust and some TypeScript, can read a React component
 that uses `useState`, and have at least skimmed
 [Your first contract](/docs/tutorials/first-contract/).
 
-You need a [Labcoat installation](/docs/getting-started/installation/) with
-its [compilation prerequisites](/docs/getting-started/installation/#compilation-prerequisites),
-Node.js 20.9 or newer, and about twenty minutes. The first build compiles
-the Alkanes runtime and takes the longest.
+Install [Labcoat](/docs/getting-started/installation/), its
+[compilation prerequisites](/docs/getting-started/installation/#compilation-prerequisites),
+and Node.js 20.9 or newer. Allow extra time for the first contract build.
 
 ## How the pieces fit
 
@@ -54,7 +53,8 @@ counter  79f21ed1e50a012c05765cbf4b512fa7e5316caa41e3409c1435976681d14425
 
 `labcoat up` starts Labcoat Network, a private Bitcoin chain on your machine
 with a funded wallet. `labcoat deploy` builds the Counter and deploys it. It
-is now the contract `counter`, at the Alkane ID `2:1`.
+is now the contract `counter`. The examples use Alkane ID `2:1`; your
+deployment may report a different ID.
 
 Keep this terminal in `counter-app`. Every command in this tutorial runs from
 this directory.
@@ -94,23 +94,13 @@ These files are plain TypeScript with no dependencies, so there is no package
 to install. `manifest.ts` records what you deployed and where, `abi/counter.ts`
 lists the Counter's methods, and `client.ts` is what the page imports.
 
-They need one change to the app. Alkanes amounts are 128-bit numbers, so the
-client uses `bigint`, and TypeScript only accepts `bigint` literals when it
-targets ES2020 or later. A new Next.js app targets ES2017. In
-`web/tsconfig.json`, change
-
-```json
-    "target": "ES2017",
-```
-
-to
+The generated client uses `bigint` for Alkanes amounts. In
+`web/tsconfig.json`, set `compilerOptions.target` to `ES2020` if the current
+target is older:
 
 ```json
     "target": "ES2020",
 ```
-
-This setting only affects type checking. Next.js compiles the code itself and
-every current browser has `bigint`.
 
 ## Reach the network from the page
 
@@ -528,46 +518,39 @@ The `catch` above covers both.
 
 ## Beyond Labcoat Network
 
-The page has no code that only works locally, but four things change on a
-public network such as signet.
+To run the app on signet:
 
-**The client is generated for one network.** Deploy there, then run
-`labcoat generate web --network signet`. The client refuses a wallet or an
-address of another network.
+1. [Deploy the Counter to signet](/docs/deploy-to-signet/), then regenerate
+   the client for that network.
 
-**`/rpc` leads to a hosted endpoint.** Signet's default is Subfrost's, which
-a page cannot call directly either, and which allows 20 requests a minute
-without an API key. The rewrite above still forwards to `MANIFEST.rpcUrl`,
-but to send a key without shipping it to the browser you need a route of
-your own in its place:
-[Reach Subfrost from a browser](/docs/web-apps/#reach-subfrost-from-a-browser)
-has one.
+   ```bash
+   labcoat --network signet generate web --out-dir web/src/labcoat
+   ```
 
-**`connect()` returns a browser wallet.** There is no dev wallet off Labcoat
-Network. `connect()` returns the first installed wallet of UniSat, Xverse,
-OKX Wallet, Leather, and Subfrost, and the wallet asks the person to connect. Pass
-`{ wallet: 'xverse' }` to choose one; `labcoat.availableWallets()` lists what
-the page can connect to. The wallet shows its own approval window, so
-`approve: true` no longer applies.
+2. Replace the local rewrite with the
+   [server-side RPC route](/docs/web-apps/#reach-subfrost-from-a-browser).
+   In the route, import the manifest from `@/labcoat/manifest`. Keep
+   `createClient({ rpc: '/rpc' })` in the page. Set `SUBFROST_API_KEY` in
+   the app server's environment. If you configured a private upstream,
+   set `LABCOAT_RPC_TARGET` there too.
+3. Have the app select a wallet and pass it to the write. A bare
+   `connect()` throws on public networks. The example below connects
+   UniSat after the user selects it. Set the extension to signet and
+   fund its taproot address with signet coins first.
 
-**Transactions cost money and take time.** A write needs a `feeRate`; only
-Labcoat Network has a default. Nobody mines a block for you, so `tx.wait()`
-resolves after the network's next block, and waits up to 30 minutes for it.
+   ```ts
+   const wallet = await labcoat.connect({ wallet: 'unisat' });
+   const tx = await counter.write.increment({ wallet, feeRate: 2 });
+   await tx.wait();
+   ```
 
-Know the limits before you rely on it:
+The extension handles approval. Provide a fee rate in sats per virtual byte.
+`tx.wait()` resolves when the Alkanes index sees the transaction. The default
+timeout on signet is 30 minutes.
 
-- The client spends taproot and native SegWit outputs. It does not spend
-  nested SegWit ones, which Xverse uses for payments by default: with such a
-  wallet, the bitcoin for fees has to be at its taproot address.
-- Labcoat's own tests exercise the browser wallets through stand-ins, not the
-  real extensions, and only UniSat has been tried by hand on signet. Before
-  you support a wallet, run the
-  [signet checklist](/docs/web-apps/#check-a-browser-wallet-on-signet) with
-  it once.
-- The dev wallet's key signs for any page your machine serves. Never send
-  value to its addresses on another network.
-
-[Web apps](/docs/web-apps/) is the reference for everything the client does.
+For wallet libraries, other adapters, and account or signature checks, see
+the [Wallet integrations guide](/docs/web-wallets/) and its
+[signet checklist](/docs/web-wallets/#check-a-browser-wallet-on-signet).
 
 ## Clean up
 
