@@ -27,6 +27,7 @@ Source: https://github.com/jonatns/labcoat
 - [Labcoat Network and wallets](https://labcoat.sh/docs/labcoat-network/): Local chain lifecycle and wallets
 - [Contracts](https://labcoat.sh/docs/contracts/): Test, build, deploy, simulate, call, and trace
 - [Deployment scripts](https://labcoat.sh/docs/deployments/): deploy.rs, plan/deploy/import, upgradeable contracts, and e2e tests
+- [Deploy to signet](https://labcoat.sh/docs/deploy-to-signet/): Signet wallet, funding, the Subfrost API key in .env, plan and deploy, and the web app
 - [Atomic exchanges](https://labcoat.sh/docs/exchanges/): Two-wallet asset swaps and the PSBT ceremony
 - [Web apps](https://labcoat.sh/docs/web-apps/): Generated TypeScript read client
 - [Deployment state](https://labcoat.sh/docs/deployment-state/): Durable per-environment deployment history

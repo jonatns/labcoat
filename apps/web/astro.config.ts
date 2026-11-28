@@ -61,6 +61,7 @@ export default defineConfig({
             { label: 'Labcoat Network & wallets', slug: 'docs/labcoat-network' },
             { label: 'Contracts', slug: 'docs/contracts' },
             { label: 'Deployment scripts', slug: 'docs/deployments' },
+            { label: 'Deploy to signet', slug: 'docs/deploy-to-signet' },
             { label: 'Atomic exchanges', slug: 'docs/exchanges' },
             { label: 'Web apps', slug: 'docs/web-apps' },
             { label: 'Deployment state', slug: 'docs/deployment-state' },
