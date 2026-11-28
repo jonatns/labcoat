@@ -26,6 +26,7 @@ surface `error.hint` to the operator or agent.
 | `WALLET_MISSING` | The selected network has no keystore | Run `labcoat up` on Labcoat Network, or `labcoat wallet init` for another network |
 | `WALLET_LOCKED` | Passphrase is missing or incorrect | Set `LABCOAT_WALLET_PASSPHRASE` |
 | `INSUFFICIENT_FUNDS` | Spendable BTC or single-asset token outputs cannot cover the operation | Fund and mine the wallet |
+| `RPC_REJECTED` | The endpoint refused a request without a JSON-RPC error, which is how a hosted endpoint's rate limit answers. Also reported when wallet outputs were left out of a transaction because the endpoint did not answer their Alkanes balance check: the wallet is not short of funds | Set `SUBFROST_API_KEY` for Subfrost, whose public endpoints allow 20 requests a minute, or wait a minute and retry |
 
 ## Contracts and tests
 

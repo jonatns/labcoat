@@ -35,6 +35,8 @@ Human-readable output is the default, including when stdout is redirected. Add `
 
 Every command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code. Two commands also use the exit code: `labcoat up --ci` exits non-zero unless Labcoat Network and its funded wallet are ready, and `labcoat doctor` exits non-zero when a check fails.
 
+Without `--json`, `labcoat deploy` and `labcoat call` exit with code 3 when a transaction was sent to a public network and had not confirmed when the command stopped waiting (`--confirm-timeout`, or Ctrl-C during the wait). Nothing failed: 0 is done, 1 is an error, 3 is sent and not yet confirmed. Running `labcoat deploy` again waits for that transaction and carries on with the remaining steps. With `--json` the exit code stays 0 and the result says so: a call or a `--wasm` deploy has `confirmation: "pending"`, and a deploy.rs report has `awaitingConfirmation` naming the step and its transaction.
+
 ```json
 {"ok":true,"command":"status","schema":"labcoat/v1/status","result":{}}
 {"ok":false,"command":"deploy","schema":"labcoat/v1/error","error":{"code":"WALLET_MISSING","message":"...","hint":"run `labcoat wallet init` first"}}
@@ -678,7 +680,7 @@ doctor
 | `STATE_CHAIN_MISMATCH` | durable state belongs to a different chain instance (e.g. before a `labcoat reset`) | archive .labcoat/state/<environment> or use a different --environment |
 | `STATE_CONFLICT` | durable state changed underneath the command, or already exists where none may | re-run against current state (`labcoat state list`) |
 | `DEPLOYMENT_BLOCKED` | a deployment step cannot proceed without manual intervention (an interrupted broadcast, an occupied reserve, an unreadable setting, a step deployed on its own before the steps it references) | read the step's detail in `labcoat plan` |
-| `RPC_REJECTED` | the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit | set `SUBFROST_API_KEY` for Subfrost, or wait and retry |
+| `RPC_REJECTED` | the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit; also reported when wallet outputs were left out of a transaction because the endpoint did not answer their Alkanes balance check | set `SUBFROST_API_KEY` for Subfrost, or wait a minute and retry |
 | `TOOLKIT_ERROR` | the underlying contract toolkit failed | read the error hint |
 | `BINARY_CRASH` | a Labcoat Network service exited | inspect `labcoat logs` |
 

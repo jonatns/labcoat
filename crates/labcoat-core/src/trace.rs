@@ -17,15 +17,19 @@ pub async fn trace(
     provider: &ConcreteProvider,
     txid: &str,
 ) -> Result<Option<Vec<serde_json::Value>>> {
-    let tx_hex = if provider.rpc_config.is_qubitcoin_mode() {
-        qubitcoin_transaction_hex(provider, txid).await?
+    let tx_hex = transaction_hex(provider, txid).await?;
+    trace_transaction(provider, &tx_hex).await
+}
+
+async fn transaction_hex(provider: &ConcreteProvider, txid: &str) -> Result<String> {
+    if provider.rpc_config.is_qubitcoin_mode() {
+        qubitcoin_transaction_hex(provider, txid).await
     } else {
         provider
             .get_transaction_hex(txid)
             .await
-            .map_err(|e| LabcoatError::classify(e.into()))?
-    };
-    trace_transaction(provider, &tx_hex).await
+            .map_err(|e| LabcoatError::classify(e.into()))
+    }
 }
 
 /// Poll until traces exist for the tx (the indexer may lag the broadcast),
@@ -35,9 +39,45 @@ pub async fn wait_for_trace(
     txid: &str,
     timeout: std::time::Duration,
 ) -> Result<Vec<serde_json::Value>> {
+    wait_for_trace_every(provider, txid, None, timeout, REGTEST_POLL).await
+}
+
+/// How often a regtest target is asked for a trace: its block is already
+/// mined, so the answer is at most an indexing pass away.
+const REGTEST_POLL: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// How often a public network is asked for a trace. The wait is for a
+/// block, minutes away, and hosted endpoints count requests: Subfrost's
+/// allows 20 a minute without an API key, which a one-second poll spends
+/// in the first 20 seconds of a ten-minute wait.
+pub const PUBLIC_POLL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// [`wait_for_trace`] at a chosen pace. With the transaction's hex in hand
+/// (the caller just broadcast it) each poll is one request per protostone
+/// and the transaction is never fetched back from the node.
+pub async fn wait_for_trace_every(
+    provider: &ConcreteProvider,
+    txid: &str,
+    tx_hex: Option<&str>,
+    timeout: std::time::Duration,
+    interval: std::time::Duration,
+) -> Result<Vec<serde_json::Value>> {
     let started = std::time::Instant::now();
+    // Fetched at most once: a transaction's bytes do not change.
+    let mut tx_hex = tx_hex.map(str::to_owned);
     loop {
-        match trace(provider, txid).await {
+        let polled = match &tx_hex {
+            Some(hex) => trace_transaction(provider, hex).await,
+            None => match transaction_hex(provider, txid).await {
+                Ok(hex) => {
+                    let traced = trace_transaction(provider, &hex).await;
+                    tx_hex = Some(hex);
+                    traced
+                }
+                Err(error) => Err(error),
+            },
+        };
+        match polled {
             Ok(Some(traces)) if !traces.is_empty() => {
                 let has_events = traces.iter().any(|trace| {
                     let events = trace
@@ -68,7 +108,7 @@ pub async fn wait_for_trace(
                 "is the Alkanes index synced? run `labcoat status`, then `labcoat trace <txid>`",
             ));
         }
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(interval).await;
     }
 }
 

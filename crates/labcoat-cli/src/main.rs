@@ -18,6 +18,7 @@ mod settings;
 mod test_command;
 mod trace_view;
 mod upgrade;
+mod waiting;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use isomer_core::LabcoatNetwork;
@@ -66,6 +67,16 @@ struct Cli {
     /// Durable-state environment (defaults to "default")
     #[arg(long, global = true)]
     environment: Option<String>,
+
+    /// Seconds `deploy`, `call`, and `trace --wait` wait for a transaction
+    /// to confirm on a public network, where the next block is about ten
+    /// minutes away [default: 1800]. When the time runs out, `deploy` and
+    /// `call` report the transaction as sent and not yet confirmed and
+    /// exit with code 3; nothing failed, and running `deploy` again waits
+    /// for it and carries on. Labcoat Network mines a block for every
+    /// transaction and ignores this
+    #[arg(long, global = true, value_name = "SECONDS")]
+    confirm_timeout: Option<u64>,
 
     /// Approve transaction signing without an interactive prompt (public
     /// networks; regtest targets always auto-approve)
@@ -484,7 +495,14 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
         };
     }
     if let Commands::Doctor = &cli.command {
-        let checks = doctor::run().await;
+        // Best effort: doctor still answers when the settings are broken.
+        let target = settings::resolve(settings::Overrides {
+            network: cli.network.as_deref(),
+            rpc_url: cli.rpc_url.as_deref(),
+            ..Default::default()
+        })
+        .ok();
+        let checks = doctor::run(target.as_ref()).await;
         let failed = checks.iter().any(|c| c.status == "fail");
         output::finish(
             json,
@@ -604,7 +622,9 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
     .with_signer(&resolved.signer)
     .with_assume_yes(cli.assume_yes)
     .with_environment(&resolved.environment)
+    .with_confirm_timeout(cli.confirm_timeout.map(std::time::Duration::from_secs))
     .with_color(cli.color);
+    output::set_command_scope(command_scope(&cli, &resolved));
     // A spinner shares stderr with logs and prompts, and garbles both. With
     // `--verbose` the logs are the progress, and a command that signs on a
     // public network prints what it signs and may ask for approval.
@@ -686,6 +706,18 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             if !json && !dry_run {
                 ctx.announce_target();
             }
+            if !dry_run {
+                ctx.warn_unkeyed_subfrost();
+                waiting::install(
+                    match request {
+                        contract::DeployRequest::Steps { .. } => waiting::Command::DeploySteps,
+                        contract::DeployRequest::Wasm { .. } => waiting::Command::DeployWasm,
+                    },
+                    ctx.config.network_id(),
+                    cli.color,
+                    json,
+                );
+            }
             let progress = output::Progress::new(
                 if dry_run {
                     "Planning the deployment…"
@@ -696,7 +728,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             );
             let (cmd_name, res) = contract::deploy(&ctx, request, dry_run).await;
             progress.finish();
-            output::finish_contract(json, cmd_name, res, output_options)
+            finish_broadcast(json, cmd_name, res, output_options)
         }
         Commands::Import { name, id, txid } => {
             if !json {
@@ -720,6 +752,15 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             if !json && !dry_run {
                 ctx.announce_target();
             }
+            if !dry_run {
+                ctx.warn_unkeyed_subfrost();
+                waiting::install(
+                    waiting::Command::Call,
+                    ctx.config.network_id(),
+                    cli.color,
+                    json,
+                );
+            }
             let progress = output::Progress::new(
                 if dry_run {
                     "Validating contract call…"
@@ -734,7 +775,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
                 contract::call(&ctx, &contract, &selector, &args, &tx, abi.as_deref()).await
             };
             progress.finish();
-            output::finish_contract(json, cmd_name, res, output_options)
+            finish_broadcast(json, cmd_name, res, output_options)
         }
         Commands::Exchange {
             offered,
@@ -849,7 +890,13 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             let (cmd_name, res) = contract::state(&ctx, &resolved.environment, cmd).await;
             output::finish_contract(json, cmd_name, res, output_options)
         }
-        Commands::Mcp(McpCmd::Serve) => mcp::serve(ctx).await,
+        Commands::Mcp(McpCmd::Serve) => {
+            // A tool call answers within a minute, as it always has: an
+            // agent polls `trace` for a transaction that is still pending.
+            let timeout = cli.confirm_timeout.unwrap_or(60);
+            mcp::serve(ctx.with_confirm_timeout(Some(std::time::Duration::from_secs(timeout))))
+                .await
+        }
         Commands::Doctor => unreachable!("doctor handled before configuration loading"),
         Commands::Docs { .. } => unreachable!("docs handled before configuration loading"),
         Commands::Up { no_download, ci } => {
@@ -1053,6 +1100,66 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
 
 /// Why `up --ci` cannot report success: the built-in wallet could not be
 /// prepared, or holds less than the balance `up` tops it up to.
+/// Print a deploy's or a call's result. A transaction that was sent and
+/// had not confirmed when the command stopped waiting is not a failure, but
+/// it is not done either: outside `--json`, where the envelope carries it
+/// and the exit code is always 0, it exits with
+/// [`waiting::EXIT_SENT_UNCONFIRMED`].
+fn finish_broadcast(
+    json: bool,
+    command: &str,
+    result: contract::CmdResult,
+    options: output::Options,
+) -> i32 {
+    let unconfirmed = result.as_ref().is_ok_and(output::sent_unconfirmed);
+    let code = output::finish_contract(json, command, result, options);
+    if code == 0 && !json && unconfirmed {
+        waiting::EXIT_SENT_UNCONFIRMED
+    } else {
+        code
+    }
+}
+
+/// The flags a command suggested by this one needs in order to act on the
+/// same network and environment: those typed on this command line that
+/// change what it would otherwise resolve to.
+fn command_scope(cli: &Cli, resolved: &settings::ResolvedSettings) -> String {
+    let without = |network: Option<&str>, environment: Option<&str>| {
+        settings::resolve(settings::Overrides {
+            network,
+            rpc_url: cli.rpc_url.as_deref(),
+            wallet_file: cli.wallet_file.as_deref(),
+            fee_rate: cli.fee_rate,
+            signer: cli.signer.as_deref(),
+            environment,
+        })
+        .ok()
+    };
+    let default_network = without(None, cli.environment.as_deref()).map(|s| s.network);
+    let default_environment = without(cli.network.as_deref(), None).map(|s| s.environment);
+    scope_flags(
+        cli.network
+            .as_deref()
+            .filter(|_| default_network != Some(resolved.network))
+            .map(|_| resolved.network.id()),
+        cli.environment
+            .as_deref()
+            .filter(|_| default_environment.as_deref() != Some(resolved.environment.as_str()))
+            .map(|_| resolved.environment.as_str()),
+    )
+}
+
+fn scope_flags(network: Option<&str>, environment: Option<&str>) -> String {
+    let mut flags = Vec::new();
+    if let Some(network) = network {
+        flags.push(format!("--network {network}"));
+    }
+    if let Some(environment) = environment {
+        flags.push(format!("--environment {environment}"));
+    }
+    flags.join(" ")
+}
+
 fn ci_wallet_error(wallet: &serde_json::Value) -> Option<String> {
     if let Some(error) = wallet.get("error").and_then(serde_json::Value::as_str) {
         return Some(format!(
@@ -1175,6 +1282,69 @@ mod envelope_tests {
             EnvFilter::new(verbose).max_level_hint(),
             Some(tracing_subscriber::filter::LevelFilter::INFO)
         );
+    }
+
+    #[test]
+    fn a_sent_unconfirmed_transaction_has_its_own_exit_code_outside_json() {
+        let options = output::Options {
+            verbose: false,
+            color: output::ColorMode::Never,
+        };
+        let pending = || {
+            Ok(serde_json::json!({
+                "status": "unknown", "txid": "ab", "traces": null, "confirmation": "pending",
+            }))
+        };
+        assert_eq!(finish_broadcast(false, "call", pending(), options), 3);
+        assert_eq!(waiting::EXIT_SENT_UNCONFIRMED, 3);
+        // An envelope always exits 0 and carries the state itself.
+        assert_eq!(finish_broadcast(true, "call", pending(), options), 0);
+        let awaiting = Ok(serde_json::json!({
+            "network": "signet", "actions": [],
+            "awaitingConfirmation": {"kind": "call", "name": "seed", "txid": "ab"},
+        }));
+        assert_eq!(finish_broadcast(false, "deploy", awaiting, options), 3);
+
+        let done = Ok(serde_json::json!({"status": "success", "txid": "ab", "traces": []}));
+        assert_eq!(finish_broadcast(false, "call", done, options), 0);
+        let failed = Err(contract::EnvelopeError {
+            code: "RPC_REJECTED",
+            message: "refused".into(),
+            hint: "retry",
+        });
+        assert_eq!(finish_broadcast(false, "call", failed, options), 1);
+    }
+
+    #[test]
+    fn suggested_commands_name_only_the_flags_that_were_typed() {
+        assert_eq!(scope_flags(Some("signet"), None), "--network signet");
+        assert_eq!(
+            scope_flags(Some("signet"), Some("staging")),
+            "--network signet --environment staging"
+        );
+        assert_eq!(scope_flags(None, Some("staging")), "--environment staging");
+        assert_eq!(scope_flags(None, None), "");
+    }
+
+    #[test]
+    fn the_confirmation_wait_is_a_global_flag_in_seconds() {
+        let cli = Cli::try_parse_from([
+            "labcoat",
+            "--network",
+            "signet",
+            "deploy",
+            "--confirm-timeout",
+            "600",
+        ])
+        .unwrap();
+        assert_eq!(cli.confirm_timeout, Some(600));
+        assert!(
+            Cli::try_parse_from(["labcoat", "call", "counter", "increment"])
+                .unwrap()
+                .confirm_timeout
+                .is_none()
+        );
+        assert!(Cli::try_parse_from(["labcoat", "--confirm-timeout", "soon", "deploy"]).is_err());
     }
 
     #[test]

@@ -284,7 +284,37 @@ fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Opti
     }
 }
 
-pub async fn run() -> Vec<Check> {
+/// Whether the selected network's endpoint will serve a deploy. Subfrost's
+/// public endpoints refuse a caller without an API key past 20 requests a
+/// minute, which a deploy exceeds.
+fn subfrost_key_check(
+    target: &crate::settings::ResolvedSettings,
+    key: Option<&str>,
+) -> Option<Check> {
+    const NAME: &str = "subfrost api key";
+    if target.network.uses_regtest() || !labcoat_core::system::is_subfrost(&target.rpc_url) {
+        return None;
+    }
+    Some(if key.is_some_and(|key| !key.trim().is_empty()) {
+        ok(
+            NAME,
+            format!("SUBFROST_API_KEY is set for {}", target.network.id()),
+        )
+    } else {
+        warn(
+            NAME,
+            format!(
+                "SUBFROST_API_KEY is not set; Subfrost's {} endpoint allows 20 requests a minute without one, fewer than a deploy makes",
+                target.network.id()
+            ),
+            "get a key at https://api.subfrost.io and set SUBFROST_API_KEY",
+        )
+    })
+}
+
+/// `target` is what the command line and the project resolve to, when
+/// they resolve.
+pub async fn run(target: Option<&crate::settings::ResolvedSettings>) -> Vec<Check> {
     let mut checks = Vec::new();
 
     // Toolchain
@@ -308,6 +338,10 @@ pub async fn run() -> Vec<Check> {
     let project = project_root(&std::env::current_dir().unwrap_or_default());
     if let Some(root) = project.as_deref() {
         checks.push(project_config_check(root));
+    }
+    if let Some(target) = target {
+        let key = std::env::var("SUBFROST_API_KEY").ok();
+        checks.extend(subfrost_key_check(target, key.as_deref()));
     }
     let pinned = project
         .as_deref()
@@ -446,6 +480,46 @@ pub async fn run() -> Vec<Check> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_public_subfrost_target_is_checked_for_an_api_key() {
+        let target = |network, rpc_url: &str| crate::settings::ResolvedSettings {
+            network,
+            rpc_url: rpc_url.to_string(),
+            wallet_file: PathBuf::from("wallet.json"),
+            fee_rate: None,
+            signer: "keystore".into(),
+            environment: "default".into(),
+        };
+        let signet = target(
+            labcoat_core::NetworkTarget::Signet,
+            "https://signet.subfrost.io/v4/jsonrpc",
+        );
+        let missing = subfrost_key_check(&signet, None).unwrap();
+        assert_eq!(missing.status, "warn");
+        assert!(missing.detail.contains("20 requests a minute"));
+        assert!(missing.hint.unwrap().contains("SUBFROST_API_KEY"));
+        assert_eq!(
+            subfrost_key_check(&signet, Some("")).unwrap().status,
+            "warn"
+        );
+        assert_eq!(
+            subfrost_key_check(&signet, Some("sk-test")).unwrap().status,
+            "ok"
+        );
+
+        // Nothing to say about Labcoat Network or another provider.
+        let local = target(
+            labcoat_core::NetworkTarget::Labcoat,
+            "http://127.0.0.1:18443",
+        );
+        assert!(subfrost_key_check(&local, None).is_none());
+        let own = target(
+            labcoat_core::NetworkTarget::Signet,
+            "https://node.example/rpc",
+        );
+        assert!(subfrost_key_check(&own, None).is_none());
+    }
 
     #[test]
     fn project_toolchain_check_reports_missing_matching_and_stale_pins() {
