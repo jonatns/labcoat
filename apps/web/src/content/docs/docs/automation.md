@@ -47,6 +47,14 @@ labcoat up --ci && labcoat test --json | jq -e .ok
 
 For every other command, check `.ok`, for example with `jq -e .ok`.
 
+When a public-network confirmation wait ends on timeout or Ctrl-C, a
+`call` or `deploy --wasm` can return `result.confirmation: "pending"`.
+A deployment script returns `result.awaitingConfirmation` with the step name
+and transaction ID. Both results have exit code 0 in JSON mode. Check those
+fields before running a command that depends on the transaction. Running the
+deployment script again waits for its recorded transaction and resumes it.
+In human-readable mode, `call` and `deploy` exit with code 3 in this situation.
+
 ## MCP mode
 
 ```bash

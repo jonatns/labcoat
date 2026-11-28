@@ -1384,7 +1384,8 @@ pub async fn plan(
 pub struct AppliedAction {
     pub kind: &'static str,
     pub name: String,
-    /// executed | redeployed | adopted | in-sync | skipped-complete
+    /// executed | redeployed | adopted | in-sync | skipped-complete | sent
+    /// (broadcast to a public network and not yet confirmed)
     pub outcome: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -1403,6 +1404,45 @@ pub struct ApplyReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_id: Option<String>,
     pub actions: Vec<AppliedAction>,
+    /// The step whose transaction a public network had not confirmed when
+    /// the wait ended. The deploy stopped there with nothing failed;
+    /// running it again waits for this transaction and goes on. Absent
+    /// when every step that ran is confirmed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub awaiting_confirmation: Option<AwaitingConfirmation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwaitingConfirmation {
+    pub kind: String,
+    pub name: String,
+    pub txid: String,
+}
+
+impl ApplyReport {
+    /// Stop at a step whose transaction is sent and not yet confirmed.
+    fn awaiting(mut self, kind: &str, name: &str, txid: &str, fee: Option<u64>) -> Self {
+        self.actions.push(AppliedAction {
+            kind: match kind {
+                "contract" => "contract",
+                "setting" => "setting",
+                _ => "call",
+            },
+            name: name.to_string(),
+            outcome: "sent".into(),
+            id: None,
+            txid: Some(txid.to_string()),
+            fee,
+            detail: Some("not yet confirmed".into()),
+        });
+        self.awaiting_confirmation = Some(AwaitingConfirmation {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            txid: txid.to_string(),
+        });
+        self
+    }
 }
 
 fn stop(kind: &str, name: &str, error: LabcoatError) -> LabcoatError {
@@ -1502,6 +1542,10 @@ fn record_contract_address(
 
 // The execution outcome is evidence only once the indexer sees a return or
 // a revert. Pending attempts already have their IDs persisted by the observer.
+//
+// `Ok(false)` is a transaction a public network has not confirmed yet: the
+// step stays recorded as started, and the next deploy picks it up. On a
+// regtest target the block is already mined, so a missing trace is a fault.
 fn finish_attempt(
     config: &ToolkitConfig,
     root: &Path,
@@ -1509,7 +1553,7 @@ fn finish_attempt(
     name: &str,
     mut record: StepRecord,
     outcome: &ExecuteOutcome,
-) -> Result<()> {
+) -> Result<bool> {
     record.txid = Some(outcome.txid.clone());
     record.commit_txid = outcome.commit_txid.clone().or(record.commit_txid);
     let settled = apply_trace(&mut record, &outcome.status, outcome.created.clone());
@@ -1520,6 +1564,9 @@ fn finish_attempt(
     let status = record.status;
     run.steps.insert(name.to_string(), record);
     runfile::save(root, run)?;
+    if !settled && outcome.confirmation.is_some() {
+        return Ok(false);
+    }
     if !settled {
         return Err(LabcoatError::new(
             "DEPLOYMENT_BLOCKED",
@@ -1530,7 +1577,20 @@ fn finish_attempt(
     if status == RecordStatus::Revert {
         return Err(reverted(&kind, outcome.revert_reason.as_deref()));
     }
-    Ok(())
+    Ok(true)
+}
+
+/// The step, among those this deploy covers, whose transaction an earlier
+/// deploy sent and the chain has not settled.
+fn unconfirmed_step(plan: &Plan, run: &RunFile) -> Option<(&'static str, String, String)> {
+    plan.actions
+        .iter()
+        .filter(|action| action.status == ActionStatus::Interrupted)
+        .find_map(|action| {
+            let record = run.steps.get(&action.name)?;
+            let txid = record.txid.clone()?;
+            needs_confirmation(record).then(|| (action.kind, action.name.clone(), txid))
+        })
 }
 
 /// The ABI a contract step's code exposes: its local artifact, or — for a
@@ -1567,6 +1627,25 @@ pub async fn apply(
     options: &Options,
 ) -> Result<ApplyReport> {
     let _deployment_lock = runfile::lock(root)?;
+    let mut planned = plan(config, root, graph, options).await?;
+    // A transaction an earlier deploy sent to a public network may simply
+    // be waiting for its block. Wait with it instead of refusing: the plan
+    // made afterwards reads its trace and carries on from there.
+    if !config.network.uses_regtest() {
+        if let Some((kind, name, txid)) = unconfirmed_step(&planned.plan, &planned.run) {
+            if toolkit::await_confirmation(config, &txid).await? {
+                planned = plan(config, root, graph, options).await?;
+            } else {
+                let report = ApplyReport {
+                    network: planned.plan.network.clone(),
+                    chain_id: planned.plan.chain_id.clone(),
+                    actions: Vec::new(),
+                    awaiting_confirmation: None,
+                };
+                return Ok(report.awaiting(kind, &name, &txid, None));
+            }
+        }
+    }
     let PlanOutcome {
         plan,
         actions,
@@ -1574,7 +1653,7 @@ pub async fn apply(
         mut resolved,
         mut run,
         recovered,
-    } = plan(config, root, graph, options).await?;
+    } = planned;
 
     run.chain_id = plan.chain_id.clone();
     if !recovered.is_empty() {
@@ -1640,6 +1719,7 @@ pub async fn apply(
         network: network.clone(),
         chain_id: plan.chain_id.clone(),
         actions: Vec::new(),
+        awaiting_confirmation: None,
     };
     let skipped = |action: &PlannedAction| AppliedAction {
         kind: action.kind,
@@ -1820,7 +1900,9 @@ pub async fn apply(
                     .await
                     .map_err(fail)?
                 };
-                finish_attempt(config, root, &mut run, name, record, &outcome).map_err(fail)?;
+                if !finish_attempt(config, root, &mut run, name, record, &outcome).map_err(fail)? {
+                    return Ok(report.awaiting("contract", name, &outcome.txid, Some(outcome.fee)));
+                }
                 let recorded = &run.steps[name];
                 let id = recorded
                     .id
@@ -1913,7 +1995,9 @@ pub async fn apply(
                 )
                 .await
                 .map_err(fail)?;
-                finish_attempt(config, root, &mut run, name, record, &outcome).map_err(fail)?;
+                if !finish_attempt(config, root, &mut run, name, record, &outcome).map_err(fail)? {
+                    return Ok(report.awaiting("call", name, &outcome.txid, Some(outcome.fee)));
+                }
                 report.actions.push(AppliedAction {
                     kind: "call",
                     name: name.to_string(),
@@ -2037,7 +2121,9 @@ pub async fn apply(
                 )
                 .await
                 .map_err(fail)?;
-                finish_attempt(config, root, &mut run, name, started, &outcome).map_err(fail)?;
+                if !finish_attempt(config, root, &mut run, name, started, &outcome).map_err(fail)? {
+                    return Ok(report.awaiting("setting", name, &outcome.txid, Some(outcome.fee)));
+                }
                 // Read the value back: a write that succeeds without
                 // taking effect must not be recorded as executed.
                 if setting.read.is_some() {
@@ -2949,6 +3035,135 @@ mod tests {
             statuses(&graph, &artifacts, &run, &Options::default())[0].1,
             ActionStatus::Complete
         );
+    }
+
+    fn unsettled_outcome(confirmation: Option<&'static str>) -> ExecuteOutcome {
+        ExecuteOutcome {
+            commit_txid: None,
+            txid: "f0".repeat(32),
+            commit_fee: None,
+            fee: 300,
+            status: "unknown".into(),
+            revert_reason: None,
+            alkanes_id: None,
+            created: Vec::new(),
+            payments: Vec::new(),
+            traces: None,
+            confirmation,
+        }
+    }
+
+    #[test]
+    fn a_transaction_a_public_network_has_not_confirmed_is_pending_not_blocked() {
+        let root = std::env::temp_dir().join(format!(
+            "labcoat-apply-pending-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let config = ToolkitConfig {
+            network: crate::NetworkTarget::Signet,
+            ..ToolkitConfig::default()
+        };
+        let graph = token_and_market();
+        let started = || {
+            StepRecord::new(
+                "call",
+                RecordStatus::Started,
+                definition_hash(&graph.steps[0], None),
+            )
+        };
+
+        // Sent to a public network and still waiting for its block: the
+        // step is not settled, and that is not an error.
+        let mut run = RunFile::empty("signet", None);
+        let pending = unsettled_outcome(Some("pending"));
+        let settled = finish_attempt(&config, &root, &mut run, "seed", started(), &pending);
+        assert!(!settled.unwrap());
+        // It stays recorded as started under its transaction id, which is
+        // what the next deploy waits for.
+        let saved = runfile::load(&root, "signet").unwrap();
+        let record = &saved.steps["seed"];
+        assert_eq!(record.status, RecordStatus::Started);
+        assert_eq!(record.txid.as_deref(), Some(pending.txid.as_str()));
+        assert!(needs_confirmation(record));
+
+        // Without that marker (a regtest target, whose block is already
+        // mined) a missing trace is still the fault it always was.
+        let error = finish_attempt(
+            &config,
+            &root,
+            &mut run,
+            "seed",
+            started(),
+            &unsettled_outcome(None),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "DEPLOYMENT_BLOCKED");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_deploy_stopped_at_an_unconfirmed_step_reports_it_and_finds_it_again() {
+        let report = ApplyReport {
+            network: "signet".into(),
+            chain_id: None,
+            actions: Vec::new(),
+            awaiting_confirmation: None,
+        };
+        // A complete deploy has no such field: the shape only grows.
+        let complete = serde_json::to_value(&report).unwrap();
+        assert!(complete.get("awaitingConfirmation").is_none());
+
+        let txid = "f0".repeat(32);
+        let report = report.awaiting("contract", "token", &txid, Some(300));
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value["awaitingConfirmation"]["name"], "token");
+        assert_eq!(value["awaitingConfirmation"]["kind"], "contract");
+        assert_eq!(value["awaitingConfirmation"]["txid"], txid.as_str());
+        assert_eq!(value["actions"][0]["outcome"], "sent");
+        assert_eq!(value["actions"][0]["txid"], txid.as_str());
+
+        // The next deploy sees the step as interrupted and knows which
+        // transaction to wait for.
+        let graph = token_and_market();
+        let artifacts = artifacts(&[("token", "aa"), ("market", "bb")]);
+        let mut run = RunFile::empty("signet", None);
+        let mut record = StepRecord::new(
+            "contract",
+            RecordStatus::Started,
+            definition_hash(&graph.steps[0], Some("aa")),
+        );
+        record.txid = Some(txid.clone());
+        run.steps.insert("token".into(), record);
+        let Reconciled { actions, .. } = reconcile(
+            &graph,
+            "signet",
+            &artifacts,
+            &facts(),
+            &run,
+            &Options::default(),
+        )
+        .unwrap();
+        let plan = Plan {
+            script: String::new(),
+            network: "signet".into(),
+            chain_id: None,
+            height: 0,
+            only: None,
+            actions,
+            stale_records: 0,
+            undeclared: Vec::new(),
+            pending: 0,
+            conflicts: 0,
+        };
+        assert_eq!(
+            unconfirmed_step(&plan, &run),
+            Some(("contract", "token".to_string(), txid))
+        );
+        // A step that never broadcast has nothing to wait for.
+        run.steps.get_mut("token").unwrap().txid = None;
+        assert_eq!(unconfirmed_step(&plan, &run), None);
     }
 
     #[test]

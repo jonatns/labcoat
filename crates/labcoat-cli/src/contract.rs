@@ -139,6 +139,7 @@ impl Ctx {
                 environment: "default".to_string(),
                 labcoat_instance_id: None,
                 project_root: Some(crate::project::root()),
+                confirm_timeout: None,
             },
             color: crate::output::ColorMode::Auto,
             private_rpc_url: false,
@@ -182,8 +183,24 @@ impl Ctx {
         self
     }
 
+    /// How long a public-network transaction may take to confirm before
+    /// the command reports it as sent and not yet confirmed.
+    pub fn with_confirm_timeout(mut self, timeout: Option<std::time::Duration>) -> Self {
+        self.config.confirm_timeout = timeout;
+        self
+    }
+
     fn warn(&self, message: &str) {
         crate::output::print_warning(message, self.color);
+    }
+
+    /// Say, before a deploy or a call spends its requests, that this
+    /// endpoint will refuse some of them.
+    pub fn warn_unkeyed_subfrost(&self) {
+        let key = std::env::var("SUBFROST_API_KEY").ok();
+        if let Some(warning) = unkeyed_subfrost_warning(&self.config, key.as_deref()) {
+            self.warn(&warning);
+        }
     }
 
     /// Name the resolved network and endpoint before a command writes to
@@ -515,6 +532,26 @@ async fn resolve_invocation(
     Ok((block, tx, invocation))
 }
 
+/// Subfrost's public endpoints allow 20 requests a minute to a caller
+/// without an API key. A deploy asks more than that of the endpoint, and
+/// the refusals surface as unrelated-looking errors, so the limit is named
+/// up front. `None` when the endpoint is not Subfrost's, a key is set, or
+/// the target is a regtest one.
+pub(crate) fn unkeyed_subfrost_warning(
+    config: &ToolkitConfig,
+    key: Option<&str>,
+) -> Option<String> {
+    let keyed = key.is_some_and(|key| !key.trim().is_empty());
+    if keyed || config.network.uses_regtest() || !labcoat_core::system::is_subfrost(&config.rpc_url)
+    {
+        return None;
+    }
+    Some(format!(
+        "SUBFROST_API_KEY is not set, and Subfrost's {} endpoint allows 20 requests a minute without one. A deploy makes more than that, and requests past the limit are refused (HTTP 429). Get a key at https://api.subfrost.io and set SUBFROST_API_KEY",
+        config.network_id()
+    ))
+}
+
 /// Whether commands go to Labcoat Network on a loopback address.
 fn is_local_default(config: &ToolkitConfig) -> bool {
     config.network == NetworkTarget::Labcoat
@@ -633,7 +670,12 @@ pub struct EnvelopeError {
 
 pub type CmdResult = Result<serde_json::Value, EnvelopeError>;
 
-pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, CmdResult) {
+pub async fn wallet(
+    ctx: &Ctx,
+    cmd: WalletCmd,
+    json: bool,
+    spinner: bool,
+) -> (&'static str, CmdResult) {
     match cmd {
         WalletCmd::Init {
             mnemonic_stdin,
@@ -686,7 +728,14 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, Cmd
         WalletCmd::Utxos => {
             let res = async {
                 let provider = ctx.wallet_provider().await?;
-                labcoat_core::wallet::utxos(&provider).await
+                let progress = crate::output::Progress::lookup(
+                    &format!("Scanning wallet UTXOs on {}…", ctx.config.network_id()),
+                    spinner,
+                    ctx.color,
+                );
+                let utxos = labcoat_core::wallet::utxos(&provider).await;
+                progress.finish();
+                utxos
             }
             .await;
             ("wallet-utxos", to_envelope(res))
@@ -1750,6 +1799,37 @@ pub async fn state(ctx: &Ctx, environment: &str, cmd: StateCmd) -> (&'static str
 #[cfg(test)]
 mod deployment_tests {
     use super::*;
+
+    #[test]
+    fn a_public_subfrost_endpoint_without_a_key_is_warned_about() {
+        let on = |network, rpc_url: &str| ToolkitConfig {
+            network,
+            rpc_url: rpc_url.to_string(),
+            ..ToolkitConfig::default()
+        };
+        let signet = on(
+            NetworkTarget::Signet,
+            "https://signet.subfrost.io/v4/jsonrpc",
+        );
+        let warning = unkeyed_subfrost_warning(&signet, None).unwrap();
+        assert!(warning.contains("SUBFROST_API_KEY is not set"));
+        assert!(warning.contains("20 requests a minute"));
+        assert!(warning.contains("signet"));
+        // An empty variable is not a key.
+        assert!(unkeyed_subfrost_warning(&signet, Some("  ")).is_some());
+
+        assert!(unkeyed_subfrost_warning(&signet, Some("sk-test")).is_none());
+        // Another provider's limits are not Subfrost's.
+        let own = on(NetworkTarget::Signet, "https://node.example/rpc");
+        assert!(unkeyed_subfrost_warning(&own, None).is_none());
+        // Labcoat Network and custom regtest are never warned.
+        assert!(unkeyed_subfrost_warning(&ToolkitConfig::default(), None).is_none());
+        let regtest = on(
+            NetworkTarget::Regtest,
+            "https://regtest.subfrost.io/v4/jsonrpc",
+        );
+        assert!(unkeyed_subfrost_warning(&regtest, None).is_none());
+    }
 
     fn abi_test_root(label: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()

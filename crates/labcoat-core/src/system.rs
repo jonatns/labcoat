@@ -106,7 +106,16 @@ pub struct ToolkitConfig {
     /// The project the command acts on: where `labcoat.lock`, `build/`, and
     /// `deploy.rs` are. `None` means the working directory.
     pub project_root: Option<PathBuf>,
+    /// How long a deploy or a call waits for its transaction to confirm on
+    /// a public network before reporting it as sent and not yet confirmed.
+    /// `None` is [`DEFAULT_CONFIRM_TIMEOUT`]. Regtest targets mine their
+    /// own block and never use it.
+    pub confirm_timeout: Option<std::time::Duration>,
 }
+
+/// Three average Bitcoin block intervals: long enough that a transaction
+/// paying a reasonable fee is almost always in a block by then.
+pub const DEFAULT_CONFIRM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 impl Default for ToolkitConfig {
     fn default() -> Self {
@@ -119,11 +128,17 @@ impl Default for ToolkitConfig {
             environment: "default".to_string(),
             labcoat_instance_id: None,
             project_root: None,
+            confirm_timeout: None,
         }
     }
 }
 
 impl ToolkitConfig {
+    /// How long to wait for a public-network transaction to confirm.
+    pub fn confirm_timeout(&self) -> std::time::Duration {
+        self.confirm_timeout.unwrap_or(DEFAULT_CONFIRM_TIMEOUT)
+    }
+
     /// The project root, falling back to the working directory.
     pub fn project_root(&self) -> PathBuf {
         self.project_root

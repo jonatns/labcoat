@@ -74,14 +74,36 @@ pub struct Progress {
 
 impl Progress {
     pub fn new(message: &str, enabled: bool) -> Self {
-        let target = if enabled && std::io::stderr().is_terminal() {
+        Self::with_template(
+            message,
+            enabled && std::io::stderr().is_terminal(),
+            "{spinner:.cyan} {msg}",
+        )
+    }
+
+    /// Report an RPC lookup on stderr, even when the output is redirected.
+    pub fn lookup(message: &str, animate: bool, color: ColorMode) -> Self {
+        let animate = animate && std::io::stderr().is_terminal();
+        if !animate {
+            print_progress(message, color);
+        }
+        let template = if stderr_ansi(color) {
+            "{spinner:.cyan} {msg} {elapsed_precise:.dim}"
+        } else {
+            "{spinner} {msg} {elapsed_precise}"
+        };
+        Self::with_template(message, animate, template)
+    }
+
+    fn with_template(message: &str, visible: bool, template: &str) -> Self {
+        let target = if visible {
             ProgressDrawTarget::stderr()
         } else {
             ProgressDrawTarget::hidden()
         };
         let bar = ProgressBar::with_draw_target(None, target);
         bar.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            ProgressStyle::with_template(template)
                 .expect("static progress template")
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
@@ -93,6 +115,81 @@ impl Progress {
     pub fn finish(self) {
         self.bar.finish_and_clear();
     }
+}
+
+/// The global flags this command ran with that a suggested command needs
+/// too, such as `--network signet`. Empty when it ran with the defaults.
+static COMMAND_SCOPE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Carry `flags` in every command the rest of this process suggests.
+pub fn set_command_scope(flags: String) {
+    let _ = COMMAND_SCOPE.set(flags);
+}
+
+fn scoped(text: &str) -> String {
+    match COMMAND_SCOPE.get() {
+        Some(flags) => scope_commands(text, flags),
+        None => text.to_string(),
+    }
+}
+
+/// Subcommands that act on the selected network or environment. The rest
+/// either control Labcoat Network, which takes no `--network`, or never
+/// reach a network.
+const SCOPED_COMMANDS: &[&str] = &[
+    "abi",
+    "balance",
+    "call",
+    "deploy",
+    "exchange",
+    "exchange-plan",
+    "exchange-settle",
+    "generate",
+    "import",
+    "lock",
+    "plan",
+    "simulate",
+    "state",
+    "trace",
+    "wallet",
+];
+
+/// Add `flags` to each `` `labcoat <command> ...` `` in `text` whose
+/// command acts on a network, so that a suggestion printed by
+/// `labcoat --network signet call` is not a command that looks on Labcoat
+/// Network. A suggestion that already names a network is left alone.
+fn scope_commands(text: &str, flags: &str) -> String {
+    const OPEN: &str = "`labcoat ";
+    if flags.is_empty() {
+        return text.to_string();
+    }
+    let mut output = String::with_capacity(text.len() + flags.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        let after = start + OPEN.len();
+        output.push_str(&rest[..after]);
+        rest = &rest[after..];
+        let span = rest.split('`').next().unwrap_or(rest);
+        let command = span.split_whitespace().next().unwrap_or_default();
+        if SCOPED_COMMANDS.contains(&command)
+            && !span.contains("--network")
+            && !span.contains("--environment")
+        {
+            output.push_str(flags);
+            output.push(' ');
+        }
+    }
+    output.push_str(rest);
+    output
+}
+
+/// Whether a deploy or call result is a transaction that was sent to a
+/// public network and had not confirmed when the command stopped waiting.
+pub fn sent_unconfirmed(value: &Value) -> bool {
+    value.get("confirmation").and_then(Value::as_str) == Some("pending")
+        || value
+            .get("awaitingConfirmation")
+            .is_some_and(|step| !step.is_null())
 }
 
 pub fn finish_contract(json: bool, command: &str, result: CmdResult, options: Options) -> i32 {
@@ -183,8 +280,8 @@ pub fn contract_envelope(command: &str, result: &CmdResult) -> Value {
             "schema": "labcoat/v1/error",
             "error": {
                 "code": error.code,
-                "message": error.message,
-                "hint": error.hint,
+                "message": scoped(&error.message),
+                "hint": scoped(error.hint),
             },
         }),
     }
@@ -200,7 +297,12 @@ pub fn print_value(command: &str, value: &Value, options: Options) {
     } else {
         100
     };
-    let document = build_document(command, value, options.verbose);
+    let mut document = build_document(command, value, options.verbose);
+    for block in &mut document.blocks {
+        if let Block::Note(_, text) = block {
+            *text = scoped(text);
+        }
+    }
     let rendered = render(&document, width, true);
     let choice = color_choice(options.color);
     let mut stream = AutoStream::new(std::io::stdout(), choice);
@@ -244,9 +346,32 @@ fn display_endpoint(url: &str) -> String {
 
 pub fn print_warning(message: &str, color: ColorMode) {
     write_stderr(
-        &format!("{}warning:{} {message}\n", style(Tone::Warning), reset()),
+        &format!(
+            "{}warning:{} {}\n",
+            style(Tone::Warning),
+            reset(),
+            scoped(message)
+        ),
         color,
     );
+}
+
+/// What to do next, after a warning that is not an error.
+pub fn print_hint(message: &str, color: ColorMode) {
+    write_stderr(
+        &format!(
+            "{}hint:{} {}\n",
+            style(Tone::Info),
+            reset(),
+            scoped(message)
+        ),
+        color,
+    );
+}
+
+/// A step of a long-running command, as it happens.
+pub fn print_progress(message: &str, color: ColorMode) {
+    write_stderr(&format!("{}›{} {message}\n", dim(), reset()), color);
 }
 
 fn print_typed_error(error: &EnvelopeError, color: ColorMode) {
@@ -255,10 +380,10 @@ fn print_typed_error(error: &EnvelopeError, color: ColorMode) {
         style(Tone::Error),
         error.code,
         reset(),
-        error.message,
+        scoped(&error.message),
         style(Tone::Info),
         reset(),
-        error.hint
+        scoped(error.hint)
     );
     write_stderr(&message, color);
 }
@@ -360,6 +485,8 @@ fn execution_document(command: &str, value: &Value, verbose: bool) -> Document {
     // No trace arrived in time: on a public network the transaction is
     // usually still waiting for a block.
     let unsettled = status != "revert" && status != "success";
+    // The wait for a public network's block ran out, or was stopped.
+    let unconfirmed = unsettled && sent_unconfirmed(value);
     document.headline(
         if reverted {
             Tone::Error
@@ -373,6 +500,8 @@ fn execution_document(command: &str, value: &Value, verbose: bool) -> Document {
             title(command),
             if reverted {
                 "reverted"
+            } else if unconfirmed {
+                "sent, not yet confirmed"
             } else if unsettled {
                 "sent, result not known yet"
             } else {
@@ -414,6 +543,22 @@ fn execution_document(command: &str, value: &Value, verbose: bool) -> Document {
     }
     important.extend(payment_fields(value));
     document.fields(important);
+    if unconfirmed {
+        let txid = string_at(value, "txid");
+        document.note(
+            Tone::Warning,
+            if command == "deploy" {
+                format!(
+                    "The transaction is sent and waiting for a block; nothing failed. The contract is not in labcoat.lock yet: run `labcoat trace {txid} --wait` once it confirms to see its id."
+                )
+            } else {
+                format!(
+                    "The transaction is sent and waiting for a block; nothing failed. Run `labcoat trace {txid} --wait` to see its result once it confirms."
+                )
+            },
+        );
+        return document;
+    }
     if verbose {
         document.fields(fields(
             value,
@@ -1226,10 +1371,23 @@ fn deploy_report_document(value: &Value) -> Document {
             )
         })
         .count();
-    document.headline(
-        Tone::Success,
-        format!("Executed {executed} of {} step(s)", actions.len()),
-    );
+    let awaiting = value
+        .get("awaitingConfirmation")
+        .filter(|step| !step.is_null());
+    match awaiting {
+        Some(step) => document.headline(
+            Tone::Warning,
+            format!(
+                "{} `{}` sent, not yet confirmed",
+                title(&string_at(step, "kind")),
+                string_at(step, "name")
+            ),
+        ),
+        None => document.headline(
+            Tone::Success,
+            format!("Executed {executed} of {} step(s)", actions.len()),
+        ),
+    }
     document.fields(fields(
         value,
         &[("Network", "network"), ("Chain", "chainId")],
@@ -1286,7 +1444,15 @@ fn deploy_report_document(value: &Value) -> Document {
             "A redeployed contract has a new id and empty storage; the earlier one stays on chain.",
         );
     }
-    if executed == 0 {
+    if let Some(step) = awaiting {
+        document.note(
+            Tone::Warning,
+            format!(
+                "Transaction {} is sent and waiting for a block; nothing failed. Run `labcoat deploy` again to wait for it and run the remaining steps.",
+                string_at(step, "txid")
+            ),
+        );
+    } else if executed == 0 {
         document.note(
             Tone::Info,
             "Nothing was pending, so nothing was broadcast. Name a contract or call in --replace to run it again.",
@@ -2090,6 +2256,126 @@ mod tests {
         assert!(output.contains("Call sent, result not known yet"));
         assert!(output.contains("labcoat trace ab --wait"));
         assert!(!output.contains("succeeded"));
+    }
+
+    #[test]
+    fn a_call_a_public_network_has_not_confirmed_is_sent_not_failed() {
+        let value = serde_json::json!({
+            "status": "unknown", "txid": "ab", "traces": null, "method": "increment",
+            "confirmation": "pending",
+        });
+        assert!(sent_unconfirmed(&value));
+        for verbose in [false, true] {
+            let output = render_plain("call", &value, verbose, 100);
+            assert!(
+                output.contains("! Call sent, not yet confirmed"),
+                "{output}"
+            );
+            assert!(output.contains("nothing failed"));
+            assert!(output.contains("`labcoat trace ab --wait`"));
+            assert!(!output.contains("succeeded") && !output.contains("error"));
+        }
+        // A --wasm deploy has one more thing to say: it is not recorded yet.
+        let output = render_plain("deploy", &value, false, 100);
+        assert!(output.contains("! Deploy sent, not yet confirmed"));
+        assert!(output.contains("not in labcoat.lock yet"));
+
+        // A settled result, or one from a regtest target, is not pending.
+        assert!(!sent_unconfirmed(
+            &serde_json::json!({"status": "success", "txid": "ab"})
+        ));
+        assert!(!sent_unconfirmed(
+            &serde_json::json!({"status": "unknown", "txid": "ab"})
+        ));
+    }
+
+    #[test]
+    fn a_deploy_stopped_at_an_unconfirmed_step_is_pending_not_an_error() {
+        let txid = "73c7d9682d8c881353979b78d60f14f2f18b26221c90bf5f9f7acf35a2ed0b97";
+        let value = serde_json::json!({
+            "network": "signet",
+            "actions": [
+                {"kind": "contract", "name": "token", "outcome": "executed", "id": "2:5", "txid": txid},
+                {"kind": "call", "name": "seed", "outcome": "sent", "txid": txid,
+                 "detail": "not yet confirmed"},
+            ],
+            "awaitingConfirmation": {"kind": "call", "name": "seed", "txid": txid},
+        });
+        assert!(sent_unconfirmed(&value));
+        let output = render_plain("deploy", &value, false, 100);
+        assert!(
+            output.contains("! Call `seed` sent, not yet confirmed"),
+            "{output}"
+        );
+        assert!(output.contains("seed") && output.contains("not yet confirmed"));
+        assert!(output.contains(&format!(
+            "Transaction {txid} is sent and waiting for a block"
+        )));
+        assert!(output.contains("nothing failed"));
+        assert!(output.contains("Run `labcoat deploy` again to wait for it"));
+        assert!(!output.contains("error") && !output.contains("DEPLOYMENT_BLOCKED"));
+        assert!(!output.contains("Nothing was pending"));
+    }
+
+    #[test]
+    fn suggested_commands_carry_the_network_and_environment_of_this_one() {
+        let signet = "--network signet";
+        assert_eq!(
+            scope_commands("Run `labcoat trace ab --wait` once it confirms.", signet),
+            "Run `labcoat --network signet trace ab --wait` once it confirms."
+        );
+        // Every network command in a hint, and only those: Labcoat Network's
+        // own commands take no --network, and `build` never reaches one.
+        assert_eq!(
+            scope_commands(
+                "run `labcoat up` for the built-in wallet, or `labcoat wallet init`; then `labcoat build` and `labcoat deploy`",
+                signet
+            ),
+            "run `labcoat up` for the built-in wallet, or `labcoat --network signet wallet init`; then `labcoat build` and `labcoat --network signet deploy`"
+        );
+        assert_eq!(
+            scope_commands(
+                "run `labcoat deploy` again",
+                "--network signet --environment staging"
+            ),
+            "run `labcoat --network signet --environment staging deploy` again"
+        );
+        // A suggestion that already names its network is left alone, and
+        // the defaults add nothing.
+        let named = "run `labcoat deploy --network mainnet`";
+        assert_eq!(scope_commands(named, signet), named);
+        assert_eq!(
+            scope_commands("run `labcoat deploy` again", ""),
+            "run `labcoat deploy` again"
+        );
+        // Prose that merely mentions the tool is not a command.
+        assert_eq!(
+            scope_commands("labcoat deploy ran", signet),
+            "labcoat deploy ran"
+        );
+    }
+
+    #[test]
+    fn every_hint_that_suggests_a_network_command_is_rewritten() {
+        // The hints the commands in this file print, as they are written.
+        let call = render_plain(
+            "call",
+            &serde_json::json!({"status": "unknown", "txid": "ab", "traces": null}),
+            false,
+            100,
+        );
+        let scoped = scope_commands(&call, "--network signet");
+        assert!(scoped.contains("`labcoat --network signet trace ab --wait`"));
+        assert!(!scoped.contains("`labcoat trace"));
+
+        let success = render_plain(
+            "call",
+            &serde_json::json!({"status": "success", "txid": "ab", "traces": []}),
+            false,
+            100,
+        );
+        let scoped = scope_commands(&success, "--network signet");
+        assert!(scoped.contains("`labcoat --network signet trace ab`"));
     }
 
     #[test]

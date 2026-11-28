@@ -383,7 +383,7 @@ fn api_key_check(set: bool, report: Option<&crate::dotenv::Report>, needed: bool
     }
 }
 
-pub async fn run() -> Vec<Check> {
+pub async fn run(target: Option<&crate::settings::ResolvedSettings>) -> Vec<Check> {
     let mut checks = Vec::new();
 
     // Toolchain
@@ -413,10 +413,9 @@ pub async fn run() -> Vec<Check> {
         let root = report.path.parent().unwrap_or(Path::new("."));
         checks.extend(dotenv_checks(report, git_state(root, crate::dotenv::FILE)));
     }
-    let subfrost = crate::settings::resolve(crate::settings::Overrides::default())
-        .is_ok_and(|settings| labcoat_core::system::is_subfrost(&settings.rpc_url));
+    let subfrost = target.is_some_and(|target| labcoat_core::system::is_subfrost(&target.rpc_url));
     checks.push(api_key_check(
-        std::env::var_os(crate::dotenv::API_KEY).is_some_and(|key| !key.is_empty()),
+        std::env::var(crate::dotenv::API_KEY).is_ok_and(|key| !key.trim().is_empty()),
         dotenv,
         subfrost,
     ));

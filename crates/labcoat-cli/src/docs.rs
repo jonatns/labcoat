@@ -217,8 +217,8 @@ const ERROR_CODES: &[(&str, &str, &str)] = &[
     ),
     (
         "RPC_REJECTED",
-        "the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit",
-        "set `SUBFROST_API_KEY` for Subfrost, or wait and retry",
+        "the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit; also reported when wallet outputs were left out of a transaction because the endpoint did not answer their Alkanes balance check",
+        "set `SUBFROST_API_KEY` for Subfrost, or wait a minute and retry",
     ),
     (
         "TOOLKIT_ERROR",
@@ -441,7 +441,7 @@ impl AgentReference {
             markdown.push_str(command);
             markdown.push('\n');
         }
-        markdown.push_str("```\n\n## Output modes\n\nHuman-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.\n\nEvery command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code. Two commands also use the exit code: `labcoat up --ci` exits non-zero unless Labcoat Network and its funded wallet are ready, and `labcoat doctor` exits non-zero when a check fails.\n\n```json\n{\"ok\":true,\"command\":\"status\",\"schema\":\"labcoat/v1/status\",\"result\":{}}\n{\"ok\":false,\"command\":\"deploy\",\"schema\":\"labcoat/v1/error\",\"error\":{\"code\":\"WALLET_MISSING\",\"message\":\"...\",\"hint\":\"run `labcoat wallet init` first\"}}\n```\n\n");
+        markdown.push_str("```\n\n## Output modes\n\nHuman-readable output is the default, including when stdout is redirected. Add `--verbose` for raw return data, ABI and artifact metadata, and complete traces. `--color auto|always|never` controls styling and `NO_COLOR` is honored.\n\nEvery command accepts `--json` and prints exactly one stable envelope on stdout for agents and automation. Logs and diagnostics go to stderr. When an envelope is printed, inspect its `ok` field instead of the process exit code. Two commands also use the exit code: `labcoat up --ci` exits non-zero unless Labcoat Network and its funded wallet are ready, and `labcoat doctor` exits non-zero when a check fails.\n\nWithout `--json`, `labcoat deploy` and `labcoat call` exit with code 3 when a transaction was sent to a public network and had not confirmed when the command stopped waiting (`--confirm-timeout`, or Ctrl-C during the wait). Nothing failed: 0 is done, 1 is an error, 3 is sent and not yet confirmed. Running `labcoat deploy` again waits for that transaction and carries on with the remaining steps. With `--json` the exit code stays 0 and the result says so: a call or a `--wasm` deploy has `confirmation: \"pending\"`, and a deploy.rs report has `awaitingConfirmation` naming the step and its transaction.\n\n```json\n{\"ok\":true,\"command\":\"status\",\"schema\":\"labcoat/v1/status\",\"result\":{}}\n{\"ok\":false,\"command\":\"deploy\",\"schema\":\"labcoat/v1/error\",\"error\":{\"code\":\"WALLET_MISSING\",\"message\":\"...\",\"hint\":\"run `labcoat wallet init` first\"}}\n```\n\n");
         markdown.push_str("Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `.env` in the project root → `labcoat.toml` → defaults. `.env` sets `SUBFROST_API_KEY` and supported `LABCOAT_*` settings. Set the project network in `labcoat.toml` or pass `--network`. `.env` ignores `LABCOAT_NETWORK` and refuses `LABCOAT_MNEMONIC`. String settings in `labcoat.toml` expand `${NAME}` from the environment, then `.env`.\n\n");
         markdown.push_str("## Commands\n\n");
         render_commands(&mut markdown, &self.commands, 3);
