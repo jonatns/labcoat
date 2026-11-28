@@ -73,9 +73,16 @@ case "$MODE" in
     export VITE_FEE_RATE=${3:-2}
     "$BIN" build --json >/dev/null
     "$BIN" generate web --network signet --out-dir "$WORK/web/src/generated" --json >/dev/null
-    export LABCOAT_RPC_TARGET=$(node -e '
-      const text = require("fs").readFileSync(process.argv[1], "utf8")
-      console.log(/rpcUrl: "([^"]+)"/.exec(text)[1])' "$WORK/web/src/generated/manifest.ts")
+    if [ -z "${LABCOAT_RPC_TARGET:-}" ]; then
+      LABCOAT_RPC_TARGET=$(node -e '
+        const text = require("fs").readFileSync(process.argv[1], "utf8")
+        console.log(/rpcUrl: "([^"]+)"/.exec(text)[1])' "$WORK/web/src/generated/manifest.ts")
+    fi
+    case "$LABCOAT_RPC_TARGET" in
+      http://*|https://*) ;;
+      *) echo "error: set LABCOAT_RPC_TARGET to the upstream RPC URL" >&2; exit 1 ;;
+    esac
+    export LABCOAT_RPC_TARGET
     ;;
   *)
     echo "usage: $0 [labcoat | signet <contract-id> [fee-rate]]" >&2
@@ -99,6 +106,6 @@ for package in lasereyes lasereyes-core lasereyes-react; do
 done
 echo "wallet check: type checks"
 npx tsc -p tsconfig.json
-echo "wallet check: $MODE, contract $VITE_CONTRACT, endpoint $LABCOAT_RPC_TARGET"
+echo "wallet check: $MODE, contract $VITE_CONTRACT"
 echo "wallet check: open http://localhost:${WALLET_CHECK_PORT:-5199}/ in the browser that has the wallets"
 npx vite

@@ -274,22 +274,39 @@ secondaryheight`.
 A page cannot call Subfrost's endpoints directly. They answer a CORS
 preflight, but the response to the request itself carries no
 `Access-Control-Allow-Origin` header, so the browser blocks it and the client
-throws `RPC_UNREACHABLE`. Serve a same-origin path that forwards to the
-manifest's `rpcUrl`, and create the client with that path. In a Next.js app:
+throws `RPC_UNREACHABLE`. Serve a same-origin path and create the client
+with that path. When `labcoat generate web` sets the manifest's `rpcUrl` to
+`/rpc` for a private endpoint, set `LABCOAT_RPC_TARGET` to the full upstream
+URL in the app server's environment. In a Next.js app:
 
 ```ts
 // app/rpc/route.ts
 import { MANIFEST } from '@/generated/web/manifest';
 
 export async function POST(request: Request) {
+  const rpcUrl = process.env.LABCOAT_RPC_TARGET ?? MANIFEST.rpcUrl;
+  const target = URL.canParse(rpcUrl) ? new URL(rpcUrl) : null;
+  if (!target || !['http:', 'https:'].includes(target.protocol)) {
+    return new Response('Set LABCOAT_RPC_TARGET to the upstream RPC URL', { status: 500 });
+  }
+
   const headers = new Headers({ 'content-type': 'application/json' });
   const key = process.env.SUBFROST_API_KEY;
-  if (key) headers.set('x-subfrost-api-key', key);
+  const subfrost = target.hostname === 'subfrost.io' || target.hostname.endsWith('.subfrost.io');
+  if (key && subfrost) headers.set('x-subfrost-api-key', key);
+  if (target.username || target.password) {
+    const user = decodeURIComponent(target.username);
+    const password = decodeURIComponent(target.password);
+    headers.set('authorization', 'Basic ' + Buffer.from(user + ':' + password).toString('base64'));
+    target.username = '';
+    target.password = '';
+  }
 
-  const upstream = await fetch(MANIFEST.rpcUrl, {
+  const upstream = await fetch(target, {
     method: 'POST',
     headers,
     body: await request.text(),
+    redirect: 'manual',
   });
 
   const answer = new Headers({ 'content-type': 'application/json' });
@@ -834,7 +851,9 @@ a page with every one of these paths behind its own buttons, using the
 recipes copied from this page. Run with no arguments it uses Labcoat Network
 and the stand-ins (open it with `?sim=unisat,xverse`); run as
 `generate-web-wallet-check.sh signet <counter-id>` it uses Subfrost's signet
-endpoint and the extensions in your browser.
+endpoint and the extensions in your browser. If the generated manifest
+uses `/rpc` for a private endpoint, supply `LABCOAT_RPC_TARGET` when
+starting the script.
 
 Before relying on a wallet, run this once on signet with the `LabcoatWallet`
 your app passes:

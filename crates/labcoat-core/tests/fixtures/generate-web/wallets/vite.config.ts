@@ -5,6 +5,14 @@ import { defineConfig } from "vite"
 
 const target = new URL(process.env["LABCOAT_RPC_TARGET"] ?? "http://127.0.0.1:18888")
 const key = process.env["SUBFROST_API_KEY"]
+const subfrost = target.hostname === "subfrost.io" || target.hostname.endsWith(".subfrost.io")
+const headers: Record<string, string> = {}
+if (key && subfrost) headers["x-subfrost-api-key"] = key
+if (target.username || target.password) {
+  const user = decodeURIComponent(target.username)
+  const password = decodeURIComponent(target.password)
+  headers["authorization"] = "Basic " + Buffer.from(user + ":" + password).toString("base64")
+}
 
 export default defineConfig({
   esbuild: { jsx: "automatic" },
@@ -16,8 +24,8 @@ export default defineConfig({
       "/rpc": {
         target: target.origin,
         changeOrigin: true,
-        rewrite: () => target.pathname,
-        ...(key === undefined || key === "" ? {} : { headers: { "x-subfrost-api-key": key } }),
+        rewrite: () => target.pathname + target.search,
+        headers,
       },
     },
   },
