@@ -290,7 +290,7 @@ pub(crate) async fn resume_deploy(
 /// Wait for a broadcast transaction's trace on a public network, where
 /// that means waiting for a block: paced for a hosted endpoint, for as long
 /// as the configuration allows, and reported as progress. `None` when the
-/// time ran out with the transaction still unconfirmed.
+/// wait ends with the transaction still unconfirmed.
 async fn confirmed_trace(
     provider: &ConcreteProvider,
     config: &ToolkitConfig,
@@ -298,16 +298,18 @@ async fn confirmed_trace(
     tx_hex: Option<&str>,
 ) -> Option<Vec<serde_json::Value>> {
     use crate::progress::{report, Event};
-    report(config, Event::Waiting { txid });
-    let traces = trace_mod::wait_for_trace_every(
-        provider,
-        txid,
-        tx_hex,
-        config.confirm_timeout(),
-        trace_mod::PUBLIC_POLL,
-    )
-    .await
-    .ok();
+    let (stop_waiting, stopped) = tokio::sync::oneshot::channel();
+    report(config, Event::Waiting { txid, stop_waiting });
+    let traces = tokio::select! {
+        result = trace_mod::wait_for_trace_every(
+            provider,
+            txid,
+            tx_hex,
+            config.confirm_timeout(),
+            trace_mod::PUBLIC_POLL,
+        ) => result.ok(),
+        Ok(()) = stopped => None,
+    };
     report(
         config,
         Event::WaitEnded {
@@ -575,7 +577,7 @@ mod tests {
                 "labcoat-toolkit-wait-{}/wallet.json",
                 std::process::id()
             )),
-            confirm_timeout: Some(std::time::Duration::ZERO),
+            confirm_timeout: Some(std::time::Duration::from_millis(25)),
             ..ToolkitConfig::default()
         };
         let provider = system::connect(&config, None, false).await.unwrap();
@@ -610,21 +612,35 @@ mod tests {
 
     #[tokio::test]
     async fn a_public_network_wait_that_runs_out_is_a_pending_outcome() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
         static EVENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+        static INTERRUPT: AtomicBool = AtomicBool::new(false);
         crate::progress::set_reporter(|event| {
             EVENTS.lock().unwrap().push(match event {
                 crate::progress::Event::Broadcast { kind, .. } => format!("broadcast {kind}"),
-                crate::progress::Event::Waiting { .. } => "waiting".to_string(),
+                crate::progress::Event::Waiting { stop_waiting, .. } => {
+                    if INTERRUPT.load(Ordering::Relaxed) {
+                        stop_waiting.send(()).unwrap();
+                    }
+                    "waiting".to_string()
+                }
                 crate::progress::Event::WaitEnded { confirmed, .. } => {
                     format!("ended confirmed={confirmed}")
                 }
             });
         });
 
-        let (config, provider) = offline(crate::NetworkTarget::Signet).await;
+        let (mut config, provider) = offline(crate::NetworkTarget::Signet).await;
         let result = broadcast_result();
         let txid = result.reveal_txid.clone();
-        let outcome = execution_outcome(&provider, &config, result, false).await;
+        let quickly = std::time::Duration::from_secs(1);
+        let outcome = tokio::time::timeout(
+            quickly,
+            execution_outcome(&provider, &config, result, false),
+        )
+        .await
+        .expect("the configured timeout is shorter than the poll interval");
         // Sent, not confirmed, and not a failure: the transaction id is
         // kept and the state is named.
         assert_eq!(outcome.txid, txid);
@@ -659,6 +675,22 @@ mod tests {
             },
         );
         assert_eq!(EVENTS.lock().unwrap().last().unwrap(), "broadcast commit");
+
+        INTERRUPT.store(true, Ordering::Relaxed);
+        config.confirm_timeout = Some(trace_mod::PUBLIC_POLL);
+        let result = broadcast_result();
+        let interrupted = tokio::time::timeout(
+            quickly,
+            execution_outcome(&provider, &config, result, false),
+        )
+        .await
+        .expect("the interrupt stops waiting before the timeout");
+        assert_eq!(interrupted.confirmation, Some("pending"));
+        assert_eq!(interrupted.txid, txid);
+        assert!(EVENTS
+            .lock()
+            .unwrap()
+            .ends_with(&["waiting".to_string(), "ended confirmed=false".to_string(),]));
     }
 
     #[test]

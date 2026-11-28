@@ -36,6 +36,7 @@ struct Wait {
     txid: String,
     started: Instant,
     bar: Option<ProgressBar>,
+    stop_waiting: tokio::sync::oneshot::Sender<()>,
 }
 
 #[derive(Default)]
@@ -52,8 +53,7 @@ pub fn install(command: Command, network: &str, color: ColorMode, json: bool) {
         Event::Broadcast { kind, txid } => {
             output::print_progress(&broadcast_line(kind, txid), color);
         }
-        Event::Waiting { txid } => {
-            interrupts.call_once(|| watch_interrupts(state.clone(), command, color));
+        Event::Waiting { txid, stop_waiting } => {
             let bar = spinner(&network, json);
             if bar.is_none() {
                 output::print_progress(&waiting_line(&network), color);
@@ -62,7 +62,9 @@ pub fn install(command: Command, network: &str, color: ColorMode, json: bool) {
                 txid: txid.to_string(),
                 started: Instant::now(),
                 bar,
+                stop_waiting,
             });
+            interrupts.call_once(|| watch_interrupts(state.clone(), command, color));
         }
         Event::WaitEnded { txid, confirmed } => {
             let wait = state.lock().expect("wait state").wait.take();
@@ -130,9 +132,8 @@ fn human(elapsed: Duration) -> String {
 /// What Ctrl-C during the wait prints. Nothing is undone, so it says so
 /// and names the command that picks the result up later.
 fn interrupted_message(command: Command, txid: &str) -> (String, String) {
-    let headline = format!(
-        "Stopped waiting. Transaction {txid} is already sent and confirms on its own; nothing was cancelled."
-    );
+    let headline =
+        format!("Stopped waiting. Transaction {txid} is already sent and can still confirm.");
     let next = match command {
         Command::DeploySteps => {
             "Run `labcoat deploy` again to wait for it and run the remaining steps.".to_string()
@@ -144,9 +145,9 @@ fn interrupted_message(command: Command, txid: &str) -> (String, String) {
     (headline, next)
 }
 
-/// From the first wait on, Ctrl-C is handled here. During a wait it ends
-/// the command cleanly; at any other moment it ends the process the way an
-/// unhandled Ctrl-C does.
+/// Ctrl-C during a confirmation wait returns control to the command so it
+/// can finish reporting the pending transaction. An interrupt outside a
+/// wait keeps the usual exit status.
 fn watch_interrupts(state: Arc<Mutex<State>>, command: Command, color: ColorMode) {
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_err() {
@@ -162,7 +163,7 @@ fn watch_interrupts(state: Arc<Mutex<State>>, command: Command, color: ColorMode
         let (headline, next) = interrupted_message(command, &wait.txid);
         output::print_warning(&headline, color);
         output::print_hint(&next, color);
-        std::process::exit(EXIT_SENT_UNCONFIRMED);
+        let _ = wait.stop_waiting.send(());
     });
 }
 
@@ -188,7 +189,7 @@ mod tests {
     fn stopping_the_wait_says_the_transaction_is_sent_and_what_to_run() {
         let (headline, next) = interrupted_message(Command::Call, "ab");
         assert!(headline.contains("Transaction ab is already sent"));
-        assert!(headline.contains("nothing was cancelled"));
+        assert!(headline.contains("can still confirm"));
         assert_eq!(next, "Run `labcoat trace ab --wait` to see its result.");
 
         let (_, next) = interrupted_message(Command::DeploySteps, "ab");

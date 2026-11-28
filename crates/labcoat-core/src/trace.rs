@@ -62,54 +62,56 @@ pub async fn wait_for_trace_every(
     timeout: std::time::Duration,
     interval: std::time::Duration,
 ) -> Result<Vec<serde_json::Value>> {
-    let started = std::time::Instant::now();
-    // Fetched at most once: a transaction's bytes do not change.
-    let mut tx_hex = tx_hex.map(str::to_owned);
-    loop {
-        let polled = match &tx_hex {
-            Some(hex) => trace_transaction(provider, hex).await,
-            None => match transaction_hex(provider, txid).await {
-                Ok(hex) => {
-                    let traced = trace_transaction(provider, &hex).await;
-                    tx_hex = Some(hex);
-                    traced
-                }
-                Err(error) => Err(error),
-            },
-        };
-        match polled {
-            Ok(Some(traces)) if !traces.is_empty() => {
-                let has_events = traces.iter().any(|trace| {
-                    let events = trace
-                        .get("trace")
-                        .or_else(|| trace.get("events"))
-                        .unwrap_or(trace);
-                    match events {
-                        serde_json::Value::Array(events) => !events.is_empty(),
-                        serde_json::Value::Object(event) => {
-                            event.contains_key("type") || event.contains_key("event")
-                        }
-                        _ => false,
+    tokio::time::timeout(timeout, async {
+        // Fetched at most once: a transaction's bytes do not change.
+        let mut tx_hex = tx_hex.map(str::to_owned);
+        loop {
+            let polled = match &tx_hex {
+                Some(hex) => trace_transaction(provider, hex).await,
+                None => match transaction_hex(provider, txid).await {
+                    Ok(hex) => {
+                        let traced = trace_transaction(provider, &hex).await;
+                        tx_hex = Some(hex);
+                        traced
                     }
-                });
-                if has_events {
-                    return Ok(traces);
+                    Err(error) => Err(error),
+                },
+            };
+            match polled {
+                Ok(Some(traces)) if !traces.is_empty() => {
+                    let has_events = traces.iter().any(|trace| {
+                        let events = trace
+                            .get("trace")
+                            .or_else(|| trace.get("events"))
+                            .unwrap_or(trace);
+                        match events {
+                            serde_json::Value::Array(events) => !events.is_empty(),
+                            serde_json::Value::Object(event) => {
+                                event.contains_key("type") || event.contains_key("event")
+                            }
+                            _ => false,
+                        }
+                    });
+                    if has_events {
+                        return traces;
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::debug!("trace not ready for {}: {}", txid, e);
                 }
             }
-            Ok(_) => {}
-            Err(e) => {
-                tracing::debug!("trace not ready for {}: {}", txid, e);
-            }
+            tokio::time::sleep(interval).await;
         }
-        if started.elapsed() > timeout {
-            return Err(LabcoatError::new(
-                "TRACE_TIMEOUT",
-                format!("no trace for {txid} after {timeout:?}"),
-                "is the Alkanes index synced? run `labcoat status`, then `labcoat trace <txid>`",
-            ));
-        }
-        tokio::time::sleep(interval).await;
-    }
+    })
+    .await
+    .map_err(|_| {
+        LabcoatError::new(
+            "TRACE_TIMEOUT",
+            format!("no trace for {txid} after {timeout:?}"),
+            "check that the Alkanes index is synced, then try `labcoat trace <txid> --wait`",
+        )
+    })
 }
 
 /// Read the transaction through the node's Esplora view, as the Alkanes

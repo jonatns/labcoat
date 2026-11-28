@@ -136,6 +136,34 @@ fn dotenv_cannot_select_the_network() {
 }
 
 #[test]
+fn doctor_checks_the_selected_rpc_and_keeps_the_key_source() {
+    let root = project("doctor-selected-rpc", "");
+    let check_target = |flags: &[&str]| {
+        let args = [&["--json"], flags, &["doctor"]].concat();
+        let output = labcoat(&root, &root, &args, &[]);
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+
+    let signet = check_target(&["--network", "signet"]);
+    assert_eq!(check(&signet, "Subfrost API key")["status"], "warn");
+    let custom = check_target(&[
+        "--network",
+        "signet",
+        "--rpc-url",
+        "https://rpc.example.test",
+    ]);
+    assert_eq!(check(&custom, "Subfrost API key")["status"], "ok");
+
+    std::fs::write(root.join(".env"), format!("SUBFROST_API_KEY={KEY}\n")).unwrap();
+    let keyed = check_target(&["--network", "signet"]);
+    assert_eq!(
+        check(&keyed, "Subfrost API key")["detail"],
+        "SUBFROST_API_KEY is set (from .env)"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn a_project_without_the_file_reports_no_key() {
     let root = project("missing", "");
     std::fs::remove_file(root.join(".env")).unwrap();

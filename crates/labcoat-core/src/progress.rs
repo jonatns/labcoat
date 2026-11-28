@@ -13,17 +13,20 @@
 use std::sync::OnceLock;
 
 /// One moment of a broadcast or of the wait that follows it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Event<'a> {
     /// The network accepted a transaction. `kind` is `transaction` for a
     /// call or a clone, `commit` and `reveal` for the two halves of a
     /// contract deploy.
     Broadcast { kind: &'static str, txid: &'a str },
     /// The transaction is sent; waiting for a block to confirm it and for
-    /// the Alkanes index to trace it.
-    Waiting { txid: &'a str },
-    /// The wait is over: `confirmed` when the trace arrived, otherwise the
-    /// time allowed ran out and the transaction is still unconfirmed.
+    /// the Alkanes index to trace it. Send on `stop_waiting` to end the
+    /// wait and let the command report its pending transaction.
+    Waiting {
+        txid: &'a str,
+        stop_waiting: tokio::sync::oneshot::Sender<()>,
+    },
+    /// The wait is over. `confirmed` indicates that the trace arrived.
     WaitEnded { txid: &'a str, confirmed: bool },
 }
 

@@ -1133,8 +1133,6 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
     }
 }
 
-/// Why `up --ci` cannot report success: the built-in wallet could not be
-/// prepared, or holds less than the balance `up` tops it up to.
 /// Print a deploy's or a call's result. A transaction that was sent and
 /// had not confirmed when the command stopped waiting is not a failure, but
 /// it is not done either: outside `--json`, where the envelope carries it
@@ -1195,6 +1193,8 @@ fn scope_flags(network: Option<&str>, environment: Option<&str>) -> String {
     flags.join(" ")
 }
 
+/// Why `up --ci` cannot report success: the built-in wallet could not be
+/// prepared, or holds less than the balance `up` tops it up to.
 fn ci_wallet_error(wallet: &serde_json::Value) -> Option<String> {
     if let Some(error) = wallet.get("error").and_then(serde_json::Value::as_str) {
         return Some(format!(
