@@ -74,14 +74,36 @@ pub struct Progress {
 
 impl Progress {
     pub fn new(message: &str, enabled: bool) -> Self {
-        let target = if enabled && std::io::stderr().is_terminal() {
+        Self::with_template(
+            message,
+            enabled && std::io::stderr().is_terminal(),
+            "{spinner:.cyan} {msg}",
+        )
+    }
+
+    /// Report an RPC lookup on stderr, even when the output is redirected.
+    pub fn lookup(message: &str, animate: bool, color: ColorMode) -> Self {
+        let animate = animate && std::io::stderr().is_terminal();
+        if !animate {
+            print_progress(message, color);
+        }
+        let template = if stderr_ansi(color) {
+            "{spinner:.cyan} {msg} {elapsed_precise:.dim}"
+        } else {
+            "{spinner} {msg} {elapsed_precise}"
+        };
+        Self::with_template(message, animate, template)
+    }
+
+    fn with_template(message: &str, visible: bool, template: &str) -> Self {
+        let target = if visible {
             ProgressDrawTarget::stderr()
         } else {
             ProgressDrawTarget::hidden()
         };
         let bar = ProgressBar::with_draw_target(None, target);
         bar.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            ProgressStyle::with_template(template)
                 .expect("static progress template")
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );

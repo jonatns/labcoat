@@ -694,7 +694,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             output::finish_contract(json, "test", result, output_options)
         }
         Commands::Wallet(cmd) => {
-            let (name, res) = contract::wallet(&ctx, cmd, json).await;
+            let (name, res) = contract::wallet(&ctx, cmd, json, spinner).await;
             output::finish_contract(json, name, res, output_options)
         }
         Commands::Build { package, out_dir } => {
@@ -897,7 +897,13 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Balance { address } => {
+            let progress = output::Progress::lookup(
+                &format!("Fetching token balances on {}…", ctx.config.network_id()),
+                spinner,
+                cli.color,
+            );
             let (cmd_name, res) = contract::balance(&ctx, &address).await;
+            progress.finish();
             output::finish_contract(json, cmd_name, res, output_options)
         }
         Commands::Trace { txid, wait } => {

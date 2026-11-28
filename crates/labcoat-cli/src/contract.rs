@@ -670,7 +670,12 @@ pub struct EnvelopeError {
 
 pub type CmdResult = Result<serde_json::Value, EnvelopeError>;
 
-pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, CmdResult) {
+pub async fn wallet(
+    ctx: &Ctx,
+    cmd: WalletCmd,
+    json: bool,
+    spinner: bool,
+) -> (&'static str, CmdResult) {
     match cmd {
         WalletCmd::Init {
             mnemonic_stdin,
@@ -723,7 +728,14 @@ pub async fn wallet(ctx: &Ctx, cmd: WalletCmd, json: bool) -> (&'static str, Cmd
         WalletCmd::Utxos => {
             let res = async {
                 let provider = ctx.wallet_provider().await?;
-                labcoat_core::wallet::utxos(&provider).await
+                let progress = crate::output::Progress::lookup(
+                    &format!("Scanning wallet UTXOs on {}…", ctx.config.network_id()),
+                    spinner,
+                    ctx.color,
+                );
+                let utxos = labcoat_core::wallet::utxos(&provider).await;
+                progress.finish();
+                utxos
             }
             .await;
             ("wallet-utxos", to_envelope(res))
