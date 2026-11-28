@@ -4,6 +4,8 @@ All notable Labcoat CLI and test-harness changes are documented here. Releases u
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/jonatns/labcoat/compare/cli-v0.4.0...cli-v0.5.0) - 2026-11-28
+
 ### Breaking changes
 
 - resolve a relative `--out-dir` or `--build-dir` typed for `labcoat generate web`, and a relative `--out-dir` typed for `labcoat build`, against the directory the command is run in, like every other path on the command line. 0.4.0 resolved them against the project root, so `labcoat generate web --out-dir src/generated` in `web/` wrote to `src/generated` at the project root, with nothing in the output saying so. Left out, the defaults are unchanged: `generated/web` and `build` in the project root, from any directory inside the project. Nothing changes for commands run in the project root; a script that runs these commands in a subdirectory with a relative directory needs the path adjusted. The MCP `build` and `generate_web` tools follow the same rule for `outDir` and `buildDir`
