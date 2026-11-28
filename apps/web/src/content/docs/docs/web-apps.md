@@ -538,9 +538,11 @@ addresses on another network.
 ### Check a browser wallet on signet
 
 Browser wallets are not exercised by Labcoat's own tests beyond stub
-providers, and no Labcoat test broadcasts on a public network: reads, funding,
-and the trace lookup were run against Subfrost's signet endpoint in November
-2026, and a signed broadcast was not. Before relying on one, run this once on signet, for each wallet
+providers, and no Labcoat test broadcasts on a public network. By hand, in
+November 2026, a write was signed in UniSat 1.8.5, broadcast through
+Subfrost's signet endpoint, and waited for; the other wallets were not
+tried, and the Subfrost wallet connected but has no signet network to sign
+on. Before relying on one, run this once on signet, for each wallet
 you support:
 
 1. Deploy to signet, run `labcoat generate web --network signet`, and serve
