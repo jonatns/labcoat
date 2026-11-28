@@ -7,7 +7,7 @@ This page takes a project that works on Labcoat Network and deploys it to
 Bitcoin signet through [Subfrost](https://subfrost.io)'s hosted endpoint. The
 examples use the Counter contract from `labcoat init`. Every command takes
 `--network signet`; to stop typing it, set `network = "signet"` in
-`labcoat.toml` or `LABCOAT_NETWORK=signet` in `.env`.
+`labcoat.toml`.
 
 What you need before the first transaction:
 

@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 
 pub const FILE: &str = ".env";
 pub const API_KEY: &str = "SUBFROST_API_KEY";
+const NETWORK: &str = "LABCOAT_NETWORK";
 pub const PASSPHRASE: &str = "LABCOAT_WALLET_PASSPHRASE";
 pub const MNEMONIC: &str = "LABCOAT_MNEMONIC";
 
@@ -22,7 +23,6 @@ pub const MNEMONIC: &str = "LABCOAT_MNEMONIC";
 /// anything else; those lines are left alone.
 const LOADED: &[&str] = &[
     API_KEY,
-    "LABCOAT_NETWORK",
     "LABCOAT_RPC_URL",
     "LABCOAT_WALLET_FILE",
     "LABCOAT_FEE_RATE",
@@ -74,10 +74,21 @@ impl Report {
                 lines.join(", ")
             ));
         }
-        if !self.ignored.is_empty() {
+        if self.ignored.iter().any(|name| name == NETWORK) {
+            warnings.push(format!(
+                "{file}: {NETWORK} is ignored in .env; set network in labcoat.toml or pass --network"
+            ));
+        }
+        let other_ignored: Vec<&str> = self
+            .ignored
+            .iter()
+            .map(String::as_str)
+            .filter(|&name| name != NETWORK)
+            .collect();
+        if !other_ignored.is_empty() {
             warnings.push(format!(
                 "{file}: {} cannot be set from .env and was ignored; set it in the environment",
-                self.ignored.join(", ")
+                other_ignored.join(", ")
             ));
         }
         warnings
@@ -252,13 +263,13 @@ static REPORT: OnceLock<Report> = OnceLock::new();
 /// apart from the report so that nothing that prints a report holds a value.
 static VALUES: OnceLock<Vec<(String, String)>> = OnceLock::new();
 
-/// Every assignment in `root/.env` except a seed phrase, in file order.
+/// Assignments available to TOML interpolation, in file order.
 fn file_values(root: &Path) -> Vec<(String, String)> {
     let Ok(text) = std::fs::read_to_string(root.join(FILE)) else {
         return Vec::new();
     };
     let (mut pairs, _) = parse(&text);
-    pairs.retain(|(name, _)| name != MNEMONIC);
+    pairs.retain(|(name, _)| name != MNEMONIC && name != NETWORK);
     pairs
 }
 
@@ -271,10 +282,10 @@ fn last_value(values: &[(String, String)], name: &str) -> Option<String> {
         .map(|(_, value)| value.clone())
 }
 
-/// A variable as `labcoat.toml` sees it: the environment, then any
-/// assignment in the project's `.env`, whatever its name. Names Labcoat
-/// does not read itself stay out of the process environment and reach a
-/// setting only where `labcoat.toml` asks for them.
+/// A variable as `labcoat.toml` sees it: the process environment, then the
+/// project's `.env`. The file cannot supply the reserved network override
+/// or a seed phrase. Other custom variables stay out of the process
+/// environment and reach a setting when TOML references them.
 pub fn var(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
@@ -344,7 +355,7 @@ mod tests {
     fn the_real_environment_wins_over_the_file() {
         let root = project(
             "precedence",
-            Some("SUBFROST_API_KEY=from-file\nLABCOAT_NETWORK=signet\nLABCOAT_FEE_RATE=5\n"),
+            Some("SUBFROST_API_KEY=from-file\nLABCOAT_SIGNER=keystore\nLABCOAT_FEE_RATE=5\n"),
         );
         let (report, assignments) = plan(&root, |name| match name {
             "SUBFROST_API_KEY" => Some("from-shell".into()),
@@ -352,10 +363,10 @@ mod tests {
             "LABCOAT_FEE_RATE" => Some(OsString::new()),
             _ => None,
         });
-        assert_eq!(assignments, [pair("LABCOAT_NETWORK", "signet")]);
-        assert_eq!(report.applied, ["LABCOAT_NETWORK"]);
+        assert_eq!(assignments, [pair("LABCOAT_SIGNER", "keystore")]);
+        assert_eq!(report.applied, ["LABCOAT_SIGNER"]);
         assert_eq!(report.shadowed, ["SUBFROST_API_KEY", "LABCOAT_FEE_RATE"]);
-        assert!(report.applied("LABCOAT_NETWORK") && report.shadowed(API_KEY));
+        assert!(report.applied("LABCOAT_SIGNER") && report.shadowed(API_KEY));
 
         let (report, assignments) = plan(&root, |_| None);
         assert_eq!(assignments.len(), 3);
@@ -440,10 +451,10 @@ mod tests {
     }
 
     #[test]
-    fn labcoat_toml_can_name_any_variable_in_the_file_except_a_seed_phrase() {
+    fn labcoat_toml_can_reference_custom_variables_from_the_file() {
         let root = project(
             "values",
-            Some("MY_RPC=http://first\nMY_RPC=http://mine\nLABCOAT_MNEMONIC=abandon about\n"),
+            Some("MY_RPC=http://first\nMY_RPC=http://mine\nLABCOAT_MNEMONIC=abandon about\nLABCOAT_NETWORK=mainnet\n"),
         );
         let values = file_values(&root);
         assert_eq!(
@@ -451,22 +462,21 @@ mod tests {
             Some("http://mine")
         );
         assert_eq!(last_value(&values, MNEMONIC), None);
+        assert_eq!(last_value(&values, NETWORK), None);
         assert_eq!(last_value(&values, "ABSENT"), None);
         // A name Labcoat does not read is not exported to the environment.
         let (report, assignments) = plan(&root, |_| None);
-        assert!(assignments.is_empty() && report.ignored.is_empty());
+        assert!(assignments.is_empty());
+        assert_eq!(report.ignored, [NETWORK]);
         std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn the_last_assignment_of_a_name_wins() {
-        let root = project(
-            "repeat",
-            Some("LABCOAT_NETWORK=signet\nLABCOAT_NETWORK=mainnet\n"),
-        );
+        let root = project("repeat", Some("LABCOAT_FEE_RATE=2\nLABCOAT_FEE_RATE=5\n"));
         let (report, assignments) = plan(&root, |_| None);
-        assert_eq!(assignments, [pair("LABCOAT_NETWORK", "mainnet")]);
-        assert_eq!(report.applied, ["LABCOAT_NETWORK"]);
+        assert_eq!(assignments, [pair("LABCOAT_FEE_RATE", "5")]);
+        assert_eq!(report.applied, ["LABCOAT_FEE_RATE"]);
         std::fs::remove_dir_all(root).ok();
     }
 

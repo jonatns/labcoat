@@ -57,10 +57,8 @@ fn doctor(dir: &Path, root: &Path, env: &[(&str, &str)]) -> serde_json::Value {
 
 #[test]
 fn settings_come_from_the_file_unless_the_environment_sets_them() {
-    let root = project(
-        "precedence",
-        &format!("SUBFROST_API_KEY={KEY}\nLABCOAT_NETWORK=signet\n"),
-    );
+    let root = project("precedence", &format!("SUBFROST_API_KEY={KEY}\n"));
+    std::fs::write(root.join("labcoat.toml"), "network = \"signet\"\n").unwrap();
     // Found from a subdirectory: the file belongs to the project root.
     let envelope = doctor(&root.join("contracts/counter"), &root, &[]);
     assert!(check(&envelope, "project config")["detail"]
@@ -77,7 +75,7 @@ fn settings_come_from_the_file_unless_the_environment_sets_them() {
             .unwrap()
             .split(" sets ")
             .nth(1),
-        Some("SUBFROST_API_KEY, LABCOAT_NETWORK")
+        Some("SUBFROST_API_KEY")
     );
 
     let envelope = doctor(
@@ -96,6 +94,44 @@ fn settings_come_from_the_file_unless_the_environment_sets_them() {
         check(&envelope, "Subfrost API key")["detail"],
         "SUBFROST_API_KEY is set (from the environment, over the one in .env)"
     );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn dotenv_cannot_select_the_network() {
+    let root = project("network-selection", "LABCOAT_NETWORK=mainnet\n");
+    let output = labcoat(&root, &root, &["--json", "doctor"], &[]);
+    let envelope = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(check(&envelope, "project config")["detail"]
+        .as_str()
+        .unwrap()
+        .contains("targets labcoat"));
+    assert!(check(&envelope, ".env")["detail"]
+        .as_str()
+        .unwrap()
+        .contains("set network in labcoat.toml or pass --network"));
+
+    for (network, endpoint, flags, env) in [
+        (
+            "signet",
+            "https://signet.subfrost.io/v4/jsonrpc",
+            ["--network", "signet"].as_slice(),
+            [].as_slice(),
+        ),
+        (
+            "mainnet",
+            "https://mainnet.subfrost.io/v4/jsonrpc",
+            [].as_slice(),
+            [("LABCOAT_NETWORK", "mainnet")].as_slice(),
+        ),
+    ] {
+        let args = [&["--json"], flags, &["generate", "web"]].concat();
+        let output = labcoat(&root, &root, &args, env);
+        let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(envelope["result"]["network"], network);
+        let manifest = std::fs::read_to_string(root.join("generated/web/manifest.ts")).unwrap();
+        assert!(manifest.contains(endpoint));
+    }
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -120,9 +156,10 @@ fn secrets_in_the_file_never_reach_any_output() {
     let root = project(
         "secrets",
         &format!(
-            "SUBFROST_API_KEY={KEY}\nLABCOAT_WALLET_PASSPHRASE={PASSPHRASE}\nLABCOAT_NETWORK=signet\nnot an assignment {KEY}\n"
+            "SUBFROST_API_KEY={KEY}\nLABCOAT_WALLET_PASSPHRASE={PASSPHRASE}\nnot an assignment {KEY}\n"
         ),
     );
+    std::fs::write(root.join("labcoat.toml"), "network = \"signet\"\n").unwrap();
     let wallet = root.join("no-such-wallet.json");
     let wallet = wallet.to_str().unwrap();
     let runs: &[&[&str]] = &[
@@ -152,7 +189,7 @@ fn secrets_in_the_file_never_reach_any_output() {
         &["--wallet-file", wallet, "wallet", "addresses"],
         &[],
     );
-    assert!(text(&output).contains("skipped line 4"));
+    assert!(text(&output).contains("skipped line 3"));
     std::fs::remove_dir_all(root).ok();
 }
 

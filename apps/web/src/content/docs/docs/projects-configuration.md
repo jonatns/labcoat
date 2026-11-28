@@ -80,11 +80,15 @@ the only file read: there is no `.env.local` and no per-network file.
 | `.env` may set | |
 |---|---|
 | `SUBFROST_API_KEY` | Sent to `subfrost.io` endpoints |
-| `LABCOAT_NETWORK`, `LABCOAT_RPC_URL`, `LABCOAT_WALLET_FILE`, `LABCOAT_FEE_RATE`, `LABCOAT_SIGNER`, `LABCOAT_ENVIRONMENT` | The settings above. A relative `LABCOAT_WALLET_FILE` is relative to the working directory, as it is in the environment; `wallet_file` in `labcoat.toml` is the one relative to the project |
+| `LABCOAT_RPC_URL`, `LABCOAT_WALLET_FILE`, `LABCOAT_FEE_RATE`, `LABCOAT_SIGNER`, `LABCOAT_ENVIRONMENT` | The settings above. A relative `LABCOAT_WALLET_FILE` is relative to the working directory, as it is in the environment; `wallet_file` in `labcoat.toml` is the one relative to the project |
 | `LABCOAT_PSBT_TIMEOUT_SECS` | How long `--signer psbt-file:<dir>` waits |
 | `LABCOAT_WALLET_PASSPHRASE` | Loaded; on mainnet each command that reads it from `.env` prints a warning |
 
-Everything else is left alone, so the file can be shared with other tools.
+Set the default network with `network` in `labcoat.toml`. Use `--network`
+or the shell variable `LABCOAT_NETWORK` for a command or CI run. Labcoat
+ignores `LABCOAT_NETWORK` in `.env`.
+
+The file can be shared with other tools.
 Another `LABCOAT_*` name, such as `LABCOAT_DATA_HOME` or `LABCOAT_RPC_PORT`,
 is not set from `.env`, and Labcoat says so in a warning.
 `LABCOAT_MNEMONIC` is refused: while `.env` sets it, commands stop with
@@ -106,10 +110,9 @@ rpc_url = "https://alkanes.example/${ALKANES_RPC_TOKEN}/jsonrpc"
 ALKANES_RPC_TOKEN=your-token
 ```
 
-`${NAME}` is looked up in the environment first and then in `.env`, where
-any name works, not only the ones in the table above. A name Labcoat does
-not read itself stays out of the commands it runs and reaches a setting only
-where `labcoat.toml` asks for it. `network`, `rpc_url`, `wallet_file`,
+`${NAME}` looks in the environment first and then in `.env`. Custom
+variables from the file stay out of child processes and reach a setting
+when `labcoat.toml` references them. `network`, `rpc_url`, `wallet_file`,
 `signer`, and `environment` expand variables; `fee_rate` is a number and
 does not. An unset or empty variable in a selected setting produces
 `CONFIG_INVALID` and names the variable. A flag or environment setting can
@@ -172,6 +175,20 @@ controls are not production-ready.
 Bitcoin regtest protocol rules underneath but is not Signet. The separate
 `regtest` selector is reserved for custom regtest RPC endpoints and is rejected
 with the default Labcoat endpoint.
+
+When you work across chains, keep a separate [deployment environment](/docs/deployment-state/#environments)
+for each:
+
+```bash
+labcoat --network labcoat --environment local plan
+labcoat --network signet --environment staging plan
+labcoat --network mainnet --environment production plan
+```
+
+Signet and mainnet select their own Subfrost endpoint by default. Use
+`--rpc-url` on a command with a different provider. A global `LABCOAT_RPC_URL`
+applies to every selected network, so leave it unset when switching between
+the default endpoints.
 
 ## Wallets
 
