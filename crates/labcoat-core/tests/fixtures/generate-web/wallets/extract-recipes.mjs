@@ -1,5 +1,5 @@
-// Copies the wallet recipes out of the Web apps page, as written, so the
-// page that runs against a wallet runs the code the documentation shows.
+// Extracts the wallet integration examples so the check page runs the
+// same code shown in the documentation.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 
 const [page, outDir] = process.argv.slice(2)

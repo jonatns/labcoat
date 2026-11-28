@@ -56,7 +56,7 @@ Current:
 - deployment scripts with `deploy.rs`, `plan`, `deploy`, and `import`, the
   standard upgradeable proxy and beacon contracts, plus network e2e tests;
 - atomic two-wallet exchanges, locally or through a PSBT ceremony;
-- generated TypeScript read clients (`labcoat generate web`);
+- generated TypeScript clients for reads and wallet-signed writes (`labcoat generate web`);
 - local durable deployment state (`labcoat state`);
 - project pin upgrades (`labcoat upgrade`).
 

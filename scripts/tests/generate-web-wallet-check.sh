@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Serves a page that signs writes from the generated web client through real
 # wallet libraries, for the checks no automated test can make: the LaserEyes
-# and Sats Connect recipes on the Web apps page (copied from the page as
+# and Sats Connect recipes in the Wallet integrations guide (copied from the page as
 # written), and the built-in extension adapters.
 #
 #   generate-web-wallet-check.sh
@@ -92,7 +92,7 @@ esac
 export VITE_CONTRACT
 
 cd "$WORK/web"
-node extract-recipes.mjs "$ROOT/apps/web/src/content/docs/docs/web-apps.md" src/recipes
+node extract-recipes.mjs "$ROOT/apps/web/src/content/docs/docs/web-wallets.md" src/recipes
 echo "wallet check: installing the wallet libraries"
 npm install --no-audit --no-fund --ignore-scripts --silent
 # LaserEyes ships self-contained bundles, and one of its dependencies no
