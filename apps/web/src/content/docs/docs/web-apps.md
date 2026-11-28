@@ -35,6 +35,10 @@ labcoat generate web --out-dir src/generated/web
 The command prints the directories it used as absolute paths (`Out dir` and
 `Build dir`; `outDir` and `buildDir` with `--json`).
 
+This page is the reference. To build a page step by step, from `labcoat init`
+to a signed transaction in the browser, follow the
+[web app tutorial](/docs/tutorials/web-app/).
+
 ## What it writes
 
 ```text
@@ -52,6 +56,10 @@ Every file begins with a "do not edit" header. Regenerating deletes only files
 carrying that header, so hand-written files in the same directory survive and
 removed contracts leave no stale modules. Commit the output or regenerate it
 in your build.
+
+The files need TypeScript 4.9 or newer and a `target` of ES2020 or later in
+`tsconfig.json`, because they use `bigint` literals. A new Next.js app targets
+ES2017; raise it, or type checking fails with TS2737 in every generated file.
 
 ## Read contract state
 

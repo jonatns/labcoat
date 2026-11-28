@@ -26,12 +26,12 @@ export interface AtomicExchangeRequest {
 }
 
 export class ExchangeRequestError extends Error {
-  constructor(
-    public readonly code: "EXCHANGE_REQUEST_INVALID",
-    message: string,
-  ) {
+  readonly code: "EXCHANGE_REQUEST_INVALID"
+
+  constructor(code: "EXCHANGE_REQUEST_INVALID", message: string) {
     super(message)
     this.name = "ExchangeRequestError"
+    this.code = code
   }
 }
 

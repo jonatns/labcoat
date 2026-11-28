@@ -96,8 +96,11 @@ function pushProtoBytesField(out: number[], field: number, value: Uint8Array): v
 /** Minimal protobuf wire reader (varint + length-delimited + fixed skips). */
 class ProtoReader {
   private offset = 0
+  private readonly bytes: Uint8Array
 
-  constructor(private readonly bytes: Uint8Array) {}
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes
+  }
 
   atEnd(): boolean {
     return this.offset >= this.bytes.length

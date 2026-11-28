@@ -677,8 +677,11 @@ function pushProtoBytesField(out: number[], field: number, value: Uint8Array): v
 /** Minimal protobuf wire reader (varint + length-delimited + fixed skips). */
 class ProtoReader {
   private offset = 0
+  private readonly bytes: Uint8Array
 
-  constructor(private readonly bytes: Uint8Array) {}
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes
+  }
 
   atEnd(): boolean {
     return this.offset >= this.bytes.length
@@ -2726,12 +2729,12 @@ export interface AtomicExchangeRequest {
 }
 
 export class ExchangeRequestError extends Error {
-  constructor(
-    public readonly code: "EXCHANGE_REQUEST_INVALID",
-    message: string,
-  ) {
+  readonly code: "EXCHANGE_REQUEST_INVALID"
+
+  constructor(code: "EXCHANGE_REQUEST_INVALID", message: string) {
     super(message)
     this.name = "ExchangeRequestError"
+    this.code = code
   }
 }
 

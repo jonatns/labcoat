@@ -20,6 +20,7 @@ Source: https://github.com/jonatns/labcoat
 - [Tutorial: your first contract](https://labcoat.sh/docs/tutorials/first-contract/): Read the starter Counter, deploy and call it, then add a method
 - [Tutorial: tokens and exchanges](https://labcoat.sh/docs/tutorials/token-exchange/): Write a token, deploy two copies with deploy.rs, and swap atomically
 - [Tutorial: an upgradeable contract](https://labcoat.sh/docs/tutorials/upgradeable-contract/): Put a contract behind a beacon proxy and upgrade it
+- [Tutorial: a web app](https://labcoat.sh/docs/tutorials/web-app/): Show a contract's state in a browser page and change it with a signed transaction, with no wallet extension
 - [Automation](https://labcoat.sh/docs/automation/): JSON envelopes and MCP
 
 ## Build with Labcoat
