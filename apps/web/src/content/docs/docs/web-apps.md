@@ -415,10 +415,11 @@ to its own output first.
   [dev signer](/docs/labcoat-network/#dev-signer). There is no extension and
   no prompt.
 - On any other network it is the first installed browser wallet of UniSat,
-  Xverse, OKX Wallet, and Leather, which asks the person to connect.
+  Xverse, OKX Wallet, Leather, and Subfrost, which asks the person to connect.
 
 The same line serves both, so an app has no local-only code path. To choose,
-pass `{ wallet: 'xverse' }` (or `'dev'`, `'unisat'`, `'okx'`, `'leather'`);
+pass `{ wallet: 'xverse' }` (or `'dev'`, `'unisat'`, `'okx'`, `'leather'`,
+`'subfrost'`);
 `labcoat.availableWallets()` lists what this page can connect to.
 
 A wallet is any object with three members, so an app can bring its own:
@@ -565,9 +566,21 @@ The adapters were written against UniSat's `window.unisat` wallet API
 (`requestAccounts`, `getPublicKey`, `getChain`, `signPsbt`), Xverse's Sats
 Connect methods on `window.XverseProviders.BitcoinProvider` (`wallet_connect`,
 `signPsbt`; WBIP001), OKX's `window.okxwallet.bitcoin`, `bitcoinTestnet`, and
-`bitcoinSignet` providers (extension 2.77.1 or later), and Leather's
+`bitcoinSignet` providers (extension 2.77.1 or later), Leather's
 `window.LeatherProvider` (`getAddresses`, `signPsbt`; `@leather.io/rpc`
-2.25), as documented in November 2026.
+2.25), and Subfrost's `window.subfrost` (`requestAccounts`,
+`getPublicKey`, `signPsbt`), as documented in November 2026.
+
+The Subfrost wallet differs from the others in three ways:
+
+- It reports the one address selected in the wallet, and that has to be its
+  taproot address.
+- A declined prompt and any other failure arrive the same way, so both throw
+  `WalletRejectedError`. Only a prompt left unanswered for 60 seconds is told
+  apart, as `WALLET_ERROR`.
+- It may raise a fee it finds too low by changing the transaction. The client
+  refuses to broadcast a transaction it did not build, so the write fails
+  with `WALLET_ERROR`; pass a `feeRate` at least as high as the wallet's own.
 
 ## Detect a reset chain
 

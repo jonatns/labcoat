@@ -40,6 +40,7 @@ import {
   browserWallet,
   installedBrowserWallets,
   leatherWallet,
+  subfrostWallet,
   okxWallet,
   unisatWallet,
   xverseWallet,
@@ -1105,7 +1106,60 @@ test("Leather: addresses by type, hex PSBTs, rejection", async () => {
   await assert.rejects(wallet.signPsbt(signing), rejected("Leather"))
 })
 
+test("Subfrost: the selected taproot address, hex PSBTs, network from the address, rejection", async () => {
+  const seen: unknown[][] = []
+  const signet = "tb1pz9vq0dgghu69wrhv4435ps5d5a3rwl4rr9s539d7avzlzqpg4naq2q2a3k"
+  const subfrost = {
+    requestAccounts: async () => [signet],
+    getPublicKey: async () => "11".repeat(32),
+    // The extension answers "mainnet" whatever it is on.
+    getNetwork: async () => "mainnet",
+    signPsbt: async (...args: unknown[]) => {
+      seen.push(args)
+      return "70736274ff00"
+    },
+  }
+  const wallet = subfrostWallet("signet", { subfrost })
+  assert.equal(wallet.name, "Subfrost")
+  assert.deepEqual(await wallet.getAccounts(), [{ address: signet, publicKey: "11".repeat(32) }])
+  assert.deepEqual(await wallet.signPsbt(signing), { psbt: "70736274ff00" })
+  assert.deepEqual(seen, [[PSBT_HEX]])
+
+  await assert.rejects(
+    subfrostWallet("mainnet", { subfrost }).getAccounts(),
+    /Subfrost is on another network: tb1p\S+ is not a mainnet address; switch the wallet to mainnet/,
+  )
+  const segwit = { ...subfrost, requestAccounts: async () => ["tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"] }
+  await assert.rejects(subfrostWallet("signet", { subfrost: segwit }).getAccounts(), /select its taproot address/)
+
+  // A declined prompt has no code of its own.
+  const declining = {
+    ...subfrost,
+    requestAccounts: async () => Promise.reject(new Error("[UNKNOWN_ERROR] El usuario rechazó la solicitud")),
+    signPsbt: async () => Promise.reject(new Error("[UNKNOWN_ERROR] El usuario rechazó la solicitud")),
+  }
+  await assert.rejects(subfrostWallet("signet", { subfrost: declining }).getAccounts(), rejected("Subfrost"))
+  await assert.rejects(subfrostWallet("signet", { subfrost: declining }).signPsbt(signing), rejected("Subfrost"))
+
+  const silent = {
+    ...subfrost,
+    signPsbt: async () => Promise.reject(new Error("[REQUEST_TIMEOUT] subfrost: request timed out")),
+  }
+  await assert.rejects(subfrostWallet("signet", { subfrost: silent }).signPsbt(signing), (error: unknown) => {
+    assert.ok(error instanceof LabcoatClientError && !(error instanceof WalletRejectedError))
+    assert.equal(error.code, "WALLET_ERROR")
+    assert.match(error.message, /did not answer in time/)
+    return true
+  })
+  await assert.rejects(
+    subfrostWallet("signet", {}).getAccounts(),
+    (error: unknown) => error instanceof LabcoatClientError && error.code === "WALLET_UNAVAILABLE",
+  )
+})
+
 test("installed wallets are found by their globals", () => {
+  assert.deepEqual(installedBrowserWallets({ subfrost: {} }), ["subfrost"])
+  assert.equal(browserWallet("subfrost", "signet", { subfrost: {} }).name, "Subfrost")
   const host = { LeatherProvider: {}, unisat: {}, okxwallet: undefined }
   assert.deepEqual(installedBrowserWallets(host), ["unisat", "leather"])
   assert.equal(browserWallet("xverse", "mainnet", host).name, "Xverse")

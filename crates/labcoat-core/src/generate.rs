@@ -1877,7 +1877,7 @@ export class LabcoatWebClient {
         "WALLET_UNAVAILABLE",
         network === "regtest"
           ? "no wallet found: start Labcoat Network with `labcoat up` and open the app at http://localhost:<port>, or install a browser wallet"
-          : "no wallet found: install UniSat, Xverse, OKX Wallet, or Leather, or pass your own wallet to the call",
+          : "no wallet found: install UniSat, Xverse, OKX Wallet, Leather, or Subfrost, or pass your own wallet to the call",
       )
     }
     await wallet.getAccounts()
