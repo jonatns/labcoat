@@ -3,7 +3,6 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-const DEFAULT_NETWORK: &str = "labcoat";
 /// Labcoat Network's endpoint on its default port.
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:18443";
 const DEFAULT_ENVIRONMENT: &str = "default";
@@ -19,40 +18,10 @@ fn labcoat_network_rpc_url() -> String {
 struct ProjectConfig {
     network: Option<String>,
     rpc_url: Option<String>,
-    /// Set by `expand`, never read from the file.
-    #[serde(skip)]
-    rpc_url_secrets: Vec<String>,
     wallet_file: Option<PathBuf>,
     fee_rate: Option<f32>,
     signer: Option<String>,
     environment: Option<String>,
-}
-
-impl ProjectConfig {
-    /// Replace each `${NAME}` in a string setting with that variable.
-    fn expand(mut self, vars: &impl Fn(&str) -> Option<String>) -> Result<Self, String> {
-        let text = |key: &str, value: Option<String>| {
-            value
-                .map(|value| expand(key, &value, vars).map(|(expanded, _)| expanded))
-                .transpose()
-        };
-        self.network = text("network", self.network)?;
-        if let Some(rpc_url) = self.rpc_url.take() {
-            let (expanded, ranges) = expand("rpc_url", &rpc_url, vars)?;
-            self.rpc_url_secrets = crate::redact::secret_parts(&expanded, &ranges);
-            self.rpc_url = Some(expanded);
-        }
-        self.signer = text("signer", self.signer)?;
-        self.environment = text("environment", self.environment)?;
-        self.wallet_file = match self.wallet_file {
-            Some(path) => match path.to_str() {
-                Some(value) => Some(PathBuf::from(expand("wallet_file", value, vars)?.0)),
-                None => Some(path),
-            },
-            None => None,
-        };
-        Ok(self)
-    }
 }
 
 /// `value` with every `${NAME}` replaced by the variable it names, and the
@@ -99,6 +68,8 @@ pub struct ResolvedSettings {
     /// The parts of `rpc_url` that `labcoat.toml` took from a variable,
     /// which no output shows.
     pub rpc_url_secrets: Vec<String>,
+    /// Keep the upstream URL server-side when generating a browser client.
+    pub private_rpc_url: bool,
 }
 
 #[derive(Default)]
@@ -125,7 +96,13 @@ pub fn resolve_at(root: &Path) -> Result<ResolvedSettings, String> {
 }
 
 fn resolve_in(root: &Path, overrides: Overrides<'_>) -> Result<ResolvedSettings, String> {
-    let resolved = resolve_in_with(root, overrides, crate::dotenv::var)?;
+    let rpc_from_dotenv = overrides.rpc_url.is_none()
+        && crate::dotenv::report().is_some_and(|report| report.applied("LABCOAT_RPC_URL"));
+    let mut resolved = resolve_in_with(root, overrides, crate::dotenv::var)?;
+    resolved.private_rpc_url |= rpc_from_dotenv;
+    if resolved.private_rpc_url {
+        crate::redact::register_endpoint(&resolved.rpc_url);
+    }
     crate::redact::register(&resolved.rpc_url_secrets);
     Ok(resolved)
 }
@@ -144,27 +121,36 @@ fn resolve_with_local_url(
     env: impl Fn(&str) -> Option<String>,
     local_rpc_url: &str,
 ) -> Result<ResolvedSettings, String> {
-    let config = load(root)?.expand(&env)?;
-    let rpc_url_secrets = config.rpc_url_secrets.clone();
-    let network_value = choose_string(
-        overrides.network,
-        env("LABCOAT_NETWORK"),
-        config.network.clone(),
-        DEFAULT_NETWORK,
-    );
-    let network = NetworkTarget::from_str(&network_value)?;
-    // labcoat.toml describes one network. Its endpoint must not follow a
-    // `--network` override to a different chain.
-    let file_network = config
-        .network
-        .as_deref()
-        .map_or(Ok(NetworkTarget::Labcoat), NetworkTarget::from_str)?;
-    let rpc_url = choose_string(
-        overrides.rpc_url,
-        env("LABCOAT_RPC_URL"),
-        config.rpc_url.filter(|_| file_network == network),
-        default_rpc_url(network, local_rpc_url),
-    );
+    let config = load(root)?;
+    let file_network = || {
+        let Some(value) = config.network.as_deref() else {
+            return Ok(NetworkTarget::Labcoat);
+        };
+        let (value, _) = expand("network", value, &env)?;
+        NetworkTarget::from_str(&value)
+    };
+    let network = match override_string(overrides.network, env("LABCOAT_NETWORK")) {
+        Some(value) => NetworkTarget::from_str(&value)?,
+        None => file_network()?,
+    };
+    // A project endpoint belongs to the network declared in that file.
+    // Once a higher-priority source selects another network or endpoint,
+    // variables in the unused TOML endpoint need not be set.
+    let (rpc_url, rpc_ranges) = match override_string(overrides.rpc_url, env("LABCOAT_RPC_URL")) {
+        Some(value) => (value, Vec::new()),
+        None => match config
+            .rpc_url
+            .filter(|_| file_network().ok() == Some(network))
+        {
+            Some(value) => expand("rpc_url", &value, &env)?,
+            None => (
+                default_rpc_url(network, local_rpc_url).to_string(),
+                Vec::new(),
+            ),
+        },
+    };
+    let rpc_url_secrets = crate::redact::secret_parts(&rpc_url, &rpc_ranges);
+    let private_rpc_url = !rpc_ranges.is_empty() || crate::redact::has_url_credentials(&rpc_url);
     let rpc_url = if rpc_url == "subfrost" {
         subfrost_rpc_url(network)
             .ok_or_else(|| {
@@ -184,14 +170,21 @@ fn resolve_with_local_url(
                 .to_string(),
         );
     }
-    let wallet_file = overrides
+    let wallet_file = match overrides
         .wallet_file
         .map(PathBuf::from)
         .or_else(|| env("LABCOAT_WALLET_FILE").map(PathBuf::from))
-        // A path in labcoat.toml is relative to that file, so it names the
-        // same keystore from any directory of the project.
-        .or(config.wallet_file.map(|path| root.join(path)))
-        .unwrap_or_else(|| crate::local_wallet::default_path(network));
+    {
+        Some(path) => path,
+        None => match config.wallet_file {
+            // A path from TOML is relative to the project root.
+            Some(path) => match path.to_str() {
+                Some(value) => root.join(expand("wallet_file", value, &env)?.0),
+                None => root.join(path),
+            },
+            None => crate::local_wallet::default_path(network),
+        },
+    };
     if network != NetworkTarget::Labcoat && crate::local_wallet::is_built_in(&wallet_file) {
         return Err(format!(
             "the built-in Labcoat Network wallet cannot be used on {}; its passphrase is public. Create a wallet for this network with `labcoat --network {} wallet init`",
@@ -199,31 +192,29 @@ fn resolve_with_local_url(
             network.id()
         ));
     }
-    let env_fee_rate = env("LABCOAT_FEE_RATE")
-        .filter(|value| !value.is_empty())
-        .map(|value| {
-            value
+    let fee_rate = match overrides.fee_rate {
+        Some(value) => value,
+        None => match override_string(None, env("LABCOAT_FEE_RATE")) {
+            Some(value) => value
                 .parse::<f32>()
-                .map_err(|_| format!("invalid LABCOAT_FEE_RATE value `{value}`"))
-        })
-        .transpose()?;
-    let fee_rate = overrides
-        .fee_rate
-        .or(env_fee_rate)
-        .or(config.fee_rate)
-        .or(Some(2.0));
-    let signer = choose_string(
-        overrides.signer,
-        env("LABCOAT_SIGNER"),
+                .map_err(|_| format!("invalid LABCOAT_FEE_RATE value `{value}`"))?,
+            None => config.fee_rate.unwrap_or(2.0),
+        },
+    };
+    let signer = resolve_string(
+        "signer",
+        override_string(overrides.signer, env("LABCOAT_SIGNER")),
         config.signer,
         "keystore",
-    );
-    let environment = choose_string(
-        overrides.environment,
-        env("LABCOAT_ENVIRONMENT"),
+        &env,
+    )?;
+    let environment = resolve_string(
+        "environment",
+        override_string(overrides.environment, env("LABCOAT_ENVIRONMENT")),
         config.environment,
         DEFAULT_ENVIRONMENT,
-    );
+        &env,
+    )?;
     labcoat_core::state::validate_environment_name(&environment)
         .map_err(|e| format!("{}: {}", e.message, e.hint))?;
 
@@ -231,10 +222,11 @@ fn resolve_with_local_url(
         network,
         rpc_url,
         wallet_file,
-        fee_rate,
+        fee_rate: Some(fee_rate),
         signer,
         environment,
         rpc_url_secrets,
+        private_rpc_url,
     })
 }
 
@@ -269,19 +261,27 @@ pub fn labcoat_network() -> ResolvedSettings {
         signer: "keystore".to_string(),
         environment: DEFAULT_ENVIRONMENT.to_string(),
         rpc_url_secrets: Vec::new(),
+        private_rpc_url: false,
     }
 }
 
-fn choose_string(
-    cli: Option<&str>,
-    env: Option<String>,
+fn override_string(cli: Option<&str>, env: Option<String>) -> Option<String> {
+    cli.map(str::to_owned)
+        .or_else(|| env.filter(|value| !value.is_empty()))
+}
+
+fn resolve_string(
+    key: &str,
+    selected_override: Option<String>,
     file: Option<String>,
     default: &str,
-) -> String {
-    cli.map(str::to_owned)
-        .or_else(|| env.filter(|v| !v.is_empty()))
-        .or(file)
-        .unwrap_or_else(|| default.to_owned())
+    env: &impl Fn(&str) -> Option<String>,
+) -> Result<String, String> {
+    match (selected_override, file) {
+        (Some(value), _) => Ok(value),
+        (None, Some(value)) => expand(key, &value, env).map(|(value, _)| value),
+        (None, None) => Ok(default.to_string()),
+    }
 }
 
 fn load(root: &Path) -> Result<ProjectConfig, String> {

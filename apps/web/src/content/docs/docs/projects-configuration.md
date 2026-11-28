@@ -111,33 +111,20 @@ any name works, not only the ones in the table above. A name Labcoat does
 not read itself stays out of the commands it runs and reaches a setting only
 where `labcoat.toml` asks for it. `network`, `rpc_url`, `wallet_file`,
 `signer`, and `environment` expand variables; `fee_rate` is a number and
-does not. A variable that is unset or empty stops the command with
-`CONFIG_INVALID`, which names the variable.
+does not. An unset or empty variable in a selected setting produces
+`CONFIG_INVALID` and names the variable. A flag or environment setting can
+override a TOML value even when that value references a missing variable.
 
-Labcoat uses the expanded `rpc_url` to make requests and shows it nowhere
-else. The parts that came from a variable read `[redacted]` in the line a
-command prints before it writes, in `labcoat doctor`, in results and error
-messages with or without `--json`, in `--verbose` logs, and in answers from
-`labcoat mcp serve`:
+Labcoat uses the resolved upstream URL for CLI requests. When a URL comes
+from `LABCOAT_RPC_URL` in `.env`, uses TOML interpolation, or includes
+userinfo, a query, or a fragment, the generated web manifest uses `/rpc`
+and keeps the upstream's JSON-RPC dialect. Configure your app server to
+forward that route to the full URL from its own environment. The browser
+only needs the route. Labcoat masks private endpoint paths in diagnostics
+while keeping the scheme and host visible.
 
-```text
-network: signet (https://alkanes.example/[redacted]/jsonrpc)
-```
-
-The scheme and host always stay readable, including when a variable holds
-the whole URL, so that line still says where a write is headed. A part
-shorter than 8 characters, such as a port or `v1`, is left as it is.
-
-`labcoat generate web` writes the same redacted URL to the manifest, because
-a browser downloads that file, and says so in a warning. An app's forwarding
-route then cannot take the endpoint from `MANIFEST.rpcUrl`: give the server
-the full URL in its own environment.
-
-This covers a URL written with `${NAME}` in `labcoat.toml`. A URL passed
-whole with `--rpc-url` or `LABCOAT_RPC_URL` is not redacted: the line before
-a write drops its userinfo and query string, and everything else, the
-manifest included, has it as given. `SUBFROST_API_KEY` travels in a header
-and is never printed.
+`SUBFROST_API_KEY` travels in a header and the generator never includes it
+in the client.
 
 ### Format
 

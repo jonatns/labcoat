@@ -218,13 +218,13 @@ fn labcoat_toml_reads_a_variable_the_file_defines() {
     assert!(check(&envelope, "project config")["detail"]
         .as_str()
         .unwrap()
-        .contains("targets regtest at http://127.0.0.1:19999/custom"));
+        .contains("targets regtest at http://127.0.0.1:19999/[redacted]"));
     // The environment still wins over the file.
     let envelope = doctor(&root, &root, &[("MY_RPC", "http://127.0.0.1:19998/shell")]);
     assert!(check(&envelope, "project config")["detail"]
         .as_str()
         .unwrap()
-        .contains("19998/shell"));
+        .contains("19998/[redacted]"));
 
     std::fs::write(root.join(".env"), "").unwrap();
     let envelope = doctor(&root, &root, &[]);
@@ -264,21 +264,103 @@ fn a_token_labcoat_toml_puts_in_the_endpoint_is_shown_nowhere() {
     }
     // The host is still named, in the error the RPC client wrote.
     let failed = text(&labcoat(&root, &root, &["simulate", "2:0", "99"], &[]));
-    assert!(
-        failed.contains("http://127.0.0.1:1/[redacted]/rpc"),
-        "{failed}"
-    );
+    assert!(failed.contains("http://127.0.0.1:1/[redacted]"), "{failed}");
 
-    // A browser downloads the manifest: it names the endpoint without the token.
     let generated = text(&labcoat(&root, &root, &["generate", "web"], &[]));
-    assert!(generated.contains("the manifest records the endpoint without"));
+    assert!(generated.contains("the browser client uses /rpc"));
     let manifest = std::fs::read_to_string(root.join("generated/web/manifest.ts")).unwrap();
-    assert!(manifest.contains("rpcUrl: \"http://127.0.0.1:1/[redacted]/rpc\""));
+    assert!(manifest.contains("rpcUrl: \"/rpc\""));
     for entry in std::fs::read_dir(root.join("generated/web")).unwrap() {
         let path = entry.unwrap().path();
         if path.is_file() {
             assert!(!std::fs::read_to_string(&path).unwrap().contains(TOKEN));
         }
     }
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn overrides_bypass_variables_in_unused_toml_settings() {
+    let root = project("override-interpolation", "");
+    std::fs::write(
+        root.join("labcoat.toml"),
+        concat!(
+            "network = \"${UNSET_NETWORK}\"\n",
+            "rpc_url = \"${UNSET_RPC}\"\n",
+            "wallet_file = \"${UNSET_WALLET}\"\n",
+            "signer = \"${UNSET_SIGNER}\"\n",
+            "environment = \"${UNSET_ENVIRONMENT}\"\n",
+        ),
+    )
+    .unwrap();
+
+    let args = [
+        "--json",
+        "--network",
+        "signet",
+        "--wallet-file",
+        "wallet.json",
+        "--signer",
+        "keystore",
+        "--environment",
+        "default",
+    ];
+    let generate = |flags: &[&str], env: &[(&str, &str)]| {
+        let output = labcoat(
+            &root,
+            &root,
+            &[&args[..], flags, &["generate", "web"]].concat(),
+            env,
+        );
+        assert!(output.status.success(), "{}", text(&output));
+        std::fs::read_to_string(root.join("generated/web/manifest.ts")).unwrap()
+    };
+    assert!(generate(&["--rpc-url", "https://flag.example/rpc"], &[])
+        .contains("rpcUrl: \"https://flag.example/rpc\""));
+    assert!(
+        generate(&[], &[("LABCOAT_RPC_URL", "https://env.example/rpc")])
+            .contains("rpcUrl: \"https://env.example/rpc\"")
+    );
+    assert!(generate(&[], &[]).contains("rpcUrl: \"https://signet.subfrost.io/v4/jsonrpc\""));
+
+    std::fs::write(
+        root.join("labcoat.toml"),
+        "network = \"signet\"\nrpc_url = \"${UNSET_RPC}\"\n",
+    )
+    .unwrap();
+    assert!(generate(&["--rpc-url", "https://flag.example/rpc"], &[])
+        .contains("rpcUrl: \"https://flag.example/rpc\""));
+
+    let output = labcoat(&root, &root, &["--json", "generate", "web"], &[]);
+    assert!(text(&output).contains("${UNSET_RPC}"));
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn private_rpc_urls_use_the_browser_proxy_and_keep_the_upstream_dialect() {
+    let root = project("private-web-rpc", "");
+    let check = |dotenv: &str, toml: &str, token: &str| {
+        std::fs::write(root.join(".env"), dotenv).unwrap();
+        std::fs::write(root.join("labcoat.toml"), toml).unwrap();
+        let output = labcoat(&root, &root, &["--json", "generate", "web"], &[]);
+        assert!(output.status.success(), "{}", text(&output));
+        assert!(text(&output).contains("the browser client uses /rpc"));
+        let manifest = std::fs::read_to_string(root.join("generated/web/manifest.ts")).unwrap();
+        assert!(manifest.contains("rpcUrl: \"/rpc\""));
+        assert!(manifest.contains("rpcDialect: \"alkanes\""));
+        assert!(!manifest.contains(token));
+        assert!(!manifest.contains("subfrost.io"));
+        assert!(!text(&labcoat(&root, &root, &["--json", "doctor"], &[])).contains(token));
+    };
+    check(
+        "RPC_TOKEN=short7\n",
+        "network = \"signet\"\nrpc_url = \"https://signet.subfrost.io/v4/${RPC_TOKEN}\"\n",
+        "short7",
+    );
+    check(
+        "LABCOAT_RPC_URL=https://signet.subfrost.io/v4/direct-token\n",
+        "network = \"signet\"\n",
+        "direct-token",
+    );
     std::fs::remove_dir_all(root).ok();
 }

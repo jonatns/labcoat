@@ -1,13 +1,7 @@
-//! Keeps the parts of `rpc_url` that `labcoat.toml` took from a variable
-//! out of everything Labcoat prints or writes for others to read.
-//!
-//! `rpc_url = "https://node.example/${TOKEN}/jsonrpc"` is how a hosted
-//! endpoint's key gets into a URL. The URL is needed whole to make
-//! requests, and nowhere else: the target line, `doctor`, results, error
-//! text from the RPC client, logs, MCP answers, and the generated web
-//! manifest all show `[redacted]` in the variable's place. The scheme and
-//! host stay visible, so the line that says where a write is headed still
-//! says it.
+//! Masks private RPC endpoints in diagnostics, keeping the scheme and host
+//! visible. Match whole URLs first so short credentials are removed without
+//! masking the same text elsewhere. The longer interpolated components can
+//! also be masked when diagnostics include them outside the full URL.
 
 use std::sync::Mutex;
 
@@ -18,6 +12,43 @@ pub const MASK: &str = "[redacted]";
 const SHORTEST: usize = 8;
 
 static SECRETS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static ENDPOINTS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+fn url_authority(url: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = url.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    Some((scheme, authority))
+}
+
+pub fn has_url_credentials(url: &str) -> bool {
+    url_authority(url).is_some_and(|(_, authority)| authority.contains('@'))
+        || url.contains(['?', '#'])
+}
+
+/// Keep the host visible in diagnostics and hide the URL's private parts.
+pub fn endpoint_label(url: &str) -> String {
+    let Some((scheme, authority)) = url_authority(url) else {
+        return MASK.to_string();
+    };
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    format!("{scheme}://{host}/{MASK}")
+}
+
+/// Redact a complete endpoint in diagnostics even when a credential is
+/// too short to replace safely in arbitrary output.
+pub fn register_endpoint(url: &str) {
+    let label = endpoint_label(url);
+    if url.is_empty() || label.starts_with(url) {
+        return;
+    }
+    let mut endpoints = ENDPOINTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !endpoints.iter().any(|(known, _)| known == url) {
+        endpoints.push((url.to_string(), label));
+        endpoints.sort_by_key(|(url, _)| std::cmp::Reverse(url.len()));
+    }
+}
 
 /// The parts of `expanded` to hide, given the byte ranges that came from
 /// variables: what those ranges cover outside the scheme and host.
@@ -78,7 +109,16 @@ pub fn text(text: &str) -> String {
     let secrets = SECRETS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    mask(text, &secrets).unwrap_or_else(|| text.to_string())
+    let endpoints = ENDPOINTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut output = text.to_string();
+    for (url, label) in endpoints.iter() {
+        if output.contains(url) {
+            output = output.replace(url, label);
+        }
+    }
+    mask(&output, &secrets).unwrap_or(output)
 }
 
 /// Replace every registered part in the strings of a JSON value.

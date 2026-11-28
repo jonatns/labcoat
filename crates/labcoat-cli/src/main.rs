@@ -636,6 +636,7 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
         resolved.fee_rate,
     )
     .with_signer(&resolved.signer)
+    .with_private_rpc_url(resolved.private_rpc_url)
     .with_assume_yes(cli.assume_yes)
     .with_environment(&resolved.environment)
     .with_color(cli.color);

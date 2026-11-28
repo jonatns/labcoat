@@ -117,6 +117,7 @@ pub enum AbiCmd {
 pub struct Ctx {
     pub config: ToolkitConfig,
     color: crate::output::ColorMode,
+    private_rpc_url: bool,
     /// Signing backend spec string (`keystore` or `psbt-file:<dir>`).
     signer: String,
 }
@@ -140,12 +141,18 @@ impl Ctx {
                 project_root: Some(crate::project::root()),
             },
             color: crate::output::ColorMode::Auto,
+            private_rpc_url: false,
             signer: "keystore".to_string(),
         }
     }
 
     pub fn with_color(mut self, color: crate::output::ColorMode) -> Self {
         self.color = color;
+        self
+    }
+
+    pub fn with_private_rpc_url(mut self, private_rpc_url: bool) -> Self {
+        self.private_rpc_url = private_rpc_url;
         self
     }
 
@@ -186,7 +193,12 @@ impl Ctx {
         if is_local_default(&self.config) {
             return;
         }
-        crate::output::print_target(self.config.network_id(), &self.config.rpc_url, self.color);
+        let endpoint = if self.private_rpc_url {
+            crate::redact::endpoint_label(&self.config.rpc_url)
+        } else {
+            self.config.rpc_url.clone()
+        };
+        crate::output::print_target(self.config.network_id(), &endpoint, self.color);
     }
 
     /// The built-in wallet's passphrase is public, so it never holds a
@@ -1547,20 +1559,19 @@ pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
                 let build_root = crate::project::resolve_dir(build_dir.as_deref(), "build");
                 let lockfile = labcoat_core::lockfile::load(&cwd)?;
                 let abis = labcoat_core::generate::load_build_abis(&build_root)?;
-                // A browser downloads the manifest, so it gets the endpoint
-                // without the parts labcoat.toml took from a variable.
-                let rpc_url = crate::redact::text(&ctx.config.rpc_url);
-                if rpc_url != ctx.config.rpc_url {
-                    ctx.warn("the manifest records the endpoint without the parts labcoat.toml takes from a variable; give your server's forwarding route the full URL from its own environment");
-                }
                 let inputs = labcoat_core::generate::WebInputs {
                     network: ctx.config.network_id(),
                     bitcoin_network: ctx.config.bitcoin_network_id(),
-                    rpc_url: &rpc_url,
+                    rpc_url: &ctx.config.rpc_url,
                     lockfile: &lockfile,
                     abis: &abis,
                 };
-                let files = labcoat_core::generate::generate_web(&inputs)?;
+                let files = if ctx.private_rpc_url {
+                    ctx.warn("the browser client uses /rpc for this private endpoint; configure your server to forward /rpc to its upstream RPC URL");
+                    labcoat_core::generate::generate_web_with_browser_rpc(&inputs, "/rpc")?
+                } else {
+                    labcoat_core::generate::generate_web(&inputs)?
+                };
                 labcoat_core::generate::write_files(&out_root, &files)?;
                 let contracts = lockfile
                     .networks
