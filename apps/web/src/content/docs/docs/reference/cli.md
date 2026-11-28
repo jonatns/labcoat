@@ -42,7 +42,7 @@ Without `--json`, `labcoat deploy` and `labcoat call` exit with code 3 when a tr
 {"ok":false,"command":"deploy","schema":"labcoat/v1/error","error":{"code":"WALLET_MISSING","message":"...","hint":"run `labcoat wallet init` first"}}
 ```
 
-Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `labcoat.toml` → defaults.
+Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `.env` in the project root → `labcoat.toml` → defaults. `.env` sets `SUBFROST_API_KEY` and supported `LABCOAT_*` settings. Set the project network in `labcoat.toml` or pass `--network`. `.env` ignores `LABCOAT_NETWORK` and refuses `LABCOAT_MNEMONIC`. String settings in `labcoat.toml` expand `${NAME}` from the environment, then `.env`.
 
 ## Commands
 

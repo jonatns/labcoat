@@ -626,6 +626,8 @@ pub async fn serve(ctx: Ctx) -> i32 {
             other => rpc_error(id, -32601, &format!("method not found: {other}")),
         };
 
+        let mut response = response;
+        crate::redact::value(&mut response);
         let mut bytes = serde_json::to_vec(&response).unwrap();
         bytes.push(b'\n');
         if stdout.write_all(&bytes).await.is_err() {

@@ -55,6 +55,10 @@ default; the built-in wallet needs none);
 mnemonic via `LABCOAT_MNEMONIC` env or `wallet init --mnemonic-stdin`.
 Never place either on argv.
 
+`SUBFROST_API_KEY` (signet and mainnet through Subfrost) goes in `.env` in
+the project root, which git ignores; the environment wins over the file.
+`LABCOAT_MNEMONIC` is refused in `.env`. Never print or commit a key.
+
 ## 3. Build
 
 ```bash

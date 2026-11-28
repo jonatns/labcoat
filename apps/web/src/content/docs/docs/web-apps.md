@@ -545,7 +545,7 @@ tried, and the Subfrost wallet connected but has no signet network to sign
 on. Before relying on one, run this once on signet, for each wallet
 you support:
 
-1. Deploy to signet, run `labcoat generate web --network signet`, and serve
+1. [Deploy to signet](/docs/deploy-to-signet/), run `labcoat generate web --network signet`, and serve
    the app. The manifest's `rpcDialect` is `'alkanes'`. Forward a
    same-origin path to the endpoint and pass it as `rpc`, as under
    [Reach Subfrost from a browser](#reach-subfrost-from-a-browser).
