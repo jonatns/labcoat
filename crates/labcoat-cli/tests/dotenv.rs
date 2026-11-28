@@ -233,3 +233,52 @@ fn labcoat_toml_reads_a_variable_the_file_defines() {
     assert!(config["detail"].as_str().unwrap().contains("${MY_RPC}"));
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn a_token_labcoat_toml_puts_in_the_endpoint_is_shown_nowhere() {
+    const TOKEN: &str = "tok-sentinel-0123456789";
+    let root = project("redact", &format!("RPC_TOKEN={TOKEN}\n"));
+    // Port 1 refuses at once, so the RPC client reports the URL it tried.
+    std::fs::write(
+        root.join("labcoat.toml"),
+        "network = \"regtest\"\nrpc_url = \"http://127.0.0.1:1/${RPC_TOKEN}/rpc\"\n",
+    )
+    .unwrap();
+    let runs: &[&[&str]] = &[
+        &["doctor"],
+        &["--json", "doctor"],
+        &["simulate", "2:0", "99"],
+        &["--json", "simulate", "2:0", "99"],
+        &["--verbose", "simulate", "2:0", "99"],
+        &[
+            "--json",
+            "balance",
+            "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+        ],
+        &["generate", "web"],
+        &["--json", "generate", "web"],
+    ];
+    for args in runs {
+        let shown = text(&labcoat(&root, &root, args, &[("RUST_LOG", "trace")]));
+        assert!(!shown.contains(TOKEN), "{args:?} printed the token");
+    }
+    // The host is still named, in the error the RPC client wrote.
+    let failed = text(&labcoat(&root, &root, &["simulate", "2:0", "99"], &[]));
+    assert!(
+        failed.contains("http://127.0.0.1:1/[redacted]/rpc"),
+        "{failed}"
+    );
+
+    // A browser downloads the manifest: it names the endpoint without the token.
+    let generated = text(&labcoat(&root, &root, &["generate", "web"], &[]));
+    assert!(generated.contains("the manifest records the endpoint without"));
+    let manifest = std::fs::read_to_string(root.join("generated/web/manifest.ts")).unwrap();
+    assert!(manifest.contains("rpcUrl: \"http://127.0.0.1:1/[redacted]/rpc\""));
+    for entry in std::fs::read_dir(root.join("generated/web")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            assert!(!std::fs::read_to_string(&path).unwrap().contains(TOKEN));
+        }
+    }
+    std::fs::remove_dir_all(root).ok();
+}

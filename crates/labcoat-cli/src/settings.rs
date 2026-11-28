@@ -19,6 +19,9 @@ fn labcoat_network_rpc_url() -> String {
 struct ProjectConfig {
     network: Option<String>,
     rpc_url: Option<String>,
+    /// Set by `expand`, never read from the file.
+    #[serde(skip)]
+    rpc_url_secrets: Vec<String>,
     wallet_file: Option<PathBuf>,
     fee_rate: Option<f32>,
     signer: Option<String>,
@@ -29,15 +32,21 @@ impl ProjectConfig {
     /// Replace each `${NAME}` in a string setting with that variable.
     fn expand(mut self, vars: &impl Fn(&str) -> Option<String>) -> Result<Self, String> {
         let text = |key: &str, value: Option<String>| {
-            value.map(|value| expand(key, &value, vars)).transpose()
+            value
+                .map(|value| expand(key, &value, vars).map(|(expanded, _)| expanded))
+                .transpose()
         };
         self.network = text("network", self.network)?;
-        self.rpc_url = text("rpc_url", self.rpc_url)?;
+        if let Some(rpc_url) = self.rpc_url.take() {
+            let (expanded, ranges) = expand("rpc_url", &rpc_url, vars)?;
+            self.rpc_url_secrets = crate::redact::secret_parts(&expanded, &ranges);
+            self.rpc_url = Some(expanded);
+        }
         self.signer = text("signer", self.signer)?;
         self.environment = text("environment", self.environment)?;
         self.wallet_file = match self.wallet_file {
             Some(path) => match path.to_str() {
-                Some(value) => Some(PathBuf::from(expand("wallet_file", value, vars)?)),
+                Some(value) => Some(PathBuf::from(expand("wallet_file", value, vars)?.0)),
                 None => Some(path),
             },
             None => None,
@@ -46,14 +55,15 @@ impl ProjectConfig {
     }
 }
 
-/// `value` with every `${NAME}` replaced by the variable it names. A
-/// variable that is unset or empty is an error, which names the variable
-/// and never a value.
+/// `value` with every `${NAME}` replaced by the variable it names, and the
+/// byte ranges of the result that came from variables. A variable that is
+/// unset or empty is an error, which names the variable and never a value.
 fn expand(
     key: &str,
     value: &str,
     vars: &impl Fn(&str) -> Option<String>,
-) -> Result<String, String> {
+) -> Result<(String, Vec<(usize, usize)>), String> {
+    let mut ranges = Vec::new();
     let mut expanded = String::new();
     let mut rest = value;
     while let Some(start) = rest.find("${") {
@@ -68,11 +78,12 @@ fn expand(
                 "`{key}` in labcoat.toml references ${{{name}}}, which is not set in the environment or in .env"
             )
         })?;
+        ranges.push((expanded.len(), expanded.len() + found.len()));
         expanded.push_str(&found);
         rest = &after[end + 1..];
     }
     expanded.push_str(rest);
-    Ok(expanded)
+    Ok((expanded, ranges))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +96,9 @@ pub struct ResolvedSettings {
     pub signer: String,
     /// Durable-state environment (`.labcoat/state/<environment>/`).
     pub environment: String,
+    /// The parts of `rpc_url` that `labcoat.toml` took from a variable,
+    /// which no output shows.
+    pub rpc_url_secrets: Vec<String>,
 }
 
 #[derive(Default)]
@@ -111,7 +125,9 @@ pub fn resolve_at(root: &Path) -> Result<ResolvedSettings, String> {
 }
 
 fn resolve_in(root: &Path, overrides: Overrides<'_>) -> Result<ResolvedSettings, String> {
-    resolve_in_with(root, overrides, crate::dotenv::var)
+    let resolved = resolve_in_with(root, overrides, crate::dotenv::var)?;
+    crate::redact::register(&resolved.rpc_url_secrets);
+    Ok(resolved)
 }
 
 fn resolve_in_with(
@@ -129,6 +145,7 @@ fn resolve_with_local_url(
     local_rpc_url: &str,
 ) -> Result<ResolvedSettings, String> {
     let config = load(root)?.expand(&env)?;
+    let rpc_url_secrets = config.rpc_url_secrets.clone();
     let network_value = choose_string(
         overrides.network,
         env("LABCOAT_NETWORK"),
@@ -217,6 +234,7 @@ fn resolve_with_local_url(
         fee_rate,
         signer,
         environment,
+        rpc_url_secrets,
     })
 }
 
@@ -250,6 +268,7 @@ pub fn labcoat_network() -> ResolvedSettings {
         fee_rate: Some(2.0),
         signer: "keystore".to_string(),
         environment: DEFAULT_ENVIRONMENT.to_string(),
+        rpc_url_secrets: Vec::new(),
     }
 }
 
@@ -449,6 +468,8 @@ mod tests {
         let resolved = resolve_in_with(&root, Overrides::default(), vars).unwrap();
         assert_eq!(resolved.network, NetworkTarget::Signet);
         assert_eq!(resolved.rpc_url, "https://node.example/v1/tok-sentinel");
+        // The token is what no output shows; the host from a variable is not.
+        assert_eq!(resolved.rpc_url_secrets, ["tok-sentinel"]);
         assert_eq!(resolved.wallet_file, PathBuf::from("/wallets/signet.json"));
         assert_eq!(resolved.environment, "plain");
 

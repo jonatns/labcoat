@@ -1547,10 +1547,16 @@ pub fn generate(ctx: &Ctx, cmd: GenerateCmd) -> (&'static str, CmdResult) {
                 let build_root = crate::project::resolve_dir(build_dir.as_deref(), "build");
                 let lockfile = labcoat_core::lockfile::load(&cwd)?;
                 let abis = labcoat_core::generate::load_build_abis(&build_root)?;
+                // A browser downloads the manifest, so it gets the endpoint
+                // without the parts labcoat.toml took from a variable.
+                let rpc_url = crate::redact::text(&ctx.config.rpc_url);
+                if rpc_url != ctx.config.rpc_url {
+                    ctx.warn("the manifest records the endpoint without the parts labcoat.toml takes from a variable; give your server's forwarding route the full URL from its own environment");
+                }
                 let inputs = labcoat_core::generate::WebInputs {
                     network: ctx.config.network_id(),
                     bitcoin_network: ctx.config.bitcoin_network_id(),
-                    rpc_url: &ctx.config.rpc_url,
+                    rpc_url: &rpc_url,
                     lockfile: &lockfile,
                     abis: &abis,
                 };

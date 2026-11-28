@@ -15,6 +15,7 @@ mod local_wallet;
 mod mcp;
 mod output;
 mod project;
+mod redact;
 mod settings;
 mod test_command;
 mod trace_view;
@@ -459,7 +460,7 @@ fn init_tracing(cli: &Cli) {
     });
     tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_writer(std::io::stderr)
+        .with_writer(|| redact::Stderr)
         .with_ansi(output::stderr_ansi(cli.color))
         .init();
 }

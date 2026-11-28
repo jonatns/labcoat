@@ -96,6 +96,16 @@ impl Progress {
 }
 
 pub fn finish_contract(json: bool, command: &str, result: CmdResult, options: Options) -> i32 {
+    let result = match result {
+        Ok(mut value) => {
+            crate::redact::value(&mut value);
+            Ok(value)
+        }
+        Err(mut error) => {
+            error.message = crate::redact::text(&error.message);
+            Err(error)
+        }
+    };
     if json {
         let envelope = contract_envelope(command, &result);
         println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
@@ -114,6 +124,13 @@ pub fn finish_contract(json: bool, command: &str, result: CmdResult, options: Op
 }
 
 pub fn finish(json: bool, command: &str, result: Result<Value, String>, options: Options) -> i32 {
+    let result = match result {
+        Ok(mut value) => {
+            crate::redact::value(&mut value);
+            Ok(value)
+        }
+        Err(error) => Err(crate::redact::text(&error)),
+    };
     if json {
         let envelope = labcoat_network_envelope(command, &result);
         println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
@@ -253,7 +270,7 @@ fn print_untyped_error(error: &str, color: ColorMode) {
 
 fn write_stderr(message: &str, color: ColorMode) {
     let mut stream = AutoStream::new(std::io::stderr(), color_choice(color));
-    let _ = stream.write_all(message.as_bytes());
+    let _ = stream.write_all(crate::redact::text(message).as_bytes());
     let _ = stream.flush();
 }
 
