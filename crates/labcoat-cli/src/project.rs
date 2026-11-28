@@ -34,6 +34,10 @@ const FILES: &[(&str, &str)] = &[
     ),
     ("rust-toolchain.toml", TOOLCHAIN_TEMPLATE),
     (".gitignore", include_str!("../templates/default/gitignore")),
+    (
+        ".env.example",
+        include_str!("../templates/default/env.example"),
+    ),
     ("AGENTS.md", include_str!("../templates/default/AGENTS.md")),
     ("SKILL.md", include_str!("../templates/default/SKILL.md")),
 ];
@@ -588,6 +592,12 @@ mod tests {
         let ignore = std::fs::read_to_string(root.join(".gitignore")).unwrap();
         assert!(ignore.contains("/deployments/labcoat.json"));
         assert!(!ignore.lines().any(|line| line == "/deployments/"));
+        // Secrets go in `.env`, which is ignored; its example is committed
+        // and holds no value.
+        assert!(ignore.lines().any(|line| line == "/.env"));
+        let example = std::fs::read_to_string(root.join(".env.example")).unwrap();
+        assert!(example.lines().any(|line| line == "SUBFROST_API_KEY="));
+        assert!(!root.join(".env").exists());
         std::fs::remove_dir_all(parent).ok();
     }
 

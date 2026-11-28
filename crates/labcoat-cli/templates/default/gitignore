@@ -4,3 +4,5 @@
 # Labcoat Network is disposable; commit the run files of shared networks.
 /deployments/labcoat.json
 /target/
+# Secrets for this machine: copy .env.example to .env.
+/.env

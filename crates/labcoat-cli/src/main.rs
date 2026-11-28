@@ -9,6 +9,7 @@ mod deploy_script;
 mod dev_signer;
 mod docs;
 mod doctor;
+mod dotenv;
 mod e2e_instance;
 mod local_wallet;
 mod mcp;
@@ -410,6 +411,12 @@ enum McpCmd {
 fn main() {
     let cli = Cli::parse();
     init_tracing(&cli);
+    // The project's `.env` joins the process environment here, before any
+    // setting is read and before the runtime starts its threads. `init`
+    // has no project yet, and the network daemon takes no project settings.
+    if !matches!(cli.command, Commands::Init { .. } | Commands::Node { .. }) {
+        dotenv::apply(&project::root());
+    }
     // An e2e run targets its own network through the process environment,
     // which is only safe to change before the runtime starts its threads.
     let e2e_setup = match &cli.command {
@@ -556,6 +563,22 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
         };
     }
     let labcoat_network_command = cli.command.labcoat_network_command_name();
+    let dotenv = dotenv::report();
+    for warning in dotenv.map(dotenv::Report::warnings).unwrap_or_default() {
+        output::print_warning(&warning, cli.color);
+    }
+    if let Some(message) = dotenv.and_then(dotenv::Report::mnemonic_error) {
+        return output::finish_contract(
+            json,
+            "config",
+            Err(contract::EnvelopeError {
+                code: "CONFIG_INVALID",
+                message,
+                hint: dotenv::MNEMONIC_HINT,
+            }),
+            output_options,
+        );
+    }
     if let Err(message) = validate_labcoat_network_overrides(&cli) {
         return output::finish_contract(
             json,
@@ -594,6 +617,16 @@ async fn run(cli: Cli, e2e_setup: Result<(), contract::EnvelopeError>) -> i32 {
             )
         }
     };
+    // On mainnet the passphrase guards real funds, and a copy in a file
+    // beside the project is worth a reminder each time it is used.
+    if resolved.network == labcoat_core::NetworkTarget::Mainnet
+        && dotenv.is_some_and(|report| report.applied(dotenv::PASSPHRASE))
+    {
+        output::print_warning(
+            "LABCOAT_WALLET_PASSPHRASE was read from .env on mainnet; anyone who can read that file and the keystore can spend from this wallet. Prefer the prompt, or the environment in CI",
+            cli.color,
+        );
+    }
     let wallet_file = resolved.wallet_file.to_string_lossy();
     let ctx = contract::Ctx::new(
         resolved.network,

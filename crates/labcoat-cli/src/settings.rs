@@ -224,7 +224,7 @@ fn load(root: &Path) -> Result<ProjectConfig, String> {
     };
     toml::from_str(&raw).map_err(|e| {
         format!(
-            "invalid {}: {} (allowed keys: network, rpc_url, wallet_file, fee_rate, signer, environment; secrets belong in LABCOAT_* env vars)",
+            "invalid {}: {} (allowed keys: network, rpc_url, wallet_file, fee_rate, signer, environment; secrets belong in LABCOAT_* env vars or .env)",
             path.display(),
             e
         )
