@@ -13,6 +13,10 @@
 //   const wallet = await labcoat.connect()
 //   const tx = await counter.write.increment({ wallet })
 //   await tx.wait()
+//
+// `connect()` is Labcoat Network's dev wallet. On a public network the app
+// passes the wallet its own picker or wallet library connected: anything
+// with `name`, `getAccounts()` and `signPsbt()`.
 
 import { CONTRACTS, MANIFEST } from "./manifest"
 import type { ContractDeployment } from "./manifest"
@@ -25,8 +29,10 @@ import {
   bytesToHex,
   encodeCellpack,
   extractTransaction,
+  feeRaisedBy,
   hexToBytes,
   isTaprootScript,
+  MAX_FEE_SATS,
   psbtUnsignedTransaction,
   scriptHash,
   transactionOutputCount,
@@ -34,11 +40,19 @@ import {
 } from "./transaction"
 import type { AlkaneAmount, BitcoinNetwork, BuiltTransaction, SpendableOutput } from "./transaction"
 import { approvalPrompt, browserWallet, devWallet, installedBrowserWallets } from "./wallet"
-import type { ApproveTransaction, BrowserWalletId, LabcoatWallet, WalletHost } from "./wallet"
+import type {
+  ApproveTransaction,
+  BrowserWalletId,
+  LabcoatWallet,
+  SignPsbtRequest,
+  SignedTransaction,
+  WalletAccount,
+  WalletHost,
+} from "./wallet"
 
 export { ContractRevertError, LabcoatClientError, WalletRejectedError } from "./errors"
 export type { LabcoatClientErrorCode } from "./errors"
-export { approvalPrompt, devWallet } from "./wallet"
+export { approvalPrompt, browserWallet, devWallet } from "./wallet"
 export type {
   ApproveTransaction,
   BrowserWalletId,
@@ -312,7 +326,31 @@ export interface WaitOptions {
    * endpoints limit how many requests a minute they answer.
    */
   pollMs?: number
+  /**
+   * Called as the transaction moves along, so a page can say more than
+   * "sending" for the minutes a public network takes. Each status is
+   * reported once and in order; one the client never observed is skipped
+   * (a transaction mined between two looks goes from "broadcast" straight
+   * to "confirmed"). "indexed" always comes last, just before the wait
+   * resolves or throws the call's revert.
+   *
+   * Looking this up costs requests the wait would not otherwise make: one
+   * with every poll in the "labcoat" dialect, one with every third poll in
+   * the "alkanes" one, and none once the transaction is in a block.
+   */
+  onStatus?: (status: TransactionStatus) => void
 }
+
+/** Where a broadcast transaction is, as `WaitOptions.onStatus` reports it. */
+export type TransactionStatus =
+  /** Sent; the wait has started. */
+  | { status: "broadcast"; txid: string }
+  /** The endpoint has it, and it is not in a block yet. */
+  | { status: "pending"; txid: string }
+  /** It is in a block; the Alkanes index has not reached that block yet. */
+  | { status: "confirmed"; txid: string; blockHeight: number | null }
+  /** The Alkanes index has the call's result. */
+  | { status: "indexed"; txid: string }
 
 /** A mined and indexed contract call that succeeded. */
 export interface TransactionReceipt<T = Uint8Array> {
@@ -350,6 +388,61 @@ export type WriteMethods<A extends AbiDocument> = {
   ) => Promise<WriteResult<ReturnOf<M["returns"]>>>
 }
 
+/** The last argument of `contract.prepare.<method>()`. */
+export interface PrepareOptions extends WriteOptions {
+  /**
+   * The addresses to spend from and receive at, for an app that has them
+   * already and has no `LabcoatWallet` to ask. Used in place of `wallet`.
+   */
+  accounts?: readonly WalletAccount[]
+}
+
+/**
+ * A contract call built and not yet signed: what a wallet is asked to sign
+ * (`psbt`, `inputs`, `summary`), ready to hand to anything that signs PSBTs,
+ * for as long as that takes. `labcoat.broadcast(prepared, signed)` sends it.
+ */
+export interface PreparedTransaction<T = Uint8Array> extends SignPsbtRequest {
+  /** Sats paid in fees. */
+  fee: bigint
+  /** The payment outputs, with the output index each one occupies. */
+  payments: { output: number; address: string; sats: bigint }[]
+  /** What `broadcast` checks the signed transaction against and decodes its result with. */
+  readonly call: {
+    /** The unsigned transaction, hex. */
+    transaction: string
+    changeOutput: number | null
+    traceVout: number
+    contract: string
+    method: string
+    returns: string
+    /** Never set: carries the return type. */
+    value?: T
+  }
+}
+
+/** The last argument of `labcoat.broadcast()`. */
+export interface BroadcastOptions {
+  /** The wallet that signed: named in errors, and its `afterBroadcast` is called. */
+  wallet?: LabcoatWallet
+  /**
+   * Accept a signed transaction whose change output is smaller than the one
+   * prepared, which is how a wallet raises the fee before signing. Nothing
+   * else may differ. Defaults to the wallet's `raisesFee`, else false.
+   */
+  allowFeeChange?: boolean
+}
+
+/**
+ * `contract.prepare.<method>()`: the first half of a write. It takes what
+ * the write takes, builds the transaction, and resolves with it unsigned.
+ */
+export type PrepareMethods<A extends AbiDocument> = {
+  readonly [M in MethodOf<A> as MethodKey<A, M>]: (
+    ...args: [...args: ArgsOf<M["params"]>, options?: PrepareOptions]
+  ) => Promise<PreparedTransaction<ReturnOf<M["returns"]>>>
+}
+
 export type ReadResult<T> =
   | { status: "success"; value: T; gasUsed: bigint; data: Uint8Array }
   | {
@@ -373,6 +466,11 @@ export interface ContractHandle<A extends AbiDocument = AbiDocument> {
   readonly tryRead: TryReadMethods<A>
   /** Send a method as a transaction the wallet signs; resolves once it is broadcast. */
   readonly write: WriteMethods<A>
+  /**
+   * Build a method's transaction without signing it, for signing that does
+   * not fit `wallet.signPsbt`; `labcoat.broadcast` sends the signed result.
+   */
+  readonly prepare: PrepareMethods<A>
 }
 
 /** Manifest contracts whose ABI was built when the client was generated. */
@@ -617,7 +715,7 @@ function decodeReturn(returns: string, data: Uint8Array): SimulateValue {
 }
 
 /** Strict decoding for typed reads: bytes that do not fit the type are an error. */
-function decodeTyped(method: AbiMethod, data: Uint8Array): AbiValue {
+function decodeTyped(method: Pick<AbiMethod, "name" | "returns">, data: Uint8Array): AbiValue {
   if (method.returns === "void") return undefined
   if (method.returns !== "u128" && method.returns !== "AlkaneId" && method.returns !== "String") {
     return data
@@ -941,6 +1039,24 @@ class RpcConnection {
     return typeof hex === "string" && /^[0-9a-f]+$/.test(hex) ? hex : null
   }
 
+  /** Whether a transaction is in a block, and which, as Esplora reports it. */
+  async transactionStatus(txid: string): Promise<{ confirmed: boolean; blockHeight: number | null }> {
+    let status: unknown
+    if (this.dialect === "alkanes") {
+      status = await this.request("esplora_tx::status", [txid])
+    } else {
+      try {
+        status = JSON.parse(await this.esplora("txstatus", txid))
+      } catch (error) {
+        if (error instanceof LabcoatClientError) throw error
+        status = null
+      }
+    }
+    const fields = typeof status === "object" && status !== null ? (status as Record<string, unknown>) : {}
+    const height = fields["block_height"]
+    return { confirmed: fields["confirmed"] === true, blockHeight: typeof height === "number" ? height : null }
+  }
+
   /**
    * The outcome of the call traced at one virtual output, or null while the
    * index has no completed trace for it.
@@ -1072,9 +1188,10 @@ export interface LabcoatWebClientOptions {
 /** Which wallet `connect()` returns. */
 export interface ConnectOptions {
   /**
-   * "dev" for Labcoat Network's dev wallet, or one browser wallet. Without
-   * it: the dev wallet when the client was generated for Labcoat Network
-   * and the endpoint has one, else the first installed browser wallet.
+   * "dev" for Labcoat Network's dev wallet, or one of the built-in browser
+   * wallet adapters. Without it `connect()` returns the dev wallet on
+   * Labcoat Network and throws anywhere else: on a public network the app
+   * says which wallet, and `connect()` never picks one for the person.
    */
   wallet?: "dev" | BrowserWalletId
   /**
@@ -1218,7 +1335,15 @@ export class LabcoatWebClient {
         return this.writeMethod(resolved, method, takesOptions ? args.slice(0, -1) : args, options ?? {})
       }
     }
-    const handle: ContractHandle = { id: resolved.id, abi: document, read, tryRead, write }
+    const prepare: Record<string, (...args: unknown[]) => Promise<PreparedTransaction<AbiValue>>> = {}
+    for (const [key, method] of methodKeys(document)) {
+      prepare[key] = (...args) => {
+        const takesOptions = args.length === method.params.length + 1
+        const options = takesOptions ? (args[args.length - 1] as PrepareOptions | undefined) : undefined
+        return this.prepareMethod(resolved, method, takesOptions ? args.slice(0, -1) : args, options ?? {})
+      }
+    }
+    const handle: ContractHandle = { id: resolved.id, abi: document, read, tryRead, write, prepare }
     return handle
   }
 
@@ -1261,58 +1386,51 @@ export class LabcoatWebClient {
   }
 
   /**
-   * A wallet to pass to `contract.write` calls.
+   * Labcoat Network's dev wallet, or one of the built-in browser wallet
+   * adapters by name, to pass to `contract.write` calls.
    *
    *   const wallet = await labcoat.connect()
    *
    * On Labcoat Network this is the dev wallet the network signs for, with
-   * no extension and no prompt. Anywhere else it is a browser wallet, which
-   * asks the person to connect. The same line serves both, so app code has
-   * no local-only branch. Throws `WalletRejectedError` if they decline.
+   * no extension and no prompt. On a public network it throws
+   * `WALLET_UNAVAILABLE`: which wallet a person uses there is theirs and
+   * the app's to choose, so pass the wallet the app connected (anything
+   * with the `LabcoatWallet` shape) to the write, or name an adapter:
+   *
+   *   const wallet = await labcoat.connect({ wallet: "unisat" })
+   *
+   * A browser wallet asks the person to connect; `WalletRejectedError` if
+   * they decline.
    */
   async connect(options: ConnectOptions = {}): Promise<LabcoatWallet> {
     const network = this.network
-    const dev = (): LabcoatWallet => {
+    let wallet: LabcoatWallet
+    if (options.wallet === "dev" || (options.wallet === undefined && network === "regtest")) {
       const approve = options.approve === true ? approvalPrompt() : options.approve || undefined
-      return devWallet({
+      wallet = devWallet({
         request: (method, params) => this.connection.request(method, params),
         ...(options.mine === undefined ? {} : { mine: options.mine }),
         ...(approve === undefined ? {} : { approve }),
       })
-    }
-    let wallet: LabcoatWallet | null = null
-    if (options.wallet === "dev") {
-      wallet = dev()
     } else if (options.wallet !== undefined) {
       wallet = browserWallet(options.wallet, network, options.host)
     } else {
-      if (network === "regtest") {
-        // The dev signer is only ever on Labcoat Network; a public
-        // endpoint is never asked for one.
-        const candidate = dev()
-        try {
-          await candidate.getAccounts()
-          return candidate
-        } catch (error) {
-          if (!(error instanceof LabcoatClientError) || error.code !== "WALLET_UNAVAILABLE") throw error
-        }
-      }
-      const [installed] = installedBrowserWallets(options.host)
-      if (installed !== undefined) wallet = browserWallet(installed, network, options.host)
-    }
-    if (wallet === null) {
+      // The dev signer is only ever on Labcoat Network, so a public
+      // endpoint is never asked for one; and no wallet is picked here.
       throw new LabcoatClientError(
         "WALLET_UNAVAILABLE",
-        network === "regtest"
-          ? "no wallet found: start Labcoat Network with `labcoat up` and open the app at http://localhost:<port>, or install a browser wallet"
-          : "no wallet found: install UniSat, Xverse, OKX Wallet, Leather, or Subfrost, or pass your own wallet to the call",
+        `connect() does not choose a wallet on ${network}: pass the wallet your app connected as { wallet } to the call, or name a built-in adapter, connect({ wallet: "unisat" }); availableWallets() lists the ones installed`,
       )
     }
     await wallet.getAccounts()
     return wallet
   }
 
-  /** The wallets `connect({ wallet })` can return here: installed browser wallets, and "dev" on regtest. */
+  /**
+   * The wallets `connect({ wallet })` can return here: "dev" on regtest,
+   * and the browser wallets installed in the page that have a built-in
+   * adapter. A list for a picker the app draws; `connect()` picks none.
+   */
   availableWallets(host?: WalletHost): ("dev" | BrowserWalletId)[] {
     const installed = installedBrowserWallets(host)
     return this.network === "regtest" ? ["dev", ...installed] : installed
@@ -1324,12 +1442,32 @@ export class LabcoatWebClient {
     args: readonly unknown[],
     options: WriteOptions,
   ): Promise<WriteResult<AbiValue>> {
-    const network = this.network
     const wallet = options.wallet ?? this.options.wallet
     if (wallet === undefined) {
       throw new LabcoatClientError(
         "WALLET_UNAVAILABLE",
         `${method.name} needs a wallet to sign: pass { wallet } as the last argument (see labcoat.connect())`,
+      )
+    }
+    // A write is the two halves an app can also call itself, with the
+    // wallet's signature between them.
+    const prepared = await this.prepareMethod(contract, method, args, { ...options, wallet })
+    const signed = await wallet.signPsbt({ psbt: prepared.psbt, inputs: prepared.inputs, summary: prepared.summary })
+    return this.broadcast(prepared, signed, { wallet })
+  }
+
+  private async prepareMethod(
+    contract: ResolvedContract,
+    method: AbiMethod,
+    args: readonly unknown[],
+    options: PrepareOptions,
+  ): Promise<PreparedTransaction<AbiValue>> {
+    const network = this.network
+    const wallet = options.wallet ?? this.options.wallet
+    if (wallet === undefined && options.accounts === undefined) {
+      throw new LabcoatClientError(
+        "WALLET_UNAVAILABLE",
+        `${method.name} needs the addresses that pay for it: pass { wallet } or { accounts } as the last argument`,
       )
     }
     const feeRate = options.feeRate ?? this.options.feeRate ?? (network === "regtest" ? 2 : undefined)
@@ -1348,9 +1486,10 @@ export class LabcoatWebClient {
       sats: parseU128(payment.sats, `the payment to ${payment.address}`),
     }))
 
-    const accounts = (await wallet.getAccounts()).map((account): FundingAccount => {
+    const listed = options.accounts ?? (await (wallet as LabcoatWallet).getAccounts())
+    const accounts = listed.map((account): FundingAccount => {
       const script = addressToScript(account.address, network)
-      const publicKey = hexToBytes(account.publicKey)
+      const publicKey = account.publicKey === undefined ? new Uint8Array(0) : hexToBytes(account.publicKey)
       return {
         address: account.address,
         script,
@@ -1375,7 +1514,7 @@ export class LabcoatWebClient {
     if (home === undefined || bank === undefined) {
       throw new LabcoatClientError(
         "WALLET_ERROR",
-        `${wallet.name} has no taproot address; the generated client spends taproot and native SegWit (P2WPKH) outputs only`,
+        `${wallet?.name ?? "the wallet"} has no taproot address; the generated client spends taproot and native SegWit (P2WPKH) outputs only`,
       )
     }
     const recipient = options.to ?? home.address
@@ -1422,7 +1561,7 @@ export class LabcoatWebClient {
       built = build()
     }
 
-    const signed = await wallet.signPsbt({
+    return {
       psbt: built.psbt,
       inputs: built.inputs.map((input, index) => ({
         index,
@@ -1438,33 +1577,81 @@ export class LabcoatWebClient {
         alkanes: alkanes.map((alkane) => ({ id: `${alkane.block}:${alkane.tx}`, amount: alkane.amount })),
         payments: payments.map(({ address, sats }) => ({ address, sats })),
       },
-    })
-    // The wallet signs; it does not get to change what was built.
+      fee: built.fee,
+      payments: payments.map(({ address, sats }, i) => ({ output: built.paymentOutputs[i] as number, address, sats })),
+      call: {
+        transaction: bytesToHex(built.transaction),
+        changeOutput: built.changeOutput,
+        traceVout: built.traceVout,
+        contract: contract.id,
+        method: method.name,
+        returns: method.returns,
+      },
+    }
+  }
+
+  /**
+   * Send a transaction `contract.prepare.<method>()` built, once it is
+   * signed, and resolve with what a write resolves with:
+   *
+   *   const prepared = await counter.prepare.increment({ accounts })
+   *   const signed = await signSomehow(prepared.psbt, prepared.inputs)
+   *   const tx = await labcoat.broadcast(prepared, { psbt: signed })
+   *   await tx.wait()
+   *
+   * `signed` is the PSBT with its inputs signed (base64 or hex, finalized
+   * or not), or the finished transaction as hex. It must be the transaction
+   * that was prepared: a signer does not get to change what was built, with
+   * the one exception `allowFeeChange` names. Nothing is broadcast otherwise.
+   */
+  async broadcast<T = Uint8Array>(
+    prepared: PreparedTransaction<T>,
+    signed: SignedTransaction,
+    options: BroadcastOptions = {},
+  ): Promise<WriteResult<T>> {
+    const { call } = prepared
+    const name = options.wallet?.name ?? "the signer"
     const answered = "hex" in signed ? unsignedTransaction(signed.hex) : psbtUnsignedTransaction(signed.psbt)
-    if (!sameBytes(answered, built.transaction)) {
+    const raised = feeRaisedBy(hexToBytes(call.transaction), answered, call.changeOutput)
+    if (raised === null) {
       throw new LabcoatClientError(
         "WALLET_ERROR",
-        `${wallet.name} returned a different transaction from the one it was asked to sign; nothing was broadcast`,
+        `${name} returned a different transaction from the one it was asked to sign; nothing was broadcast`,
       )
+    }
+    const fee = prepared.fee + raised
+    if (raised > 0n) {
+      if (!(options.allowFeeChange ?? options.wallet?.raisesFee ?? false)) {
+        throw new LabcoatClientError(
+          "WALLET_ERROR",
+          `${name} raised the fee from ${prepared.fee} to ${fee} sats by changing the transaction it was asked to sign; nothing was broadcast. Prepare it with a higher feeRate, or accept the change with allowFeeChange`,
+        )
+      }
+      if (fee > MAX_FEE_SATS) {
+        throw new LabcoatClientError(
+          "WALLET_ERROR",
+          `${name} raised the fee to ${fee} sats, above the ${MAX_FEE_SATS} sats the client pays at most; nothing was broadcast`,
+        )
+      }
     }
     const hex = "hex" in signed ? signed.hex : extractTransaction(signed.psbt)
     const txid = await this.connection.request("sendrawtransaction", [hex])
     if (typeof txid !== "string") {
       throw new LabcoatClientError("RESPONSE_INVALID", "sendrawtransaction returned no transaction id")
     }
-    await wallet.afterBroadcast?.(txid)
+    await options.wallet?.afterBroadcast?.(txid)
 
     return {
       txid,
-      fee: built.fee,
-      payments: payments.map(({ address, sats }, i) => ({ output: built.paymentOutputs[i] as number, address, sats })),
+      fee,
+      payments: prepared.payments.map((payment) => ({ ...payment })),
       wait: async (waitOptions) => {
-        const exit = await this.waitForTrace(txid, [built.traceVout], waitOptions ?? {})
-        throwIfReverted(exit, txid, contract.id, method.name)
+        const exit = await this.waitForTrace(txid, [call.traceVout], waitOptions ?? {}, true)
+        throwIfReverted(exit, txid, call.contract, call.method)
         return {
           txid,
           status: "success",
-          value: decodeTyped(method, exit.data),
+          value: decodeTyped({ name: call.method, returns: call.returns }, exit.data) as T,
           data: exit.data,
           gasUsed: exit.gasUsed,
         }
@@ -1603,25 +1790,71 @@ export class LabcoatWebClient {
       throw new LabcoatClientError("ARG_INVALID", `the node does not know transaction ${txid}`)
     }
     const base = transactionOutputCount(hexToBytes(hex)) + 1
-    const exit = await this.waitForTrace(txid, [base, base + 1], options)
+    const exit = await this.waitForTrace(txid, [base, base + 1], options, true)
     throwIfReverted(exit, txid, null, null)
     return { txid, status: "success", value: exit.data, data: exit.data, gasUsed: exit.gasUsed }
   }
 
-  private async waitForTrace(txid: string, vouts: readonly number[], options: WaitOptions): Promise<TraceExit> {
+  /**
+   * Poll the index for the call's trace. `known` says the endpoint has the
+   * transaction already (it took the broadcast, or returned its hex), which
+   * spares `onStatus` a lookup to learn as much.
+   */
+  private async waitForTrace(
+    txid: string,
+    vouts: readonly number[],
+    options: WaitOptions,
+    known: boolean,
+  ): Promise<TraceExit> {
     const timeoutMs = options.timeoutMs ?? (this.network === "regtest" ? 60_000 : 1_800_000)
-    const pollMs = options.pollMs ?? (this.connection.dialect === "alkanes" ? 10_000 : 500)
+    const hosted = this.connection.dialect === "alkanes"
+    const pollMs = options.pollMs ?? (hosted ? 10_000 : 500)
     const started = Date.now()
-    for (;;) {
+
+    // Statuses in order, each at most once; a page's callback cannot break the wait.
+    const order = ["broadcast", "pending", "confirmed", "indexed"] as const
+    let reached = -1
+    const report = (status: TransactionStatus): void => {
+      const rank = order.indexOf(status.status)
+      if (options.onStatus === undefined || rank <= reached) return
+      reached = rank
+      try {
+        options.onStatus(status)
+      } catch {
+        // The transaction is sent whatever the page does with the news.
+      }
+    }
+    report({ status: "broadcast", txid })
+    // The trace says only "indexed" or "not yet". Whether the transaction
+    // is in a block is its own request, so it is asked for sparingly on a
+    // hosted endpoint, and never once the answer is yes.
+    const lookEvery = hosted ? 3 : 1
+    let seen = known
+    const look = async (): Promise<void> => {
+      try {
+        if (!seen) seen = (await this.connection.transactionHex(txid)) !== null
+        if (!seen) return
+        const { confirmed, blockHeight } = await this.connection.transactionStatus(txid)
+        report(confirmed ? { status: "confirmed", txid, blockHeight } : { status: "pending", txid })
+      } catch {
+        // Progress is a courtesy: the trace decides when the wait is over.
+      }
+    }
+
+    for (let poll = 0; ; poll++) {
       try {
         const traces = await Promise.all(vouts.map((vout) => this.connection.trace(txid, vout)))
         const exit = traces.find((trace) => trace !== null)
-        if (exit != null) return exit
+        if (exit != null) {
+          report({ status: "indexed", txid })
+          return exit
+        }
       } catch (error) {
         // An endpoint that is limiting requests is asked again at the next
         // poll: the transaction is already sent, and its result is still coming.
         if (!(error instanceof LabcoatClientError && error.code === "RPC_RATE_LIMITED")) throw error
       }
+      if (options.onStatus !== undefined && reached < 2 && poll % lookEvery === 0) await look()
       if (Date.now() - started >= timeoutMs) {
         throw new LabcoatClientError(
           "TRANSACTION_TIMEOUT",

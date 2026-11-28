@@ -35,7 +35,7 @@ generated/web/
   manifest.ts     network, RPC endpoint and dialect, chain id, and one record per contract
   abi/            typed method descriptors, one module per build artifact
   client.ts       fetch-based client: typed reads and wallet-signed writes
-  wallet.ts       the wallet interface, the dev wallet, browser wallet adapters
+  wallet.ts       the wallet interface, the dev wallet, browser extension adapters
   transaction.ts  builds the unsigned transaction of a call
   errors.ts       the errors the client throws
   exchange.ts     exchange request builder
@@ -362,7 +362,7 @@ CORS to satisfy and can send the key itself:
 sends it as a transaction that a wallet signs:
 
 ```ts
-const wallet = await labcoat.connect();
+const wallet = await labcoat.connect(); // Labcoat Network's dev wallet
 
 const tx = await counter.write.increment({ wallet });
 const receipt = await tx.wait();
@@ -408,28 +408,14 @@ to its own output first.
 
 ### Connect a wallet
 
-`labcoat.connect()` returns a wallet:
-
-- On Labcoat Network it is the **dev wallet**: the built-in wallet that
-  `labcoat up` funds, signed for by the network's
-  [dev signer](/docs/labcoat-network/#dev-signer). There is no extension and
-  no prompt.
-- On any other network it is the first installed browser wallet of UniSat,
-  Xverse, OKX Wallet, Leather, and Subfrost, which asks the person to connect.
-
-The same line serves both, so an app has no local-only code path. To choose,
-pass `{ wallet: 'xverse' }` (or `'dev'`, `'unisat'`, `'okx'`, `'leather'`,
-`'subfrost'`);
-`labcoat.availableWallets()` lists what this page can connect to.
-
-A wallet is any object with three members, so an app can bring its own:
+A wallet, to the client, is any object with three members:
 
 ```ts
 import type { LabcoatWallet } from './generated/web/client';
 
 const wallet: LabcoatWallet = {
   name: 'My wallet',
-  // { address, publicKey, purpose? }: publicKey is hex, x-only or compressed.
+  // { address, publicKey?, purpose? }: publicKey is hex, x-only or compressed.
   getAccounts: async () => [{ address, publicKey }],
   // psbt is base64, with witnessUtxo on every input and tapInternalKey on
   // taproot ones. Return { psbt } signed (base64 or hex, finalized or not),
@@ -438,9 +424,242 @@ const wallet: LabcoatWallet = {
 };
 ```
 
+Where that object comes from depends on the network:
+
+- On **Labcoat Network**, Labcoat provides it: `labcoat.connect()` returns the
+  dev wallet.
+- On **signet, testnet, and mainnet**, the app provides it. People there
+  already have a wallet, and the app already has a way to connect to it: its
+  own picker, LaserEyes, Sats Connect, a QR code, a hardware device. Labcoat
+  ships no picker and never chooses a wallet for the person; it takes
+  whatever the app connected, wrapped in those three members.
+
+#### Labcoat Network: the dev wallet
+
+```ts
+const wallet = await labcoat.connect();
+```
+
+On Labcoat Network this is the **dev wallet**: the built-in wallet that
+`labcoat up` funds, signed for by the network's
+[dev signer](/docs/labcoat-network/#dev-signer). There is no extension and no
+prompt, and it mines a block after each broadcast.
+
+On any other network `connect()` with no wallet named throws a
+`LabcoatClientError` with code `WALLET_UNAVAILABLE`, whatever extensions are
+installed. An app that runs on both picks by network:
+
+```ts
+const wallet = labcoat.network === 'regtest' ? await labcoat.connect() : myWallet;
+```
+
+#### Public networks: bring your own wallet
+
+Build the `LabcoatWallet` from the account and signing calls of whatever the
+app uses, and pass it to each write, or once as `createClient({ wallet })`.
+
+- `getAccounts` is called before every write, so return the account selected
+  now, not the one from page load. Mark the addresses of a wallet that keeps
+  two: `purpose: 'payment'` holds bitcoin, `purpose: 'ordinals'` holds
+  Alkanes. Leave `publicKey` out for a signer that reports addresses only.
+- `signPsbt` gets the PSBT as base64, the `inputs` to sign with the address
+  that owns each, and a `summary` of what the transaction does. It may take
+  as long as signing takes; the client sets no time limit. Ask the wallet
+  not to broadcast: the client does that. Throw `WalletRejectedError` when
+  the person declines.
+
 The client spends taproot and native SegWit (P2WPKH) outputs. Nested SegWit
 addresses, which Xverse uses for payments by default, are not spent: with
 such a wallet the bitcoin for fees has to be at its taproot address.
+
+The three recipes below compile against the generated client and the
+libraries' own types. None of them has signed a transaction in a real wallet;
+run the [signet check](#check-a-wallet-on-signet) with yours before relying
+on one.
+
+**LaserEyes** (`@omnisat/lasereyes` 0.0.163, the `useLaserEyes` hook). The app
+connects with LaserEyes as it already does; this hook turns the connected
+wallet into one the client takes:
+
+```ts
+import { useMemo } from 'react';
+import { useLaserEyes } from '@omnisat/lasereyes';
+import { LabcoatClientError } from './generated/web/client';
+import type { LabcoatWallet, WalletAccount } from './generated/web/client';
+
+/** The wallet connected through LaserEyes; null until one is. */
+export function useLabcoatWallet(): LabcoatWallet | null {
+  const { connected, provider, address, publicKey, paymentAddress, paymentPublicKey, signPsbt } =
+    useLaserEyes();
+  return useMemo(() => {
+    if (!connected) return null;
+    return {
+      name: provider ?? 'LaserEyes',
+      async getAccounts() {
+        // One address does both jobs in UniSat and OKX; Xverse and Leather keep two.
+        if (paymentAddress === '' || paymentAddress === address) return [{ address, publicKey }];
+        const accounts: WalletAccount[] = [
+          { address, publicKey, purpose: 'ordinals' },
+          { address: paymentAddress, publicKey: paymentPublicKey, purpose: 'payment' },
+        ];
+        return accounts;
+      },
+      async signPsbt({ psbt, inputs }) {
+        const signed = await signPsbt({ tx: psbt, finalize: true, broadcast: false, inputsToSign: inputs });
+        if (signed?.signedPsbtHex === undefined) {
+          throw new LabcoatClientError('WALLET_ERROR', 'the wallet returned no signed transaction');
+        }
+        return { psbt: signed.signedPsbtHex };
+      },
+    };
+  }, [connected, provider, address, publicKey, paymentAddress, paymentPublicKey, signPsbt]);
+}
+```
+
+The hook returns a new wallet when the account changes, so a write always
+uses the current one. LaserEyes passes a wallet's own error through when the
+person declines; catch it where you call the write, or map it to
+`WalletRejectedError` here. The 0.1 pre-release (`@omnisat/lasereyes-core@next`,
+which [lasereyes.build](https://www.lasereyes.build/docs) documents) replaces
+this hook with `useAccount` and `useSignPsbt`; the wallet is built the same
+way from those.
+
+**Sats Connect** (`sats-connect` 4.2, Xverse):
+
+```ts
+import Wallet, { AddressPurpose, RpcErrorCode } from 'sats-connect';
+import { LabcoatClientError, WalletRejectedError } from './generated/web/client';
+import type { LabcoatWallet, WalletAccount } from './generated/web/client';
+
+const name = 'Xverse';
+
+function failure(error: { code: number; message: string }): LabcoatClientError {
+  return error.code === RpcErrorCode.USER_REJECTION
+    ? new WalletRejectedError(name, error.message)
+    : new LabcoatClientError('WALLET_ERROR', `${name}: ${error.message}`);
+}
+
+export const satsConnectWallet: LabcoatWallet = {
+  name,
+  async getAccounts() {
+    const response = await Wallet.request('wallet_connect', {
+      addresses: [AddressPurpose.Ordinals, AddressPurpose.Payment],
+    });
+    if (response.status === 'error') throw failure(response.error);
+    const accounts: WalletAccount[] = [];
+    for (const { address, publicKey, purpose } of response.result.addresses) {
+      if (purpose === AddressPurpose.Ordinals) accounts.push({ address, publicKey, purpose: 'ordinals' });
+      if (purpose === AddressPurpose.Payment) accounts.push({ address, publicKey, purpose: 'payment' });
+    }
+    return accounts;
+  },
+  async signPsbt({ psbt, inputs }) {
+    const signInputs: Record<string, number[]> = {};
+    for (const { index, address } of inputs) (signInputs[address] ??= []).push(index);
+    const response = await Wallet.request('signPsbt', { psbt, signInputs, broadcast: false });
+    if (response.status === 'error') throw failure(response.error);
+    return { psbt: response.result.psbt };
+  },
+};
+```
+
+`response.result.network.bitcoin.name` is the network the wallet is on
+(`'Mainnet'`, `'Signet'`, ...); compare it with `labcoat.network` if you want
+to say so before the client refuses the address.
+
+**Subfrost remote signing.** Subfrost pairs a page with its wallet through a
+QR code and a pairing code, over its own bridge
+([reference](https://docs.subfrost.io/api-reference/guides/walletconnect); it
+is not WalletConnect v2). Its reference client, `@subfrost/wc`, was not on
+npm in November 2026, so this recipe is written against the session that
+page describes: `connect()` returns `pairingUri` and `pairingCode` for the
+app to show, and `accepted` resolves with the session once the wallet joins.
+
+```ts
+import { WalletRejectedError } from './generated/web/client';
+import type { LabcoatWallet } from './generated/web/client';
+import { base64ToBytes, bytesToHex } from './generated/web/transaction';
+
+/** What a paired session answers, per Subfrost's remote signing reference. */
+interface SubfrostSession {
+  getAccounts(): Promise<string[]>;
+  signPsbt(psbtHex: string, addresses?: string[]): Promise<string>;
+}
+
+export function subfrostRemoteWallet(session: SubfrostSession): LabcoatWallet {
+  const name = 'Subfrost';
+  return {
+    name,
+    // The paired wallet reports addresses and no public keys.
+    getAccounts: async () => (await session.getAccounts()).map((address) => ({ address })),
+    async signPsbt({ psbt, inputs }) {
+      const addresses = [...new Set(inputs.map((input) => input.address))];
+      try {
+        return { psbt: await session.signPsbt(bytesToHex(base64ToBytes(psbt)), addresses) };
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('wc:user_rejected')) {
+          throw new WalletRejectedError(name);
+        }
+        throw error;
+      }
+    },
+  };
+}
+```
+
+A paired request waits up to five minutes for the phone. Subfrost's
+reference does not say which networks a paired wallet signs on; its
+extension is mainnet only.
+
+#### Signing that does not fit `signPsbt`
+
+A write is two steps with a signature between them, and an app can take the
+steps itself: when the signer is another device, another process, or
+anything that is not a function call away.
+
+```ts
+const prepared = await counter.prepare.increment({ accounts: [{ address, publicKey }], feeRate: 2 });
+
+// prepared.psbt is the unsigned PSBT (base64); prepared.inputs and
+// prepared.summary say what to sign and what it does.
+const signed = await showQrAndWaitForSignature(prepared.psbt);
+
+const tx = await labcoat.broadcast(prepared, { psbt: signed });
+await tx.wait();
+```
+
+`prepare` has the methods and options `write` has, and takes `accounts` in
+place of a `wallet`. It simulates the call, chooses the outputs to spend, and
+returns without asking anyone to sign. `broadcast` takes the PSBT with its
+inputs signed (`{ psbt }`, base64 or hex, finalized or not) or the finished
+transaction (`{ hex }`), and resolves with what a write resolves with.
+`write` is these two calls with `wallet.signPsbt` between them.
+
+The outputs a prepared transaction spends are not reserved. If one is spent
+before the signature comes back, the broadcast fails with the node's error;
+prepare again.
+
+`broadcast` refuses a signed transaction that is not the one prepared, so a
+signer cannot redirect a call. The one exception is a wallet that raises the
+fee by lowering the change output, as the Subfrost extension can: pass
+`{ allowFeeChange: true }` to `broadcast`, or set `raisesFee: true` on a
+`LabcoatWallet`, and that single difference is accepted, up to the client's
+fee ceiling of 100,000 sats. `tx.fee` is then the fee actually paid.
+
+#### Built-in extension adapters
+
+For a prototype, or a page with one known wallet, the client can talk to five
+browser extensions itself:
+
+```ts
+const wallet = await labcoat.connect({ wallet: 'unisat' }); // or 'xverse', 'okx', 'leather', 'subfrost'
+```
+
+`labcoat.availableWallets()` lists the ones installed in the page, for a
+picker the app draws. These adapters are a convenience, not the supported
+path on a public network: only UniSat has signed a real transaction through
+them (see [Check a wallet on signet](#check-a-wallet-on-signet)), and a
+wallet library tracks extension changes that this generated file does not.
 
 ### Wait for the result
 
@@ -452,7 +671,7 @@ const { value, gasUsed } = await tx.wait();
 ```
 
 `labcoat.waitForTransaction(txid)` does the same from a transaction id alone
-and leaves the return value as bytes. Both take `{ timeoutMs, pollMs }` and
+and leaves the return value as bytes. Both take `{ timeoutMs, pollMs, onStatus }` and
 throw a `LabcoatClientError` with code `TRANSACTION_TIMEOUT` when the time is
 up. The time allowed is 60 seconds on Labcoat Network and regtest, and 30
 minutes on a public network. The index is asked every 500 ms in the
@@ -466,6 +685,39 @@ asks for one after each broadcast, as `labcoat call` does; a write is
 confirmed by the time it returns, and `wait()` takes one request. To see a
 transaction stay pending, connect with `{ mine: false }` and mine with
 `labcoat mine`.
+
+On a public network the wait is minutes long. `onStatus` tells the page where
+the transaction is:
+
+```ts
+await tx.wait({
+  onStatus: (status) => {
+    if (status.status === 'broadcast') show('Sent. Waiting for the network…');
+    if (status.status === 'pending') show('In the mempool. Waiting for a block…');
+    if (status.status === 'confirmed') show(`In block ${status.blockHeight}. Waiting for the index…`);
+    if (status.status === 'indexed') show('Done.');
+  },
+});
+```
+
+| Status      | Meaning                                                              |
+| ----------- | -------------------------------------------------------------------- |
+| `broadcast` | The wait has started                                                 |
+| `pending`   | The endpoint has the transaction, and it is not in a block           |
+| `confirmed` | It is in block `blockHeight`; the Alkanes index has not reached it   |
+| `indexed`   | The index has the call's result; `wait()` resolves or throws next    |
+
+Each is reported once and in order. One the client never saw is skipped: a
+transaction mined between two looks goes from `broadcast` to `confirmed`, and
+on Labcoat Network a write is usually `broadcast` and then `indexed`.
+`indexed` is reported for a reverted call too, just before `wait()` throws.
+
+Without `onStatus` a wait makes only the index lookup. With it, the client
+also asks whether the transaction is in a block: with every poll in the
+`'labcoat'` dialect, and with every third poll (every 30 seconds) in the
+`'alkanes'` one, and not at all once the answer is yes. On Subfrost without
+a key that is 8 requests a minute for `tx.wait()` and 14 for
+`waitForTransaction`, which looks in two places, out of the 20 allowed.
 
 ### Reverts and rejections
 
@@ -497,7 +749,7 @@ checks its payment outputs, pass `simulate: false`.
 A transaction that reverts once mined still costs its fee. `wait()` then
 throws `ContractRevertError` with the `txid` set.
 
-A browser wallet asks in its own window. The dev wallet signs at once; to
+A wallet on a public network asks in its own window. The dev wallet signs at once; to
 exercise the approve and reject paths locally, connect it with an approval
 step:
 
@@ -519,7 +771,7 @@ manifest name), `method`, `fee`, `recipient`, `alkanes`, `payments`, and
 
 |                    | Labcoat Network                                   | Signet, testnet, mainnet                      |
 | ------------------ | ------------------------------------------------- | --------------------------------------------- |
-| `connect()`        | the dev wallet                                    | an installed browser wallet                   |
+| Wallet             | the dev wallet, from `connect()`                  | the app's own `LabcoatWallet`; `connect()` throws |
 | Approval           | none, or `connect({ approve: true })`             | the wallet's own window                       |
 | Blocks             | the dev wallet mines one per write                | the network's                                 |
 | `feeRate`          | 2 sat/vB unless set                               | required                                      |
@@ -527,6 +779,7 @@ manifest name), `method`, `fee`, `recipient`, `alkanes`, `payments`, and
 | Endpoint           | `labcoat up`'s, in the `'labcoat'` dialect        | Subfrost's by default, in the `'alkanes'` dialect, through a same-origin path |
 | Requests           | batched, unlimited                                | one per call, 20 a minute without an API key  |
 | `wait()`           | 60 seconds, asking every 500 ms                   | 30 minutes, asking every 10 seconds           |
+| `onStatus`         | usually `broadcast`, then `indexed`               | all four, minutes apart                       |
 
 The client is generated for one network (`labcoat generate web --network
 signet`), and refuses an address or a wallet of another.
@@ -535,36 +788,41 @@ The dev wallet exists only on Labcoat Network. Its coins are worthless and its
 key signs for any page this machine serves, so never send value to its
 addresses on another network.
 
-### Check a browser wallet on signet
+### Check a wallet on signet
 
-Browser wallets are not exercised by Labcoat's own tests beyond stub
-providers, and no Labcoat test broadcasts on a public network. By hand, in
-November 2026, a write was signed in UniSat 1.8.5, broadcast through
-Subfrost's signet endpoint, and waited for; the other wallets were not
-tried, and the Subfrost wallet connected but has no signet network to sign
-on. Before relying on one, run this once on signet, for each wallet
-you support:
+No Labcoat test broadcasts on a public network, and none drives a real
+wallet: the built-in adapters run against stub providers, and the recipes
+above are only compiled. By hand, in November 2026, a write was signed in
+UniSat 1.8.5 through the built-in adapter, broadcast through Subfrost's
+signet endpoint, and waited for. Nothing else has signed: not the other
+built-in adapters, not the LaserEyes, Sats Connect, or Subfrost remote
+signing recipes, and not the Subfrost extension, which connected but has no
+signet network. Before relying on a wallet, run this once on signet with the
+`LabcoatWallet` your app passes:
 
 1. Deploy to signet, run `labcoat generate web --network signet`, and serve
    the app. The manifest's `rpcDialect` is `'alkanes'`. Forward a
    same-origin path to the endpoint and pass it as `rpc`, as under
    [Reach Subfrost from a browser](#reach-subfrost-from-a-browser).
 2. Put the wallet on signet and fund its taproot address with signet coins.
-3. Call `labcoat.connect({ wallet: '<id>' })`. The wallet asks to connect, and
-   the address the app shows is the wallet's taproot address.
-4. Decline the connection once: the app catches `WalletRejectedError`.
+3. Connect the way your app does: its picker or wallet library, or
+   `labcoat.connect({ wallet: '<id>' })` for a built-in adapter. The address
+   the app shows is the wallet's taproot address.
+4. Decline the connection once and check the app handles it.
 5. Send a write with `feeRate` set. The wallet shows one transaction with the
-   expected fee and outputs. Reject it: `WalletRejectedError`, and nothing is
-   broadcast.
-6. Send it again and approve. `tx.txid` appears in a signet explorer, and
-   `tx.wait()` resolves after the next block, which can take ten minutes or
-   more.
+   expected fee and outputs. Reject it: the write throws
+   `WalletRejectedError` if your wallet object maps the refusal, the wallet's
+   own error otherwise, and nothing is broadcast.
+6. Send it again and approve. `tx.txid` appears in a signet explorer,
+   `onStatus` reports `pending` and then `confirmed`, and `tx.wait()`
+   resolves after the next block, which can take ten minutes or more.
 7. Send a write with `alkanes` from a wallet that holds that Alkane, and check
    with `labcoat balance` that the Alkanes it did not send are still there.
-8. Switch the wallet to another network and connect again: the client refuses
-   with the wallet's network in the message.
+8. Switch the wallet to another network, or to another account, and send
+   again: the client refuses an address of another network, and a write from
+   the new account spends that account's outputs.
 
-The adapters were written against UniSat's `window.unisat` wallet API
+The built-in adapters were written against UniSat's `window.unisat` wallet API
 (`requestAccounts`, `getPublicKey`, `getChain`, `signPsbt`), Xverse's Sats
 Connect methods on `window.XverseProviders.BitcoinProvider` (`wallet_connect`,
 `signPsbt`; WBIP001), OKX's `window.okxwallet.bitcoin`, `bitcoinTestnet`, and
@@ -573,16 +831,19 @@ Connect methods on `window.XverseProviders.BitcoinProvider` (`wallet_connect`,
 2.25), and Subfrost's `window.subfrost` (`requestAccounts`,
 `getPublicKey`, `signPsbt`), as documented in November 2026.
 
-The Subfrost wallet differs from the others in three ways:
+The built-in Subfrost adapter differs from the others in three ways:
 
 - It reports the one address selected in the wallet, and that has to be its
   taproot address.
 - A declined prompt and any other failure arrive the same way, so both throw
   `WalletRejectedError`. Only a prompt left unanswered for 60 seconds is told
   apart, as `WALLET_ERROR`.
-- It may raise a fee it finds too low by changing the transaction. The client
-  refuses to broadcast a transaction it did not build, so the write fails
+- It may raise a fee it finds too low by changing the transaction. When it
+  lowers the change output to do so, the write goes through and `tx.fee` is
+  the fee paid. When it adds an input and an output of its own, the client
+  refuses to broadcast a transaction it did not build and the write fails
   with `WALLET_ERROR`; pass a `feeRate` at least as high as the wallet's own.
+  Neither path has run against the extension.
 
 ## Detect a reset chain
 

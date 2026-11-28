@@ -473,6 +473,23 @@ export function unsignedTransaction(hex: string): Uint8Array {
   return serializeTransaction(tx, false)
 }
 
+/**
+ * The sats a signer moved from the change output to the fee: 0n when
+ * `answered` is `built` (both unsigned and serialized), and null when they
+ * differ in anything but a smaller change output.
+ */
+export function feeRaisedBy(built: Uint8Array, answered: Uint8Array, changeOutput: number | null): bigint | null {
+  if (sameBytes(built, answered)) return 0n
+  if (changeOutput === null) return null
+  const before = parseTransaction(built).outputs[changeOutput]
+  const after = parseTransaction(answered)
+  const change = after.outputs[changeOutput]
+  if (before === undefined || change === undefined || change.value >= before.value) return null
+  const raised = before.value - change.value
+  change.value = before.value
+  return sameBytes(serializeTransaction(after, false), built) ? raised : null
+}
+
 /** How many outputs a serialized transaction has. */
 export function transactionOutputCount(bytes: Uint8Array): number {
   return parseTransaction(bytes).outputs.length

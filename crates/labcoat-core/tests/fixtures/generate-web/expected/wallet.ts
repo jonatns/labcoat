@@ -4,9 +4,12 @@
 // implements, the dev wallet backed by Labcoat Network's signer, and thin
 // adapters over the APIs browser wallet extensions inject.
 //
-// An app normally reaches these through `labcoat.connect()` in "./client".
-// Anything with the `LabcoatWallet` shape works wherever a wallet is taken,
-// so an app can bring its own.
+// Anything with the `LabcoatWallet` shape works wherever a wallet is taken.
+// On a public network that is how an app signs: it wraps whatever it
+// connected (its own picker, a wallet library, QR or hardware signing) in
+// the three members below. `labcoat.connect()` in "./client" hands out the
+// dev wallet on Labcoat Network, and the browser adapters here by name;
+// they are a convenience for prototypes, not a wallet picker.
 
 import { LabcoatClientError, WalletRejectedError } from "./errors"
 import type { BitcoinNetwork } from "./transaction"
@@ -20,8 +23,11 @@ export interface WalletAccount {
   /**
    * The address's public key, hex: 33 bytes compressed, or 32 bytes x-only
    * for a taproot address. For taproot it is the internal (untweaked) key.
+   * Leave it out for a signer that reports addresses only: a taproot input
+   * then carries no internal key in the PSBT, which a wallet that finds its
+   * inputs by their scripts does not need.
    */
-  publicKey: string
+  publicKey?: string
   /**
    * What the wallet keeps at this address, for wallets that separate the
    * two: "payment" holds bitcoin, "ordinals" holds assets such as Alkanes.
@@ -71,15 +77,29 @@ export type SignedTransaction = { psbt: string } | { hex: string }
 
 /**
  * Everything that signs for the generated client. Three members cover what
- * building and signing a transaction needs; `afterBroadcast` is optional.
+ * building and signing a transaction needs; the rest are optional.
  */
 export interface LabcoatWallet {
   /** Shown in errors, and to people choosing a wallet. */
   readonly name: string
-  /** The addresses to spend from and receive at, asking the person to connect if needed. */
+  /**
+   * The addresses to spend from and receive at, asking the person to
+   * connect if needed. It is asked before every write, so return the
+   * account selected now, not the one from when the page loaded.
+   */
   getAccounts(): Promise<WalletAccount[]>
-  /** Sign the listed inputs. Throw `WalletRejectedError` when the person declines. */
+  /**
+   * Sign the listed inputs. Throw `WalletRejectedError` when the person
+   * declines. It may take as long as signing takes (a QR code scanned by a
+   * phone, a hardware wallet): the client sets no time limit.
+   */
   signPsbt(request: SignPsbtRequest): Promise<SignedTransaction>
+  /**
+   * True for a wallet that may raise the fee before signing by lowering the
+   * change output. A write then accepts that one change to the transaction
+   * it built; any other is refused, as it is for every wallet.
+   */
+  readonly raisesFee?: boolean
   /** Called once the signed transaction has been broadcast. */
   afterBroadcast?(txid: string): Promise<void>
 }
@@ -261,7 +281,7 @@ export function approvalPrompt(): ApproveTransaction {
 
 /* ----------------------------- browser wallets ---------------------------- */
 
-/** The browser wallets `connect()` knows, in the order it tries them. */
+/** The browser wallets with a built-in adapter, which `connect({ wallet })` takes by name. */
 export const BROWSER_WALLETS = ["unisat", "xverse", "okx", "leather", "subfrost"] as const
 export type BrowserWalletId = (typeof BROWSER_WALLETS)[number]
 
@@ -554,9 +574,11 @@ export function leatherWallet(network: BitcoinNetwork, from?: WalletHost): Labco
  *   `[UNKNOWN_ERROR]` with a localized message. They are reported as a
  *   rejection, the usual cause; only `[REQUEST_TIMEOUT]` is told apart.
  *
- * The wallet may raise a fee it finds too low by changing the transaction.
- * The client refuses a transaction it did not build, so pass a `feeRate` at
- * least as high as the wallet's own.
+ * The wallet may raise a fee it finds too low. When it does so by lowering
+ * the change output the client accepts it (`raisesFee`) and reports the fee
+ * actually paid. When it adds an input and an output of its own the client
+ * refuses, as it refuses any transaction it did not build: pass a `feeRate`
+ * at least as high as the wallet's own.
  */
 export function subfrostWallet(network: BitcoinNetwork, from?: WalletHost): LabcoatWallet {
   const name = "Subfrost"
@@ -581,6 +603,7 @@ export function subfrostWallet(network: BitcoinNetwork, from?: WalletHost): Labc
   }
   return {
     name,
+    raisesFee: true,
     async getAccounts() {
       const subfrost = provider()
       try {
@@ -646,7 +669,7 @@ export function browserWallet(id: BrowserWalletId, network: BitcoinNetwork, from
   return ADAPTERS[id](network, from)
 }
 
-/** The browser wallets installed in this page, in the order `connect()` tries them. */
+/** The browser wallets installed in this page that have a built-in adapter. */
 export function installedBrowserWallets(from?: WalletHost): BrowserWalletId[] {
   return BROWSER_WALLETS.filter((id) => isObject(host(from)[GLOBALS[id]]))
 }
