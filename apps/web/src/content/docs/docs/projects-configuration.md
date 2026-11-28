@@ -91,6 +91,38 @@ is not set from `.env`, and Labcoat says so in a warning.
 `CONFIG_INVALID`. A seed phrase is needed once, by `wallet init`, and the
 keystore holds it encrypted from then on.
 
+### Variables in labcoat.toml
+
+A string setting in `labcoat.toml` can take its value, or part of it, from a
+variable with `${NAME}`:
+
+```toml
+network = "signet"
+rpc_url = "https://alkanes.example/${ALKANES_RPC_TOKEN}/jsonrpc"
+```
+
+```bash
+# .env
+ALKANES_RPC_TOKEN=your-token
+```
+
+`${NAME}` is looked up in the environment first and then in `.env`, where
+any name works, not only the ones in the table above. A name Labcoat does
+not read itself stays out of the commands it runs and reaches a setting only
+where `labcoat.toml` asks for it. `network`, `rpc_url`, `wallet_file`,
+`signer`, and `environment` expand variables; `fee_rate` is a number and
+does not. A variable that is unset or empty stops the command with
+`CONFIG_INVALID`, which names the variable.
+
+The expanded `rpc_url` is an ordinary setting from then on. Commands that
+write print it, `labcoat doctor` shows it, and `labcoat generate web`
+records it in the manifest a browser downloads. A token in the URL is
+therefore visible in those places, as it is when the URL comes from
+`--rpc-url` or `LABCOAT_RPC_URL`. `SUBFROST_API_KEY` is different: it
+travels in a header and is never printed.
+
+### Format
+
 Lines are `NAME=value`. `export NAME=value`, `#` comments, and single- or
 double-quoted values are accepted. A line that is not an assignment is
 skipped with a warning that gives its line number and never its contents.

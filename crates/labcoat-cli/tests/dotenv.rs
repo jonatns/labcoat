@@ -205,3 +205,31 @@ fn a_mainnet_passphrase_from_the_file_is_called_out() {
     assert!(!run("signet").contains("read from .env"));
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn labcoat_toml_reads_a_variable_the_file_defines() {
+    let root = project("interpolate", "MY_RPC=http://127.0.0.1:19999/custom\n");
+    std::fs::write(
+        root.join("labcoat.toml"),
+        "network = \"regtest\"\nrpc_url = \"${MY_RPC}\"\n",
+    )
+    .unwrap();
+    let envelope = doctor(&root, &root, &[]);
+    assert!(check(&envelope, "project config")["detail"]
+        .as_str()
+        .unwrap()
+        .contains("targets regtest at http://127.0.0.1:19999/custom"));
+    // The environment still wins over the file.
+    let envelope = doctor(&root, &root, &[("MY_RPC", "http://127.0.0.1:19998/shell")]);
+    assert!(check(&envelope, "project config")["detail"]
+        .as_str()
+        .unwrap()
+        .contains("19998/shell"));
+
+    std::fs::write(root.join(".env"), "").unwrap();
+    let envelope = doctor(&root, &root, &[]);
+    let config = check(&envelope, "project config");
+    assert_eq!(config["status"], "fail");
+    assert!(config["detail"].as_str().unwrap().contains("${MY_RPC}"));
+    std::fs::remove_dir_all(root).ok();
+}

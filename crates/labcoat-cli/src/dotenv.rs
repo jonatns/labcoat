@@ -248,11 +248,44 @@ pub fn plan(
 }
 
 static REPORT: OnceLock<Report> = OnceLock::new();
+/// Every assignment in the file, for `${NAME}` in `labcoat.toml`. Kept
+/// apart from the report so that nothing that prints a report holds a value.
+static VALUES: OnceLock<Vec<(String, String)>> = OnceLock::new();
+
+/// Every assignment in `root/.env` except a seed phrase, in file order.
+fn file_values(root: &Path) -> Vec<(String, String)> {
+    let Ok(text) = std::fs::read_to_string(root.join(FILE)) else {
+        return Vec::new();
+    };
+    let (mut pairs, _) = parse(&text);
+    pairs.retain(|(name, _)| name != MNEMONIC);
+    pairs
+}
+
+/// The last assignment of `name` among `values`.
+fn last_value(values: &[(String, String)], name: &str) -> Option<String> {
+    values
+        .iter()
+        .rev()
+        .find(|(assigned, _)| assigned == name)
+        .map(|(_, value)| value.clone())
+}
+
+/// A variable as `labcoat.toml` sees it: the environment, then any
+/// assignment in the project's `.env`, whatever its name. Names Labcoat
+/// does not read itself stay out of the process environment and reach a
+/// setting only where `labcoat.toml` asks for them.
+pub fn var(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .or_else(|| last_value(VALUES.get()?, name))
+}
 
 /// Apply the project's `.env` to this process's environment. Call once,
 /// before any other thread exists: changing the environment is only safe
 /// then.
 pub fn apply(root: &Path) -> &'static Report {
+    VALUES.get_or_init(|| file_values(root));
     REPORT.get_or_init(|| {
         let (report, assignments) = plan(root, |name| std::env::var_os(name));
         for (name, value) in assignments {
@@ -403,6 +436,25 @@ mod tests {
         for leaked in ["secret-without-equals", "good", "never closed"] {
             assert!(!warnings.contains(leaked));
         }
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn labcoat_toml_can_name_any_variable_in_the_file_except_a_seed_phrase() {
+        let root = project(
+            "values",
+            Some("MY_RPC=http://first\nMY_RPC=http://mine\nLABCOAT_MNEMONIC=abandon about\n"),
+        );
+        let values = file_values(&root);
+        assert_eq!(
+            last_value(&values, "MY_RPC").as_deref(),
+            Some("http://mine")
+        );
+        assert_eq!(last_value(&values, MNEMONIC), None);
+        assert_eq!(last_value(&values, "ABSENT"), None);
+        // A name Labcoat does not read is not exported to the environment.
+        let (report, assignments) = plan(&root, |_| None);
+        assert!(assignments.is_empty() && report.ignored.is_empty());
         std::fs::remove_dir_all(root).ok();
     }
 

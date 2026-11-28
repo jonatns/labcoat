@@ -25,6 +25,56 @@ struct ProjectConfig {
     environment: Option<String>,
 }
 
+impl ProjectConfig {
+    /// Replace each `${NAME}` in a string setting with that variable.
+    fn expand(mut self, vars: &impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let text = |key: &str, value: Option<String>| {
+            value.map(|value| expand(key, &value, vars)).transpose()
+        };
+        self.network = text("network", self.network)?;
+        self.rpc_url = text("rpc_url", self.rpc_url)?;
+        self.signer = text("signer", self.signer)?;
+        self.environment = text("environment", self.environment)?;
+        self.wallet_file = match self.wallet_file {
+            Some(path) => match path.to_str() {
+                Some(value) => Some(PathBuf::from(expand("wallet_file", value, vars)?)),
+                None => Some(path),
+            },
+            None => None,
+        };
+        Ok(self)
+    }
+}
+
+/// `value` with every `${NAME}` replaced by the variable it names. A
+/// variable that is unset or empty is an error, which names the variable
+/// and never a value.
+fn expand(
+    key: &str,
+    value: &str,
+    vars: &impl Fn(&str) -> Option<String>,
+) -> Result<String, String> {
+    let mut expanded = String::new();
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        expanded.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let end = after
+            .find('}')
+            .ok_or_else(|| format!("`{key}` in labcoat.toml has `${{` without a closing `}}`"))?;
+        let name = &after[..end];
+        let found = vars(name).filter(|found| !found.is_empty()).ok_or_else(|| {
+            format!(
+                "`{key}` in labcoat.toml references ${{{name}}}, which is not set in the environment or in .env"
+            )
+        })?;
+        expanded.push_str(&found);
+        rest = &after[end + 1..];
+    }
+    expanded.push_str(rest);
+    Ok(expanded)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedSettings {
     pub network: NetworkTarget,
@@ -61,7 +111,7 @@ pub fn resolve_at(root: &Path) -> Result<ResolvedSettings, String> {
 }
 
 fn resolve_in(root: &Path, overrides: Overrides<'_>) -> Result<ResolvedSettings, String> {
-    resolve_in_with(root, overrides, |name| std::env::var(name).ok())
+    resolve_in_with(root, overrides, crate::dotenv::var)
 }
 
 fn resolve_in_with(
@@ -78,7 +128,7 @@ fn resolve_with_local_url(
     env: impl Fn(&str) -> Option<String>,
     local_rpc_url: &str,
 ) -> Result<ResolvedSettings, String> {
-    let config = load(root)?;
+    let config = load(root)?.expand(&env)?;
     let network_value = choose_string(
         overrides.network,
         env("LABCOAT_NETWORK"),
@@ -376,6 +426,44 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("environment names must be non-empty"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn labcoat_toml_strings_expand_variables() {
+        let root =
+            std::env::temp_dir().join(format!("labcoat-settings-expand-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("labcoat.toml"),
+            "network = \"${NET}\"\nrpc_url = \"https://${HOST}/v1/${TOKEN}\"\nwallet_file = \"${WALLETS}/signet.json\"\nenvironment = \"plain\"\n",
+        )
+        .unwrap();
+        let vars = |name: &str| match name {
+            "NET" => Some("signet".to_string()),
+            "HOST" => Some("node.example".to_string()),
+            "TOKEN" => Some("tok-sentinel".to_string()),
+            "WALLETS" => Some("/wallets".to_string()),
+            _ => None,
+        };
+        let resolved = resolve_in_with(&root, Overrides::default(), vars).unwrap();
+        assert_eq!(resolved.network, NetworkTarget::Signet);
+        assert_eq!(resolved.rpc_url, "https://node.example/v1/tok-sentinel");
+        assert_eq!(resolved.wallet_file, PathBuf::from("/wallets/signet.json"));
+        assert_eq!(resolved.environment, "plain");
+
+        // An unset or empty variable stops the command and names itself.
+        let missing = resolve_in_with(&root, Overrides::default(), |name| match name {
+            "TOKEN" => Some(String::new()),
+            other => vars(other),
+        })
+        .unwrap_err();
+        assert!(missing.contains("`rpc_url`") && missing.contains("${TOKEN}"));
+        assert!(!missing.contains("node.example"));
+
+        std::fs::write(root.join("labcoat.toml"), "rpc_url = \"http://${OPEN\"\n").unwrap();
+        let open = resolve_in_with(&root, Overrides::default(), vars).unwrap_err();
+        assert!(open.contains("without a closing"));
         std::fs::remove_dir_all(root).ok();
     }
 
