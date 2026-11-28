@@ -64,6 +64,7 @@ export default defineConfig({
             { label: 'Deploy to signet', slug: 'docs/deploy-to-signet' },
             { label: 'Atomic exchanges', slug: 'docs/exchanges' },
             { label: 'Web apps', slug: 'docs/web-apps' },
+            { label: 'Wallet integrations', slug: 'docs/web-wallets' },
             { label: 'Deployment state', slug: 'docs/deployment-state' },
             { label: 'Automation & agents', slug: 'docs/automation' },
           ],

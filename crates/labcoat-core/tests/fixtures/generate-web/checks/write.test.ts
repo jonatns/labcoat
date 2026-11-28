@@ -24,10 +24,12 @@ import type {
   LabcoatWallet,
   LabcoatWebClientOptions,
   SignPsbtRequest,
+  TransactionStatus,
   TransactionSummary,
   WriteOptions,
 } from "../expected/client"
 import type { AbiDocument } from "../expected/abi"
+import { MANIFEST } from "../expected/manifest"
 import {
   addressToScript,
   buildCallTransaction,
@@ -212,7 +214,16 @@ const BROADCAST_TXID = "5e".repeat(32)
 function stubEndpoint(options: EndpointOptions = {}) {
   const calls: Call[] = []
   const utxos = options.utxos ?? [{ txid: "c1".repeat(32), vout: 0, value: 100_000, alkanes: [] }]
-  const state = { trace: options.trace ?? null, traceVouts: [] as number[], broadcast: [] as string[], posts: 0 }
+  const state = {
+    trace: options.trace ?? null,
+    traceVouts: [] as number[],
+    broadcast: [] as string[],
+    posts: 0,
+    /** The block the broadcast transaction is in, once it is in one. */
+    confirmedAt: null as number | null,
+  }
+  const txStatus = () =>
+    state.confirmedAt === null ? { confirmed: false } : { confirmed: true, block_height: state.confirmedAt }
 
   const answer = (request: Call & { id: number }): unknown => {
     calls.push({ method: request.method, params: request.params })
@@ -260,6 +271,9 @@ function stubEndpoint(options: EndpointOptions = {}) {
         if (first === "esplora" && second === "txhex") {
           return reply(`0x${toHex(utf8(state.broadcast[0] ?? "tx not found"))}`)
         }
+        if (first === "esplora" && second === "txstatus") {
+          return reply(`0x${toHex(utf8(JSON.stringify(txStatus())))}`)
+        }
         return view(second, third)
       }
       // The standard Alkanes JSON-RPC: the height is a string, a view names
@@ -278,6 +292,9 @@ function stubEndpoint(options: EndpointOptions = {}) {
       case "esplora_tx::hex":
         if (!hosted) return fail(-32601, "Method not found")
         return reply(state.broadcast[0] ?? "Transaction not found")
+      case "esplora_tx::status":
+        if (!hosted) return fail(-32601, "Method not found")
+        return reply(txStatus())
       case "gettxout":
         return reply(
           (options.spent ?? []).includes(`${String(first)}:${String(second)}`)
@@ -363,6 +380,31 @@ function recordingWallet() {
     },
   }
   return { wallet, requests }
+}
+
+/** Run `body` with the generated manifest naming another Bitcoin network. */
+async function onNetwork(network: string, body: () => Promise<void>): Promise<void> {
+  const manifest = MANIFEST as { bitcoinNetwork: string }
+  const before = manifest.bitcoinNetwork
+  manifest.bitcoinNetwork = network
+  try {
+    await body()
+  } finally {
+    manifest.bitcoinNetwork = before
+  }
+}
+
+/** An unsigned transaction (hex) with `sats` taken from, or added to, one output's value. */
+function withOutputValue(unsignedHex: string, index: number, change: bigint): string {
+  const bytes = fromHex(unsignedHex)
+  // version, input count, then 41 bytes per unsigned input, then the output count.
+  let offset = 4 + 1 + (bytes[4] as number) * 41 + 1
+  for (let output = 0; output < index; output++) offset += 8 + 1 + (bytes[offset + 8] as number)
+  let value = 0n
+  for (let i = 7; i >= 0; i--) value = (value << 8n) | BigInt(bytes[offset + i] as number)
+  value += change
+  for (let i = 0; i < 8; i++) bytes[offset + i] = Number((value >> BigInt(8 * i)) & 0xffn)
+  return toHex(bytes)
 }
 
 const abiCounter = {
@@ -882,9 +924,20 @@ test("a hosted endpoint has no dev wallet and is never asked for one", async () 
     requestAccounts: async () => [vectors.wallet.address],
     getPublicKey: async () => `02${vectors.wallet.publicKey}`,
   }
-  // The golden manifest is Labcoat Network's, so `connect` does look for a
-  // dev signer; the refusal sends it on to the browser wallet.
-  assert.equal((await endpoint.client().connect({ host: { unisat } })).name, "UniSat")
+  await onNetwork("signet", async () => {
+    const labcoat = endpoint.client()
+    // An installed wallet is not a chosen wallet.
+    await assert.rejects(labcoat.connect({ host: { unisat } }), (error: unknown) => {
+      assert.ok(error instanceof LabcoatClientError)
+      assert.equal(error.code, "WALLET_UNAVAILABLE")
+      assert.match(error.message, /does not choose a wallet on signet/)
+      assert.match(error.message, /connect\(\{ wallet: "unisat" \}\)/)
+      return true
+    })
+    assert.equal((await labcoat.connect({ wallet: "unisat", host: { unisat } })).name, "UniSat")
+    assert.deepEqual(labcoat.availableWallets({ unisat }), ["unisat"])
+  })
+  assert.deepEqual(endpoint.calls, [])
 })
 
 test("waiting outlasts a hosted endpoint's request limit", async () => {
@@ -916,7 +969,7 @@ test("a transaction a hosted endpoint does not know is an argument error", async
 
 /* --------------------------------- connecting ------------------------------ */
 
-test("connect returns the dev wallet on Labcoat Network and a browser wallet otherwise", async () => {
+test("connect returns the dev wallet on Labcoat Network and never picks a browser wallet", async () => {
   const unisat = {
     requestAccounts: async () => [vectors.wallet.address],
     getPublicKey: async () => `02${vectors.wallet.publicKey}`,
@@ -925,14 +978,169 @@ test("connect returns the dev wallet on Labcoat Network and a browser wallet oth
   assert.equal((await withSigner.connect({ host: { unisat } })).name, "Labcoat dev wallet")
   assert.deepEqual(withSigner.availableWallets({ unisat }), ["dev", "unisat"])
 
-  const without = stubEndpoint({ devSigner: false }).client()
-  assert.equal((await without.connect({ host: { unisat } })).name, "UniSat")
-  assert.equal((await without.connect({ wallet: "unisat", host: { unisat } })).name, "UniSat")
   const unavailable = (error: unknown) =>
     error instanceof LabcoatClientError && error.code === "WALLET_UNAVAILABLE"
-  await assert.rejects(without.connect({ host: {} }), unavailable)
+  // Without a dev signer there is no wallet, whatever is installed.
+  const without = stubEndpoint({ devSigner: false }).client()
+  await assert.rejects(without.connect({ host: { unisat } }), unavailable)
   await assert.rejects(without.connect({ wallet: "dev" }), unavailable)
+  // A browser wallet is returned when it is asked for by name.
+  assert.equal((await without.connect({ wallet: "unisat", host: { unisat } })).name, "UniSat")
   await assert.rejects(without.connect({ wallet: "leather", host: { unisat } }), unavailable)
+})
+
+/* --------------------------- prepare and broadcast ------------------------- */
+
+const ACCOUNTS = [{ address: vectors.wallet.address, publicKey: vectors.wallet.publicKey }]
+
+test("prepare builds what a write asks the wallet to sign, and broadcast sends it signed", async () => {
+  const endpoint = stubEndpoint()
+  const labcoat = endpoint.client()
+  const counter = labcoat.contract("2:1", abiCounter)
+
+  const { wallet, requests } = recordingWallet()
+  await assert.rejects(counter.write.add(5n, { wallet }), WalletRejectedError)
+  const prepared = await counter.prepare.add(5n, { accounts: ACCOUNTS })
+  assert.deepEqual(
+    { psbt: prepared.psbt, inputs: prepared.inputs, summary: prepared.summary },
+    requests[0],
+  )
+  assert.equal(prepared.fee, prepared.summary.fee)
+  // Preparing asks no wallet and sends nothing.
+  assert.equal(requests.length, 1)
+  assert.equal(endpoint.called("sendrawtransaction").length, 0)
+  // The wallet's addresses serve as well as a list of them.
+  assert.equal((await counter.prepare.add(5n, { wallet })).psbt, prepared.psbt)
+  await assert.rejects(
+    counter.prepare.add(5n),
+    (error: unknown) => error instanceof LabcoatClientError && error.code === "WALLET_UNAVAILABLE",
+  )
+
+  // Signed somewhere else, for as long as that took.
+  const decoded = decodePsbt(prepared.psbt)
+  const tx = await labcoat.broadcast(prepared, { hex: withWitnesses(decoded.transaction, decoded.inputs.length) })
+  assert.equal(tx.txid, BROADCAST_TXID)
+  assert.equal(tx.fee, prepared.fee)
+  assert.equal(endpoint.called("sendrawtransaction").length, 1)
+  // No wallet was named, so no block is mined for it.
+  assert.equal(endpoint.called("generatetoaddress").length, 0)
+  endpoint.state.trace = { reverted: false, data: u128le(12n), gas: 7n }
+  const receipt = await tx.wait({ pollMs: 1 })
+  assert.equal(receipt.value, 12n)
+  assert.deepEqual(endpoint.state.traceVouts, [4])
+
+  // Another transaction is not the one prepared.
+  const other = buildCallTransaction({ ...baseRequest, utxos: [output(9, 80_000n)] })
+  await assert.rejects(labcoat.broadcast(prepared, { psbt: other.psbt }), /the signer returned a different transaction/)
+  assert.equal(endpoint.called("sendrawtransaction").length, 1)
+})
+
+test("a wallet that raises the fee by lowering the change is accepted only when it says it does", async () => {
+  const signer = (raisesFee: boolean, index: number, change: bigint): LabcoatWallet => ({
+    name: "Raiser",
+    ...(raisesFee ? { raisesFee } : {}),
+    getAccounts: async () => ACCOUNTS,
+    signPsbt: async (request) => {
+      const decoded = decodePsbt(request.psbt)
+      return { hex: withWitnesses(withOutputValue(decoded.transaction, index, change), decoded.inputs.length) }
+    },
+  })
+  const endpoint = stubEndpoint()
+  const labcoat = endpoint.client()
+  const counter = labcoat.contract("2:1", abiCounter)
+  const built = await counter.prepare.increment({ accounts: ACCOUNTS })
+  // Recipient, change, OP_RETURN.
+  assert.equal(built.call.changeOutput, 1)
+
+  await assert.rejects(counter.write.increment({ wallet: signer(false, 1, -150n) }), (error: unknown) => {
+    assert.ok(error instanceof LabcoatClientError)
+    assert.equal(error.code, "WALLET_ERROR")
+    assert.match(error.message, /Raiser raised the fee from \d+ to \d+ sats/)
+    return true
+  })
+  // Only the change may shrink: not another output, and it may not grow.
+  await assert.rejects(counter.write.increment({ wallet: signer(true, 0, -150n) }), /a different transaction/)
+  await assert.rejects(counter.write.increment({ wallet: signer(true, 1, 150n) }), /a different transaction/)
+  assert.equal(endpoint.called("sendrawtransaction").length, 0)
+
+  const tx = await counter.write.increment({ wallet: signer(true, 1, -150n) })
+  assert.equal(tx.fee, built.fee + 150n)
+  assert.equal(endpoint.called("sendrawtransaction").length, 1)
+  // An app that signs for itself says so at broadcast.
+  const decoded = decodePsbt(built.psbt)
+  const raised = { hex: withWitnesses(withOutputValue(decoded.transaction, 1, -150n), decoded.inputs.length) }
+  await assert.rejects(labcoat.broadcast(built, raised), /raised the fee/)
+  assert.equal((await labcoat.broadcast(built, raised, { allowFeeChange: true })).fee, built.fee + 150n)
+})
+
+/* ---------------------------------- waiting -------------------------------- */
+
+test("a wait reports broadcast, pending, confirmed, and indexed, each once and in order", async () => {
+  const endpoint = stubEndpoint()
+  const labcoat = endpoint.client()
+  const tx = await labcoat
+    .contract("2:1", abiCounter)
+    .write.add(5n, { wallet: await labcoat.connect({ mine: false }) })
+  const seen: TransactionStatus[] = []
+  const receipt = await tx.wait({
+    pollMs: 1,
+    onStatus: (status) => {
+      seen.push(status)
+      // The chain moves on only after the page has heard each step.
+      if (status.status === "pending") endpoint.state.confirmedAt = 301
+      if (status.status === "confirmed") endpoint.state.trace = { reverted: false, data: u128le(9n), gas: 1n }
+    },
+  })
+  assert.equal(receipt.value, 9n)
+  assert.deepEqual(seen, [
+    { status: "broadcast", txid: BROADCAST_TXID },
+    { status: "pending", txid: BROADCAST_TXID },
+    { status: "confirmed", txid: BROADCAST_TXID, blockHeight: 301 },
+    { status: "indexed", txid: BROADCAST_TXID },
+  ])
+
+  // By transaction id too; a step nobody saw is skipped, and a callback that throws changes nothing.
+  const again: string[] = []
+  await labcoat.waitForTransaction(tx.txid, {
+    pollMs: 1,
+    onStatus: ({ status }) => {
+      again.push(status)
+      throw new Error("the page fell over")
+    },
+  })
+  assert.deepEqual(again, ["broadcast", "indexed"])
+})
+
+test("a reverted call is reported indexed before the wait throws", async () => {
+  const endpoint = stubEndpoint({ trace: { reverted: true, data: [0, 0, 0, 0, ...utf8("no")], gas: 1n } })
+  const labcoat = endpoint.client()
+  const tx = await labcoat.contract("2:1", abiCounter).write.increment({ wallet: signingWallet().wallet, simulate: false })
+  const seen: string[] = []
+  await assert.rejects(tx.wait({ pollMs: 1, onStatus: ({ status }) => seen.push(status) }), ContractRevertError)
+  assert.deepEqual(seen, ["broadcast", "indexed"])
+})
+
+test("progress on a hosted endpoint costs one request every third poll, and none unasked", async () => {
+  const run = async (onStatus: boolean) => {
+    const endpoint = stubEndpoint({ dialect: "alkanes" })
+    let traces = 0
+    const fetchFn = (async (url: unknown, init?: { body?: unknown }) => {
+      const body = JSON.parse(String(init?.body)) as Call
+      // The index has the call at the eighth look.
+      if (body.method === "metashrew_view" && body.params[0] === "trace" && ++traces === 8) {
+        endpoint.state.trace = { reverted: false, data: u128le(3n), gas: 1n }
+      }
+      return endpoint.fetchFn(url as string, init as RequestInit)
+    }) as typeof fetch
+    const labcoat = endpoint.client({ fetchFn })
+    const tx = await labcoat.contract("2:1", abiCounter).write.add(3n, { wallet: signingWallet().wallet })
+    const seen: string[] = []
+    await tx.wait({ pollMs: 1, ...(onStatus ? { onStatus: ({ status }) => seen.push(status) } : {}) })
+    return { seen, traces, status: endpoint.called("esplora_tx::status").length, hex: endpoint.called("esplora_tx::hex").length }
+  }
+  // Seven polls find nothing: polls 0, 3, and 6 also ask whether it is in a block.
+  assert.deepEqual(await run(true), { seen: ["broadcast", "pending", "indexed"], traces: 8, status: 3, hex: 0 })
+  assert.deepEqual(await run(false), { seen: [], traces: 8, status: 0, hex: 0 })
 })
 
 /* ------------------------------ browser wallets ---------------------------- */

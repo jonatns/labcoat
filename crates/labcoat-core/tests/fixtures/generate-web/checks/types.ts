@@ -11,9 +11,12 @@ import type {
   ContractHandle,
   ContractRevertError,
   LabcoatWallet,
+  PreparedTransaction,
   ReadMethods,
   ReadResult,
+  SignPsbtRequest,
   TransactionReceipt,
+  TransactionStatus,
   TransactionSummary,
   TypedContractName,
   WriteMethods,
@@ -180,6 +183,27 @@ export async function typeChecks(wideAbi: AbiDocument, dynamicId: string): Promi
     signPsbt: async ({ psbt }) => ({ psbt }),
   }
   await labcoat.contract("fire").write.forward({ wallet: own })
+  // A write in two halves: built here, signed anywhere, then sent.
+  const prepared: PreparedTransaction<bigint> = await clone.prepare.getEnergy({
+    accounts: [{ address: "bcrt1p...", publicKey: "00" }],
+    feeRate: 3,
+  })
+  const request: SignPsbtRequest = prepared
+  const viaBroadcast: WriteResult<bigint> = await labcoat.broadcast(prepared, await own.signPsbt(request))
+  const sentEnergy: bigint = (await viaBroadcast.wait()).value
+  await labcoat.broadcast(prepared, { hex: "00" }, { wallet: own, allowFeeChange: true })
+  void sentEnergy
+  // Waiting reports where the transaction is.
+  await sent.wait({
+    onStatus: (status: TransactionStatus) => {
+      const height: number | null = status.status === "confirmed" ? status.blockHeight : null
+      void height
+    },
+  })
+  // @ts-expect-error prepare checks arguments like write
+  await clone.prepare.childOf("2:1", { wallet })
+  // @ts-expect-error broadcast takes what prepare returned
+  await labcoat.broadcast({ psbt: "", inputs: [] }, { hex: "00" })
   // @ts-expect-error write checks arguments like read
   await clone.write.childOf("2:1", { wallet })
   // @ts-expect-error write has no method the ABI lacks

@@ -95,12 +95,37 @@ test("rejecting in the dev wallet's approval step sends nothing", async () => {
 test("without mining, a write stays pending until a block is asked for", async () => {
   const wallet = await labcoat.connect({ mine: false })
   const tx = await counter.write.increment({ wallet })
-  await assert.rejects(tx.wait({ timeoutMs: 1_500 }), /TRANSACTION_TIMEOUT|no result/)
+  const seen: string[] = []
+  await assert.rejects(
+    tx.wait({ timeoutMs: 1_500, onStatus: ({ status }) => seen.push(status) }),
+    /TRANSACTION_TIMEOUT|no result/,
+  )
+  // The node has it, and it is in no block.
+  assert.deepEqual(seen, ["broadcast", "pending"])
   const [account] = await wallet.getAccounts()
   const response = await fetch(rpc, {
     method: "POST",
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "generatetoaddress", params: [1, account?.address] }),
   })
   assert.ok(response.ok)
+  const after: string[] = []
+  assert.equal((await tx.wait({ onStatus: ({ status }) => after.push(status) })).status, "success")
+  assert.equal(after[0], "broadcast")
+  assert.equal(after.at(-1), "indexed")
+  assert.ok(!after.includes("pending"))
+})
+
+test("a write in two halves: prepared, signed apart, then broadcast", async () => {
+  const wallet = await labcoat.connect()
+  const before = await counter.read.getCount()
+  const prepared = await counter.prepare.increment({ accounts: await wallet.getAccounts() })
+  assert.equal(prepared.summary.method, "increment")
+  // Nothing was sent by preparing.
+  assert.equal(await counter.read.getCount(), before)
+
+  const signed = await wallet.signPsbt({ psbt: prepared.psbt, inputs: prepared.inputs, summary: prepared.summary })
+  const tx = await labcoat.broadcast(prepared, signed, { wallet })
+  assert.equal(tx.fee, prepared.fee)
   assert.equal((await tx.wait()).status, "success")
+  assert.equal(await counter.read.getCount(), before + 1n)
 })

@@ -4,12 +4,19 @@ description: Generate a typed TypeScript client that reads deployed contracts an
 ---
 
 `labcoat generate web` turns a project's deployments into a dependency-free
-TypeScript module tree that a browser application can import.
+TypeScript client for reading contracts and sending wallet-signed calls.
+For the starter Counter, run these commands from the project root:
 
 ```bash
-labcoat build
+labcoat up
+labcoat deploy
 labcoat generate web
 ```
+
+For an existing deployment, run `labcoat build` if you need to refresh the
+ABIs. Use [Deploy to signet](/docs/deploy-to-signet/) for a public-network
+deployment. Set your app's TypeScript target to ES2020 or newer for
+`bigint` support.
 
 Generation reads `labcoat.lock` and the `build/*.abi.json` files written by
 `labcoat build`. It makes no network requests, so it is safe in CI. Pass
@@ -22,7 +29,7 @@ app that lives in `web/`:
 
 ```bash
 cd web
-labcoat generate web --out-dir src/generated   # writes web/src/generated
+labcoat generate web --out-dir src/generated/web
 ```
 
 The command prints the directories it used as absolute paths (`Out dir` and
@@ -35,7 +42,7 @@ generated/web/
   manifest.ts     network, RPC endpoint and dialect, chain id, and one record per contract
   abi/            typed method descriptors, one module per build artifact
   client.ts       fetch-based client: typed reads and wallet-signed writes
-  wallet.ts       the wallet interface, the dev wallet, browser wallet adapters
+  wallet.ts       the wallet interface, the dev wallet, browser extension adapters
   transaction.ts  builds the unsigned transaction of a call
   errors.ts       the errors the client throws
   exchange.ts     exchange request builder
@@ -48,10 +55,13 @@ in your build.
 
 ## Read contract state
 
+[Forward `/rpc` to the local RPC endpoint](#proxy-the-local-rpc-endpoint),
+or [configure the Subfrost route](#reach-subfrost-from-a-browser) for signet
+or mainnet. In an app file next to the generated directory:
+
 ```ts
 import { createClient } from './generated/web/client';
 
-// Point rpc at a path your dev server proxies to the manifest's rpcUrl.
 const labcoat = createClient({ rpc: '/rpc' });
 
 const counter = labcoat.contract('counter');
@@ -258,38 +268,77 @@ as `rpcDialect` in the manifest, by the rule the CLI uses: `'alkanes'` for a
 `subfrost.io` endpoint, which is the default for `--network signet` and
 `--network mainnet`, and `'labcoat'` for anything else. Because it is in the
 manifest, it still holds when `rpc` is a same-origin path your server forwards
-to that endpoint. For another provider of the standard Alkanes JSON-RPC, or
-any time `rpc` leads somewhere other than the manifest's endpoint, name it:
+to that endpoint. For another provider that speaks the standard Alkanes JSON-RPC, set
+`dialect: 'alkanes'`. In a browser, point `rpc` at your forwarding route:
 
 ```ts
-const labcoat = createClient({ rpc: 'https://alkanes.example/jsonrpc', dialect: 'alkanes' });
+const labcoat = createClient({ rpc: '/rpc', dialect: 'alkanes' });
 ```
 
 With the wrong dialect the first request fails with the endpoint's own
 refusal. Subfrost's reads `method not permitted on the public endpoint:
 secondaryheight`.
 
+### Proxy the local RPC endpoint
+
+For Labcoat Network, forward `/rpc` to the URL from `labcoat up`. For
+example, if you generated into `web/src/generated/web`, add this to
+`web/next.config.ts`:
+
+```ts
+import type { NextConfig } from 'next';
+import { MANIFEST } from './src/generated/web/manifest';
+
+const config: NextConfig = {
+  async rewrites() {
+    return [{ source: '/rpc', destination: MANIFEST.rpcUrl }];
+  },
+};
+
+export default config;
+```
+
+Start Next.js with `npm run dev -- --hostname localhost` when using
+the dev wallet. For a private upstream URL, use the server-side route below.
+
 ### Reach Subfrost from a browser
 
 A page cannot call Subfrost's endpoints directly. They answer a CORS
 preflight, but the response to the request itself carries no
 `Access-Control-Allow-Origin` header, so the browser blocks it and the client
-throws `RPC_UNREACHABLE`. Serve a same-origin path that forwards to the
-manifest's `rpcUrl`, and create the client with that path. In a Next.js app:
+throws `RPC_UNREACHABLE`. Serve a same-origin path and create the client
+with that path. When `labcoat generate web` sets the manifest's `rpcUrl` to
+`/rpc` for a private endpoint, set `LABCOAT_RPC_TARGET` to the full upstream
+URL in the app server's environment. In a Next.js app:
 
 ```ts
 // app/rpc/route.ts
 import { MANIFEST } from '@/generated/web/manifest';
 
 export async function POST(request: Request) {
+  const rpcUrl = process.env.LABCOAT_RPC_TARGET ?? MANIFEST.rpcUrl;
+  const target = URL.canParse(rpcUrl) ? new URL(rpcUrl) : null;
+  if (!target || !['http:', 'https:'].includes(target.protocol)) {
+    return new Response('Set LABCOAT_RPC_TARGET to the upstream RPC URL', { status: 500 });
+  }
+
   const headers = new Headers({ 'content-type': 'application/json' });
   const key = process.env.SUBFROST_API_KEY;
-  if (key) headers.set('x-subfrost-api-key', key);
+  const subfrost = target.hostname === 'subfrost.io' || target.hostname.endsWith('.subfrost.io');
+  if (key && subfrost) headers.set('x-subfrost-api-key', key);
+  if (target.username || target.password) {
+    const user = decodeURIComponent(target.username);
+    const password = decodeURIComponent(target.password);
+    headers.set('authorization', 'Basic ' + Buffer.from(user + ':' + password).toString('base64'));
+    target.username = '';
+    target.password = '';
+  }
 
-  const upstream = await fetch(MANIFEST.rpcUrl, {
+  const upstream = await fetch(target, {
     method: 'POST',
     headers,
     body: await request.text(),
+    redirect: 'manual',
   });
 
   const answer = new Headers({ 'content-type': 'application/json' });
@@ -303,9 +352,8 @@ export async function POST(request: Request) {
 const labcoat = createClient({ rpc: '/rpc' });
 ```
 
-A dev server's proxy does the same while developing: `server.proxy['/rpc']`
-in a Vite config, or a rewrite in `next.config.ts`. The dialect comes from the
-manifest, so the client needs nothing else.
+For Vite, a dev proxy at `server.proxy['/rpc']` can forward the same path.
+The manifest's `rpcDialect` still applies when the browser uses `/rpc`.
 
 ### Subfrost's request limit
 
@@ -349,7 +397,7 @@ key needs a route or a proxy that can.
 
 That route spends your key's quota for anyone who can reach it. Limit what
 it forwards to the methods the client uses: `metashrew_height`,
-`metashrew_view`, `esplora_address::utxo`, `esplora_tx::hex`, `gettxout`, and
+`metashrew_view`, `esplora_address::utxo`, `esplora_tx::hex`, `esplora_tx::status`, `gettxout`, and
 `sendrawtransaction`.
 
 A client that runs on a server, in a script or a server component, has no
@@ -362,17 +410,16 @@ CORS to satisfy and can send the key itself:
 sends it as a transaction that a wallet signs:
 
 ```ts
-const wallet = await labcoat.connect();
+const wallet = await labcoat.connect(); // Labcoat Network's dev wallet
 
 const tx = await counter.write.increment({ wallet });
-const receipt = await tx.wait();
-
+await tx.wait();
 console.log(tx.txid, await counter.read.getCount());
 ```
 
-The client holds no key. It builds the unsigned transaction, hands it to the
-wallet as a PSBT, and broadcasts what the wallet signs. The transaction is the
-one `labcoat call` builds for the same wallet and call, byte for byte.
+The client builds an unsigned PSBT using the same transaction rules as
+`labcoat call`. The wallet signs it with its own keys, and the client
+broadcasts the signed transaction.
 
 A write takes the method's arguments and then an options object:
 
@@ -408,39 +455,46 @@ to its own output first.
 
 ### Connect a wallet
 
-`labcoat.connect()` returns a wallet:
-
-- On Labcoat Network it is the **dev wallet**: the built-in wallet that
-  `labcoat up` funds, signed for by the network's
-  [dev signer](/docs/labcoat-network/#dev-signer). There is no extension and
-  no prompt.
-- On any other network it is the first installed browser wallet of UniSat,
-  Xverse, OKX Wallet, Leather, and Subfrost, which asks the person to connect.
-
-The same line serves both, so an app has no local-only code path. To choose,
-pass `{ wallet: 'xverse' }` (or `'dev'`, `'unisat'`, `'okx'`, `'leather'`,
-`'subfrost'`);
-`labcoat.availableWallets()` lists what this page can connect to.
-
-A wallet is any object with three members, so an app can bring its own:
+#### Labcoat Network: the dev wallet
 
 ```ts
-import type { LabcoatWallet } from './generated/web/client';
-
-const wallet: LabcoatWallet = {
-  name: 'My wallet',
-  // { address, publicKey, purpose? }: publicKey is hex, x-only or compressed.
-  getAccounts: async () => [{ address, publicKey }],
-  // psbt is base64, with witnessUtxo on every input and tapInternalKey on
-  // taproot ones. Return { psbt } signed (base64 or hex, finalized or not),
-  // or { hex }, the finished transaction.
-  signPsbt: async ({ psbt, inputs, summary }) => ({ psbt: await sign(psbt) }),
-};
+const wallet = await labcoat.connect();
 ```
 
-The client spends taproot and native SegWit (P2WPKH) outputs. Nested SegWit
-addresses, which Xverse uses for payments by default, are not spent: with
-such a wallet the bitcoin for fees has to be at its taproot address.
+`labcoat up` funds the built-in wallet. Open the app at
+`http://localhost:<port>` so the
+[dev signer](/docs/labcoat-network/#dev-signer) can sign. The dev wallet
+mines a block after broadcasting. For a local approve or reject flow,
+use `labcoat.connect({ approve: true })`.
+
+#### Public networks: choose a wallet
+
+Connect the wallet your app selects, then pass it as `{ wallet, feeRate }`
+to the write. A public-network call to `connect()` without a wallet name
+throws `WALLET_UNAVAILABLE`. Use the
+[wallet integrations guide](/docs/web-wallets/) to wrap a wallet library
+or to prepare and sign a PSBT on another device.
+
+The client can spend taproot and native SegWit (P2WPKH) outputs. If a wallet
+uses a nested SegWit payment address, fund its taproot address for fees.
+For custom regtest, provide your own wallet or a compatible adapter.
+Calling `connect()` without a wallet name on regtest attempts to use the
+Labcoat dev signer.
+
+#### Built-in extension adapters
+
+When the app already knows which extension the user selected, pass its ID:
+
+```ts
+const wallet = await labcoat.connect({ wallet: 'unisat' });
+const tx = await counter.write.increment({ wallet, feeRate: 2 });
+await tx.wait();
+```
+
+The built-in IDs are `unisat`, `xverse`, `okx`, `leather`, and
+`subfrost`. `labcoat.availableWallets()` lists the available adapters for
+an app's wallet picker. Confirm that the chosen extension supports the
+network before testing a write.
 
 ### Wait for the result
 
@@ -452,20 +506,51 @@ const { value, gasUsed } = await tx.wait();
 ```
 
 `labcoat.waitForTransaction(txid)` does the same from a transaction id alone
-and leaves the return value as bytes. Both take `{ timeoutMs, pollMs }` and
+and leaves the return value as bytes. Both take `{ timeoutMs, pollMs, onStatus }` and
 throw a `LabcoatClientError` with code `TRANSACTION_TIMEOUT` when the time is
 up. The time allowed is 60 seconds on Labcoat Network and regtest, and 30
 minutes on a public network. The index is asked every 500 ms in the
 `'labcoat'` dialect and every 10 seconds in the `'alkanes'` one, to stay
 inside a hosted endpoint's [request limit](#subfrosts-request-limit).
 
-A transaction is indexed once it is in a block. On a public network that is
-the next block, about ten minutes away on signet and mainnet. Labcoat Network
-mines no blocks by itself, so the dev wallet
-asks for one after each broadcast, as `labcoat call` does; a write is
-confirmed by the time it returns, and `wait()` takes one request. To see a
-transaction stay pending, connect with `{ mine: false }` and mine with
-`labcoat mine`.
+On a public network, wait for the transaction to enter a block and for
+the index to catch up. The timing depends on the network and transaction.
+The dev wallet on Labcoat Network mines after broadcasting. To exercise
+the pending state locally, connect with `{ mine: false }` and mine a block
+with `labcoat mine`.
+
+On a public network the wait is minutes long. `onStatus` tells the page where
+the transaction is:
+
+```ts
+await tx.wait({
+  onStatus: (status) => {
+    if (status.status === 'broadcast') show('Sent. Waiting for the network…');
+    if (status.status === 'pending') show('In the mempool. Waiting for a block…');
+    if (status.status === 'confirmed') show('Confirmed. Waiting for the index…');
+    if (status.status === 'indexed') show('Indexed. Checking the result…');
+  },
+});
+```
+
+| Status      | Meaning                                                              |
+| ----------- | -------------------------------------------------------------------- |
+| `broadcast` | The wait has started                                                 |
+| `pending`   | The endpoint has the transaction, and it is not in a block           |
+| `confirmed` | It is in a block. `blockHeight` is available when the endpoint supplies it. |
+| `indexed`   | The index has the call's result; `wait()` resolves or throws next    |
+
+The callback reports each observed status at most once, in order. A fast
+transaction may go straight from `broadcast` to `indexed`. Wait for
+`tx.wait()` to resolve before showing success, since an indexed call can
+still have reverted.
+
+Without `onStatus` a wait makes only the index lookup. With it, the client
+also asks whether the transaction is in a block: with every poll in the
+`'labcoat'` dialect, and with every third poll (every 30 seconds) in the
+`'alkanes'` one, and not at all once the answer is yes. On Subfrost without
+a key that is 8 requests a minute for `tx.wait()` and 14 for
+`waitForTransaction`, which looks in two places, out of the 20 allowed.
 
 ### Reverts and rejections
 
@@ -497,7 +582,7 @@ checks its payment outputs, pass `simulate: false`.
 A transaction that reverts once mined still costs its fee. `wait()` then
 throws `ContractRevertError` with the `txid` set.
 
-A browser wallet asks in its own window. The dev wallet signs at once; to
+A wallet on a public network asks in its own window. The dev wallet signs at once; to
 exercise the approve and reject paths locally, connect it with an approval
 step:
 
@@ -515,74 +600,15 @@ has `contract` (the id), `contractName` (set when the call went through a
 manifest name), `method`, `fee`, `recipient`, `alkanes`, `payments`, and
 `network`; a wallet of your own gets the same object in `signPsbt`.
 
-### Local and public networks
-
-|                    | Labcoat Network                                   | Signet, testnet, mainnet                      |
-| ------------------ | ------------------------------------------------- | --------------------------------------------- |
-| `connect()`        | the dev wallet                                    | an installed browser wallet                   |
-| Approval           | none, or `connect({ approve: true })`             | the wallet's own window                       |
-| Blocks             | the dev wallet mines one per write                | the network's                                 |
-| `feeRate`          | 2 sat/vB unless set                               | required                                      |
-| Page address       | `http://localhost:<port>`: the dev signer refuses other origins | any                             |
-| Endpoint           | `labcoat up`'s, in the `'labcoat'` dialect        | Subfrost's by default, in the `'alkanes'` dialect, through a same-origin path |
-| Requests           | batched, unlimited                                | one per call, 20 a minute without an API key  |
-| `wait()`           | 60 seconds, asking every 500 ms                   | 30 minutes, asking every 10 seconds           |
-
-The client is generated for one network (`labcoat generate web --network
-signet`), and refuses an address or a wallet of another.
-
-The dev wallet exists only on Labcoat Network. Its coins are worthless and its
-key signs for any page this machine serves, so never send value to its
-addresses on another network.
-
 ### Check a browser wallet on signet
 
-Browser wallets are not exercised by Labcoat's own tests beyond stub
-providers, and no Labcoat test broadcasts on a public network. By hand, in
-November 2026, a write was signed in UniSat 1.8.5, broadcast through
-Subfrost's signet endpoint, and waited for; the other wallets were not
-tried, and the Subfrost wallet connected but has no signet network to sign
-on. Before relying on one, run this once on signet, for each wallet
-you support:
-
-1. [Deploy to signet](/docs/deploy-to-signet/), run `labcoat generate web --network signet`, and serve
-   the app. The manifest's `rpcDialect` is `'alkanes'`. Forward a
-   same-origin path to the endpoint and pass it as `rpc`, as under
-   [Reach Subfrost from a browser](#reach-subfrost-from-a-browser).
-2. Put the wallet on signet and fund its taproot address with signet coins.
-3. Call `labcoat.connect({ wallet: '<id>' })`. The wallet asks to connect, and
-   the address the app shows is the wallet's taproot address.
-4. Decline the connection once: the app catches `WalletRejectedError`.
-5. Send a write with `feeRate` set. The wallet shows one transaction with the
-   expected fee and outputs. Reject it: `WalletRejectedError`, and nothing is
-   broadcast.
-6. Send it again and approve. `tx.txid` appears in a signet explorer, and
-   `tx.wait()` resolves after the next block, which can take ten minutes or
-   more.
-7. Send a write with `alkanes` from a wallet that holds that Alkane, and check
-   with `labcoat balance` that the Alkanes it did not send are still there.
-8. Switch the wallet to another network and connect again: the client refuses
-   with the wallet's network in the message.
-
-The adapters were written against UniSat's `window.unisat` wallet API
-(`requestAccounts`, `getPublicKey`, `getChain`, `signPsbt`), Xverse's Sats
-Connect methods on `window.XverseProviders.BitcoinProvider` (`wallet_connect`,
-`signPsbt`; WBIP001), OKX's `window.okxwallet.bitcoin`, `bitcoinTestnet`, and
-`bitcoinSignet` providers (extension 2.77.1 or later), Leather's
-`window.LeatherProvider` (`getAddresses`, `signPsbt`; `@leather.io/rpc`
-2.25), and Subfrost's `window.subfrost` (`requestAccounts`,
-`getPublicKey`, `signPsbt`), as documented in November 2026.
-
-The Subfrost wallet differs from the others in three ways:
-
-- It reports the one address selected in the wallet, and that has to be its
-  taproot address.
-- A declined prompt and any other failure arrive the same way, so both throw
-  `WalletRejectedError`. Only a prompt left unanswered for 60 seconds is told
-  apart, as `WALLET_ERROR`.
-- It may raise a fee it finds too low by changing the transaction. The client
-  refuses to broadcast a transaction it did not build, so the write fails
-  with `WALLET_ERROR`; pass a `feeRate` at least as high as the wallet's own.
+[Deploy to signet](/docs/deploy-to-signet/) and generate a signet client
+before testing a browser wallet. Use the
+[signet verification checklist](/docs/web-wallets/#check-a-browser-wallet-on-signet)
+to check the selected account, declined signatures, and confirmation.
+The built-in UniSat adapter has been tested by hand on signet. The
+LaserEyes and Sats Connect recipes have run on Labcoat Network with
+stand-in extension providers.
 
 ## Detect a reset chain
 

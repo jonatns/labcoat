@@ -268,29 +268,18 @@ do not mind making, since the call executes too.
 labcoat --network signet generate web
 ```
 
-The generated client reads `labcoat.lock`, so it knows the signet contract
-ids, and its manifest names Subfrost's signet endpoint. Three things differ
-from Labcoat Network:
+The generated client reads the signet contract IDs from `labcoat.lock`.
 
-- **The page cannot call Subfrost directly.** Subfrost's responses carry no
-  CORS header, so a browser blocks them. Serve a same-origin path such as
-  `/rpc` from your app's server, forward it to the endpoint, and create the
-  client with `createClient({ rpc: '/rpc' })`. The route handler is under
-  [Reach Subfrost from a browser](/docs/web-apps/#reach-subfrost-from-a-browser).
-- **The web app has its own API key setting.** The key cannot be in a
-  browser bundle, so it lives in the environment of the server that runs the
-  forwarding route: your host's environment variables in production, and the
-  web app's own env file while developing. It is the same kind of key, and
-  may be the same key, but the project's `.env` configures the `labcoat`
-  command only; nothing copies it to the web app. See
-  [API keys](/docs/web-apps/#api-keys).
-- **Writes need a fee rate.** `feeRate` defaults to 2 sat/vB on Labcoat
-  Network and is required elsewhere:
-  `counter.write.increment({ wallet, feeRate: 2 })`.
-
-The wallet that signs in the browser is a browser wallet, with its own
-signet coins; see [the same seed in a browser wallet](#the-same-seed-in-a-browser-wallet)
-and [Check a browser wallet on signet](/docs/web-apps/#check-a-browser-wallet-on-signet).
+1. [Configure a same-origin `/rpc` route](/docs/web-apps/#reach-subfrost-from-a-browser)
+   to Subfrost. Set `SUBFROST_API_KEY` in the app server's environment.
+   The project's `.env` configures the CLI, and the browser bundle should
+   contain neither the key nor a private upstream URL.
+2. Connect a wallet that supports signet and pass it to the write with an
+   explicit fee rate, for example
+   `counter.write.increment({ wallet, feeRate: 2 })`. See
+   [Connect a wallet](/docs/web-apps/#connect-a-wallet).
+3. Run the [browser wallet checklist](/docs/web-wallets/#check-a-browser-wallet-on-signet)
+   with the account and wallet library your app uses.
 
 ## When something goes wrong
 
