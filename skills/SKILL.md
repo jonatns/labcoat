@@ -55,6 +55,10 @@ default; the built-in wallet needs none);
 mnemonic via `LABCOAT_MNEMONIC` env or `wallet init --mnemonic-stdin`.
 Never place either on argv.
 
+`SUBFROST_API_KEY` (signet and mainnet through Subfrost) goes in `.env` in
+the project root, which git ignores; the environment wins over the file.
+`LABCOAT_MNEMONIC` is refused in `.env`. Never print or commit a key.
+
 ## 3. Build
 
 ```bash
@@ -219,9 +223,11 @@ a contract that is not in `labcoat.lock`, and `at(height)` pins reads to one
 indexed height. `decodeAlkaneIds(bytes)`, `decodeAlkaneId(bytes, offset?)`,
 and `decodeU128(bytes, offset?)` decode ids and numbers a contract returns
 packed in a `Vec<u8>`. `write` has the same methods and sends the call as a
-transaction a wallet signs: `const wallet = await labcoat.connect()` (the dev
-wallet on Labcoat Network, a browser wallet elsewhere), then
-`const tx = await counter.write.increment({ wallet }); await tx.wait()`.
+transaction a wallet signs. On Labcoat Network, `await labcoat.connect()`
+provides the dev wallet. On a public network, pass the wallet the app
+selected or use a named adapter such as
+`await labcoat.connect({ wallet: "unisat" })`. Pass the wallet and an
+explicit public-network `feeRate` to the write, then call `tx.wait()`.
 Options are `alkanes`, `pay`, `to`, `feeRate`, and `simulate`; a rejection
 throws `WalletRejectedError`, and a revert, before signing or once mined,
 throws `ContractRevertError`. On Labcoat Network open the app at

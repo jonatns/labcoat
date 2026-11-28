@@ -1,10 +1,10 @@
 # Generated web artifacts
 
 Status: implemented for reads, wallet-signed contract calls, and the
-exchange request builder (`labcoat generate web`). Unsigned transaction-plan
-builders beyond the request file are future work, as are deploys, plain
-Alkane transfers, nested SegWit inputs, and a key-holding signer for public
-networks.
+exchange request builder (`labcoat generate web`). Contract calls can be
+prepared as unsigned PSBTs for separate signing and then broadcast.
+Deploys, plain Alkane transfers, nested SegWit inputs, and a key-holding
+signer for public networks are outside the generated client.
 
 ## Decision
 
@@ -76,8 +76,9 @@ line. The result reports both directories as absolute paths (`outDir`,
     `read`, by ABI method name or decimal opcode, returning the raw bytes
     and `status` without throwing on a revert.
 
-  Calls made in the same tick are sent as one JSON-RPC batch request, and
-  unpinned reads that start together share one height lookup.
+  In the Labcoat RPC dialect, calls made in the same tick are sent as one
+  JSON-RPC batch request. Unpinned reads that start together share one height
+  lookup in either dialect.
 
   Writes:
   - `contract(...).write.<method>(...args, options)` — simulates the call,
@@ -87,8 +88,13 @@ line. The result reports both directories as absolute paths (`outDir`,
     signed transaction is the one it built, and broadcasts it
     (`sendrawtransaction`). Options: `wallet`, `alkanes`, `pay`, `to`,
     `feeRate`, `simulate`. It resolves to `{ txid, fee, payments, wait() }`;
-  - `connect(options)` — the dev wallet on Labcoat Network, else an
-    installed browser wallet; `availableWallets()` lists them;
+  - `connect()` uses the dev wallet on Labcoat Network. Public-network apps
+    pass a `LabcoatWallet` or explicitly select an extension with
+    `connect({ wallet: 'unisat' })`. `availableWallets()` lists the available
+    adapters.
+  - `contract(...).prepare.<method>(...args, options)` builds an unsigned
+    PSBT. `broadcast(prepared, signed)` verifies and sends the signed
+    transaction.
   - `waitForTransaction(txid)` and `wait()` — poll the `trace` view at the
     call's virtual output until the index has it, and return the return
     data or throw `ContractRevertError`.
@@ -195,8 +201,8 @@ hand-written files in the same directory survive.
   template, generates the client, and from Node sends writes with the dev
   wallet, waits for them, reads the new value back, sends one that reverts,
   rejects one, and leaves one pending.
-- Browser wallets are checked by hand on signet; the checklist is in the
-  Web apps guide.
+- The [wallet integrations guide](../apps/web/src/content/docs/docs/web-wallets.md) covers the browser
+  wallet verification script and a manual signet checklist.
 - Manual against-live check (not run in CI): with a project's stack up and
   seeded (`labcoat up`, deploys applied), run `labcoat generate web` in the
   project, point the app's dev proxy at the unified endpoint, and confirm

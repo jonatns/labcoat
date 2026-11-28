@@ -284,7 +284,106 @@ fn project_toolchain_check(pinned: Option<&str>, expected: &str, installed: Opti
     }
 }
 
-pub async fn run() -> Vec<Check> {
+/// How git treats a project file that should stay out of it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GitState {
+    Ignored,
+    NotIgnored,
+    Tracked,
+    NoRepository,
+}
+
+fn git_state(root: &Path, file: &str) -> GitState {
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .arg(file)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .ok()
+            .and_then(|status| status.code())
+    };
+    if git(&["ls-files", "--error-unmatch", "--"]) == Some(0) {
+        return GitState::Tracked;
+    }
+    match git(&["check-ignore", "-q", "--"]) {
+        Some(0) => GitState::Ignored,
+        Some(1) => GitState::NotIgnored,
+        // No git, or no repository: nothing can commit the file.
+        _ => GitState::NoRepository,
+    }
+}
+
+/// What the project's `.env` contributed, by name, and whether git could
+/// publish it. Values are never part of a check.
+fn dotenv_checks(report: &crate::dotenv::Report, git: GitState) -> Vec<Check> {
+    const NAME: &str = ".env";
+    let file = report.path.display();
+    let mut checks = Vec::new();
+    if let Some(error) = report.mnemonic_error() {
+        checks.push(fail(NAME, error, crate::dotenv::MNEMONIC_HINT));
+    } else if let Some(warning) = report.warnings().into_iter().next() {
+        checks.push(warn(
+            NAME,
+            warning,
+            "each line is NAME=value; .env sets SUBFROST_API_KEY and the LABCOAT_* settings",
+        ));
+    } else if report.applied.is_empty() {
+        checks.push(ok(NAME, format!("{file} sets nothing Labcoat reads")));
+    } else {
+        checks.push(ok(
+            NAME,
+            format!("{file} sets {}", report.applied.join(", ")),
+        ));
+    }
+    const GIT: &str = ".env in git";
+    match git {
+        GitState::Ignored => checks.push(ok(GIT, "ignored by git")),
+        GitState::NoRepository => {}
+        GitState::NotIgnored => checks.push(warn(
+            GIT,
+            format!("{file} is not ignored by git and can be committed"),
+            "add `/.env` to .gitignore",
+        )),
+        GitState::Tracked => checks.push(warn(
+            GIT,
+            format!("{file} is tracked by git"),
+            "run `git rm --cached .env`, add `/.env` to .gitignore, and replace any key that was pushed",
+        )),
+    }
+    checks
+}
+
+/// Whether a Subfrost API key is set and where it came from. `needed` is
+/// whether the project's endpoint is Subfrost's.
+fn api_key_check(set: bool, report: Option<&crate::dotenv::Report>, needed: bool) -> Check {
+    const NAME: &str = "Subfrost API key";
+    let key = crate::dotenv::API_KEY;
+    if set {
+        let source = match report {
+            Some(report) if report.applied(key) => "from .env",
+            Some(report) if report.shadowed(key) => "from the environment, over the one in .env",
+            _ => "from the environment",
+        };
+        ok(NAME, format!("{key} is set ({source})"))
+    } else if needed {
+        warn(
+            NAME,
+            format!("{key} is not set; Subfrost allows 20 requests a minute without one, and a deploy needs more"),
+            "create a key at https://api.subfrost.io and put SUBFROST_API_KEY=<key> in .env in the project root",
+        )
+    } else {
+        ok(
+            NAME,
+            format!("{key} is not set (only Subfrost endpoints use one)"),
+        )
+    }
+}
+
+pub async fn run(target: Option<&crate::settings::ResolvedSettings>) -> Vec<Check> {
     let mut checks = Vec::new();
 
     // Toolchain
@@ -309,6 +408,17 @@ pub async fn run() -> Vec<Check> {
     if let Some(root) = project.as_deref() {
         checks.push(project_config_check(root));
     }
+    let dotenv = crate::dotenv::report();
+    if let Some(report) = dotenv.filter(|report| report.exists) {
+        let root = report.path.parent().unwrap_or(Path::new("."));
+        checks.extend(dotenv_checks(report, git_state(root, crate::dotenv::FILE)));
+    }
+    let subfrost = target.is_some_and(|target| labcoat_core::system::is_subfrost(&target.rpc_url));
+    checks.push(api_key_check(
+        std::env::var(crate::dotenv::API_KEY).is_ok_and(|key| !key.trim().is_empty()),
+        dotenv,
+        subfrost,
+    ));
     let pinned = project
         .as_deref()
         .map(|root| toolchain_channel(&root.join("rust-toolchain.toml")));
@@ -446,6 +556,98 @@ pub async fn run() -> Vec<Check> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dotenv_checks_name_what_was_loaded_and_warn_when_git_can_commit_it() {
+        let report = crate::dotenv::Report {
+            path: PathBuf::from("/project/.env"),
+            exists: true,
+            applied: vec!["SUBFROST_API_KEY".into()],
+            ..Default::default()
+        };
+        let ignored = dotenv_checks(&report, GitState::Ignored);
+        assert_eq!(ignored.len(), 2);
+        assert!(ignored.iter().all(|check| check.status == "ok"));
+        assert!(ignored[0].detail.contains("sets SUBFROST_API_KEY"));
+
+        let exposed = dotenv_checks(&report, GitState::NotIgnored);
+        assert_eq!(exposed[1].status, "warn");
+        assert!(exposed[1].hint.as_deref().unwrap().contains(".gitignore"));
+        let tracked = dotenv_checks(&report, GitState::Tracked);
+        assert!(tracked[1]
+            .hint
+            .as_deref()
+            .unwrap()
+            .contains("git rm --cached"));
+        // Outside a repository there is nothing to say about git.
+        assert_eq!(dotenv_checks(&report, GitState::NoRepository).len(), 1);
+
+        let seed = crate::dotenv::Report {
+            mnemonic: true,
+            ..report.clone()
+        };
+        assert_eq!(dotenv_checks(&seed, GitState::Ignored)[0].status, "fail");
+        let malformed = crate::dotenv::Report {
+            malformed: vec![3],
+            ..report
+        };
+        let check = &dotenv_checks(&malformed, GitState::Ignored)[0];
+        assert_eq!(check.status, "warn");
+        assert!(check.detail.contains("line 3"));
+    }
+
+    #[test]
+    fn git_state_tells_ignored_from_committable_and_tracked() {
+        let root = std::env::temp_dir().join(format!("labcoat-doctor-git-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(".env"), "SUBFROST_API_KEY=x\n").unwrap();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(args)
+                .output()
+                .is_ok_and(|output| output.status.success())
+        };
+        if !git(&["init", "-q"]) {
+            // No git on this machine: nothing to tell apart.
+            assert_eq!(git_state(&root, ".env"), GitState::NoRepository);
+            return;
+        }
+        assert_eq!(git_state(&root, ".env"), GitState::NotIgnored);
+        std::fs::write(root.join(".gitignore"), "/.env\n").unwrap();
+        assert_eq!(git_state(&root, ".env"), GitState::Ignored);
+        std::fs::remove_file(root.join(".gitignore")).unwrap();
+        assert!(git(&["add", ".env"]));
+        assert_eq!(git_state(&root, ".env"), GitState::Tracked);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn the_api_key_check_says_where_a_key_came_from_and_never_what_it_is() {
+        let from_file = crate::dotenv::Report {
+            applied: vec!["SUBFROST_API_KEY".into()],
+            ..Default::default()
+        };
+        assert!(api_key_check(true, Some(&from_file), true)
+            .detail
+            .contains("from .env"));
+        let shadowed = crate::dotenv::Report {
+            shadowed: vec!["SUBFROST_API_KEY".into()],
+            ..Default::default()
+        };
+        assert!(api_key_check(true, Some(&shadowed), true)
+            .detail
+            .contains("over the one in .env"));
+        assert!(api_key_check(true, None, false)
+            .detail
+            .contains("from the environment"));
+        let missing = api_key_check(false, None, true);
+        assert_eq!(missing.status, "warn");
+        assert!(missing.hint.unwrap().contains("https://api.subfrost.io"));
+        assert_eq!(api_key_check(false, None, false).status, "ok");
+    }
 
     #[test]
     fn project_toolchain_check_reports_missing_matching_and_stale_pins() {

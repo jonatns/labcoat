@@ -10,7 +10,7 @@ deployment, calls, simulation, tracing, and Labcoat Network.
 - Add contract packages with `labcoat new <name>`
 - Deployment script: `deploy.rs` using `labcoat-deploy`, run by `labcoat plan` and `labcoat deploy`
 - Public configuration: `labcoat.toml`
-- Secrets: `LABCOAT_WALLET_PASSPHRASE` and `LABCOAT_MNEMONIC` only
+- Secrets: `LABCOAT_WALLET_PASSPHRASE` and `LABCOAT_MNEMONIC` in the environment; `SUBFROST_API_KEY` in `.env` (git-ignored). Never print or commit them
 - Address book: `labcoat.lock`; per-network deployment records:
   `deployments/<network>.json`
 
