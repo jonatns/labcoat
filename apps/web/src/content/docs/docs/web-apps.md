@@ -32,7 +32,7 @@ The command prints the directories it used as absolute paths (`Out dir` and
 
 ```text
 generated/web/
-  manifest.ts     network, RPC endpoint, chain id, and one record per contract
+  manifest.ts     network, RPC endpoint and dialect, chain id, and one record per contract
   abi/            typed method descriptors, one module per build artifact
   client.ts       fetch-based client: typed reads and wallet-signed writes
   wallet.ts       the wallet interface, the dev wallet, browser wallet adapters
@@ -180,10 +180,11 @@ const [count, energy] = await Promise.all([
 contract reads run at that height and do not look the height up. Balances and
 `getIndexedHeight()` are not pinned and answer from the current index.
 
-Reads started together, as in the `Promise.all` above, are sent as one
-JSON-RPC batch request. Without a pinned height they also share one height
-lookup. Labcoat Network answers batches; for an endpoint that does not, create
-the client with `batch: false`.
+Reads started together, as in the `Promise.all` above, share one height
+lookup when no height is pinned. On Labcoat Network they are also sent as one
+JSON-RPC batch request. A hosted endpoint such as Subfrost's does not answer
+batches, so there each read is its own request; see
+[Endpoints](#endpoints).
 
 ### Balances and height
 
@@ -222,14 +223,138 @@ argument; `{ height }` there reads at a height.
 
 - `rpc` is the JSON-RPC endpoint. It defaults to the endpoint recorded in the
   manifest. Browsers usually reach it through a same-origin proxy or rewrite
-  in your app's dev server, which avoids configuring CORS on Labcoat Network.
+  in your app's dev server, which avoids configuring CORS on Labcoat Network,
+  and have to for Subfrost's endpoints.
   `baseUrl` is the earlier name for this option and still works.
+- `dialect` is the JSON-RPC dialect the endpoint speaks, `'labcoat'` or
+  `'alkanes'`. It defaults to the manifest's `rpcDialect`; see
+  [Endpoints](#endpoints).
 - `fetchFn` replaces `fetch`, for tests and runtimes without a global one.
-- `batch: false` sends every call as its own request.
+- `batch` sends calls made together as one JSON-RPC batch request. It
+  defaults to `true` in the `'labcoat'` dialect and `false` in the
+  `'alkanes'` one.
+- `headers` are extra HTTP headers for every request, for a client that runs
+  on a server. Do not put an API key here in code that ships to a browser.
 - `wallet` is the wallet `write` calls use when none is passed to them, and
   `feeRate` their fee rate in sat/vB.
 
 `createClient(options)` is the same as `new LabcoatWebClient(options)`.
+
+## Endpoints
+
+The client speaks two JSON-RPC dialects, and one client speaks one of them for
+everything it does: reads, funding a transaction, broadcasting it, and waiting
+for it.
+
+| Dialect     | Served by                                                  | Indexed height             | Alkanes views                               | An address's outputs, a transaction's hex    |
+| ----------- | ---------------------------------------------------------- | -------------------------- | ------------------------------------------- | -------------------------------------------- |
+| `'labcoat'` | Labcoat Network, a Qubitcoin node                          | `secondaryheight`          | `secondaryview ["alkanes", view, hex]`      | `secondaryview ["esplora", view, hex]`       |
+| `'alkanes'` | a hosted provider of the standard Alkanes JSON-RPC         | `metashrew_height`         | `metashrew_view [view, hex, "latest"]`      | `esplora_address::utxo`, `esplora_tx::hex`   |
+
+`gettxout` and `sendrawtransaction` are the same in both.
+
+`labcoat generate web` records the dialect of the endpoint it generates for
+as `rpcDialect` in the manifest, by the rule the CLI uses: `'alkanes'` for a
+`subfrost.io` endpoint, which is the default for `--network signet` and
+`--network mainnet`, and `'labcoat'` for anything else. Because it is in the
+manifest, it still holds when `rpc` is a same-origin path your server forwards
+to that endpoint. For another provider of the standard Alkanes JSON-RPC, or
+any time `rpc` leads somewhere other than the manifest's endpoint, name it:
+
+```ts
+const labcoat = createClient({ rpc: 'https://alkanes.example/jsonrpc', dialect: 'alkanes' });
+```
+
+With the wrong dialect the first request fails with the endpoint's own
+refusal. Subfrost's reads `method not permitted on the public endpoint:
+secondaryheight`.
+
+### Reach Subfrost from a browser
+
+A page cannot call Subfrost's endpoints directly. They answer a CORS
+preflight, but the response to the request itself carries no
+`Access-Control-Allow-Origin` header, so the browser blocks it and the client
+throws `RPC_UNREACHABLE`. Serve a same-origin path that forwards to the
+manifest's `rpcUrl`, and create the client with that path. In a Next.js app:
+
+```ts
+// app/rpc/route.ts
+import { MANIFEST } from '@/generated/web/manifest';
+
+export async function POST(request: Request) {
+  const headers = new Headers({ 'content-type': 'application/json' });
+  const key = process.env.SUBFROST_API_KEY;
+  if (key) headers.set('x-subfrost-api-key', key);
+
+  const upstream = await fetch(MANIFEST.rpcUrl, {
+    method: 'POST',
+    headers,
+    body: await request.text(),
+  });
+
+  const answer = new Headers({ 'content-type': 'application/json' });
+  const retryAfter = upstream.headers.get('retry-after');
+  if (retryAfter !== null) answer.set('retry-after', retryAfter);
+  return new Response(upstream.body, { status: upstream.status, headers: answer });
+}
+```
+
+```ts
+const labcoat = createClient({ rpc: '/rpc' });
+```
+
+A dev server's proxy does the same while developing: `server.proxy['/rpc']`
+in a Vite config, or a rewrite in `next.config.ts`. The dialect comes from the
+manifest, so the client needs nothing else.
+
+### Subfrost's request limit
+
+Without an API key, Subfrost's public endpoints answer 20 requests a minute
+for each IP address. Behind a forwarding route that address is your server's,
+so every visitor shares the 20. Over the limit the endpoint answers HTTP 429
+with `retry-after: 60`, which the client throws as `LabcoatClientError` with
+code `RPC_RATE_LIMITED`. The client does not retry, except that `tx.wait()`
+and `waitForTransaction` keep polling through it.
+
+Subfrost does not answer JSON-RPC batches, so every call is one request:
+
+| What the page does                          | Requests                                                        |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| One read                                    | 2: the indexed height, then the call                            |
+| `n` reads in one `Promise.all`              | `n` + 1                                                         |
+| `n` reads on a client pinned with `at()`    | `n`                                                             |
+| `getAlkanesBalances`, `getIndexedHeight`    | 1                                                               |
+| A write, up to the wallet's prompt          | 3, plus 2 for each wallet address, plus 1 for each input chosen and each output newer than 100 blocks |
+| Broadcasting it                             | 1                                                               |
+| `tx.wait()`                                 | 1 every 10 seconds                                              |
+| `waitForTransaction(txid)`                  | 1, then 2 every 10 seconds                                      |
+
+One person who reads a few values, sends a write, and waits for it fits in
+the limit. Several visitors at once, or a page that polls reads every few
+seconds, do not. Pin reads to one height with `at()`, read again when
+`getIndexedHeight()` changes instead of on a timer, and get a key before
+other people use the app.
+
+### API keys
+
+A key from [api.subfrost.io](https://api.subfrost.io) raises the limit. The
+endpoint takes it in the `X-Subfrost-Api-Key` header, the header `labcoat`
+itself sends when `SUBFROST_API_KEY` is set.
+
+Everything in a browser bundle is public, so the key cannot be in the page.
+It belongs in the forwarding route, which is the only thing that talks to
+Subfrost: the route above adds it when `SUBFROST_API_KEY` is set in the
+server's environment. A plain rewrite cannot add a header, so an app with a
+key needs a route or a proxy that can.
+
+That route spends your key's quota for anyone who can reach it. Limit what
+it forwards to the methods the client uses: `metashrew_height`,
+`metashrew_view`, `esplora_address::utxo`, `esplora_tx::hex`, `gettxout`, and
+`sendrawtransaction`.
+
+A client that runs on a server, in a script or a server component, has no
+CORS to satisfy and can send the key itself:
+`createClient({ headers: { 'x-subfrost-api-key': key } })`.
 
 ## Send transactions
 
@@ -290,10 +415,11 @@ to its own output first.
   [dev signer](/docs/labcoat-network/#dev-signer). There is no extension and
   no prompt.
 - On any other network it is the first installed browser wallet of UniSat,
-  Xverse, OKX Wallet, and Leather, which asks the person to connect.
+  Xverse, OKX Wallet, Leather, and Subfrost, which asks the person to connect.
 
 The same line serves both, so an app has no local-only code path. To choose,
-pass `{ wallet: 'xverse' }` (or `'dev'`, `'unisat'`, `'okx'`, `'leather'`);
+pass `{ wallet: 'xverse' }` (or `'dev'`, `'unisat'`, `'okx'`, `'leather'`,
+`'subfrost'`);
 `labcoat.availableWallets()` lists what this page can connect to.
 
 A wallet is any object with three members, so an app can bring its own:
@@ -326,12 +452,16 @@ const { value, gasUsed } = await tx.wait();
 ```
 
 `labcoat.waitForTransaction(txid)` does the same from a transaction id alone
-and leaves the return value as bytes. Both take `{ timeoutMs, pollMs }`
-(60 seconds and 500 ms by default) and throw a `LabcoatClientError` with code
-`TRANSACTION_TIMEOUT` when the time is up.
+and leaves the return value as bytes. Both take `{ timeoutMs, pollMs }` and
+throw a `LabcoatClientError` with code `TRANSACTION_TIMEOUT` when the time is
+up. The time allowed is 60 seconds on Labcoat Network and regtest, and 30
+minutes on a public network. The index is asked every 500 ms in the
+`'labcoat'` dialect and every 10 seconds in the `'alkanes'` one, to stay
+inside a hosted endpoint's [request limit](#subfrosts-request-limit).
 
 A transaction is indexed once it is in a block. On a public network that is
-the next block. Labcoat Network mines no blocks by itself, so the dev wallet
+the next block, about ten minutes away on signet and mainnet. Labcoat Network
+mines no blocks by itself, so the dev wallet
 asks for one after each broadcast, as `labcoat call` does; a write is
 confirmed by the time it returns, and `wait()` takes one request. To see a
 transaction stay pending, connect with `{ mine: false }` and mine with
@@ -394,6 +524,9 @@ manifest name), `method`, `fee`, `recipient`, `alkanes`, `payments`, and
 | Blocks             | the dev wallet mines one per write                | the network's                                 |
 | `feeRate`          | 2 sat/vB unless set                               | required                                      |
 | Page address       | `http://localhost:<port>`: the dev signer refuses other origins | any                             |
+| Endpoint           | `labcoat up`'s, in the `'labcoat'` dialect        | Subfrost's by default, in the `'alkanes'` dialect, through a same-origin path |
+| Requests           | batched, unlimited                                | one per call, 20 a minute without an API key  |
+| `wait()`           | 60 seconds, asking every 500 ms                   | 30 minutes, asking every 10 seconds           |
 
 The client is generated for one network (`labcoat generate web --network
 signet`), and refuses an address or a wallet of another.
@@ -405,11 +538,17 @@ addresses on another network.
 ### Check a browser wallet on signet
 
 Browser wallets are not exercised by Labcoat's own tests beyond stub
-providers. Before relying on one, run this once on signet, for each wallet
+providers, and no Labcoat test broadcasts on a public network. By hand, in
+November 2026, a write was signed in UniSat 1.8.5, broadcast through
+Subfrost's signet endpoint, and waited for; the other wallets were not
+tried, and the Subfrost wallet connected but has no signet network to sign
+on. Before relying on one, run this once on signet, for each wallet
 you support:
 
 1. Deploy to signet, run `labcoat generate web --network signet`, and serve
-   the app.
+   the app. The manifest's `rpcDialect` is `'alkanes'`. Forward a
+   same-origin path to the endpoint and pass it as `rpc`, as under
+   [Reach Subfrost from a browser](#reach-subfrost-from-a-browser).
 2. Put the wallet on signet and fund its taproot address with signet coins.
 3. Call `labcoat.connect({ wallet: '<id>' })`. The wallet asks to connect, and
    the address the app shows is the wallet's taproot address.
@@ -418,7 +557,8 @@ you support:
    expected fee and outputs. Reject it: `WalletRejectedError`, and nothing is
    broadcast.
 6. Send it again and approve. `tx.txid` appears in a signet explorer, and
-   `tx.wait()` resolves after the next block.
+   `tx.wait()` resolves after the next block, which can take ten minutes or
+   more.
 7. Send a write with `alkanes` from a wallet that holds that Alkane, and check
    with `labcoat balance` that the Alkanes it did not send are still there.
 8. Switch the wallet to another network and connect again: the client refuses
@@ -428,9 +568,21 @@ The adapters were written against UniSat's `window.unisat` wallet API
 (`requestAccounts`, `getPublicKey`, `getChain`, `signPsbt`), Xverse's Sats
 Connect methods on `window.XverseProviders.BitcoinProvider` (`wallet_connect`,
 `signPsbt`; WBIP001), OKX's `window.okxwallet.bitcoin`, `bitcoinTestnet`, and
-`bitcoinSignet` providers (extension 2.77.1 or later), and Leather's
+`bitcoinSignet` providers (extension 2.77.1 or later), Leather's
 `window.LeatherProvider` (`getAddresses`, `signPsbt`; `@leather.io/rpc`
-2.25), as documented in November 2026.
+2.25), and Subfrost's `window.subfrost` (`requestAccounts`,
+`getPublicKey`, `signPsbt`), as documented in November 2026.
+
+The Subfrost wallet differs from the others in three ways:
+
+- It reports the one address selected in the wallet, and that has to be its
+  taproot address.
+- A declined prompt and any other failure arrive the same way, so both throw
+  `WalletRejectedError`. Only a prompt left unanswered for 60 seconds is told
+  apart, as `WALLET_ERROR`.
+- It may raise a fee it finds too low by changing the transaction. The client
+  refuses to broadcast a transaction it did not build, so the write fails
+  with `WALLET_ERROR`; pass a `feeRate` at least as high as the wallet's own.
 
 ## Detect a reset chain
 

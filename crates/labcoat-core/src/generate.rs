@@ -295,6 +295,16 @@ fn optional_ts_string(value: Option<&str>) -> String {
     }
 }
 
+/// The dialect the generated client speaks to `rpc_url` by default: the same
+/// host rule `system::connect` uses to pick the provider's.
+fn rpc_dialect(rpc_url: &str) -> &'static str {
+    if crate::system::is_subfrost(rpc_url) {
+        "alkanes"
+    } else {
+        "labcoat"
+    }
+}
+
 fn manifest_ts(
     inputs: &WebInputs<'_>,
     contracts: &BTreeMap<String, crate::lockfile::Deployment>,
@@ -338,11 +348,18 @@ export interface WebManifest {{
   /** Bitcoin network parameters underneath the target. */
   bitcoinNetwork: string
   /**
-   * The unified JSON-RPC endpoint (node + Alkanes secondary view) at
-   * generation time. Browsers normally reach it through a same-origin dev
-   * proxy or rewrite instead of calling it directly.
+   * The JSON-RPC endpoint (node and Alkanes index) at generation time.
+   * Browsers normally reach it through a same-origin proxy or rewrite
+   * instead of calling it directly.
    */
   rpcUrl: string
+  /**
+   * The JSON-RPC dialect that endpoint speaks: "labcoat" for a Labcoat or
+   * Qubitcoin node, which serves its indexers through `secondaryview`, or
+   * "alkanes" for a hosted provider of the standard Alkanes JSON-RPC
+   * (`metashrew_view`, `esplora_*`), such as Subfrost.
+   */
+  rpcDialect: "labcoat" | "alkanes"
   /**
    * Chain instance id shared by every deployment record, or null when
    * records are missing one or disagree. Compare against live chain state
@@ -368,6 +385,7 @@ export const MANIFEST: WebManifest = {{
   network: {network},
   bitcoinNetwork: {bitcoin_network},
   rpcUrl: {rpc_url},
+  rpcDialect: {rpc_dialect},
   chainId: {chain_id},
   contracts: CONTRACTS,
 }}
@@ -377,6 +395,7 @@ export const MANIFEST: WebManifest = {{
         network = ts_string(inputs.network),
         bitcoin_network = ts_string(inputs.bitcoin_network),
         rpc_url = ts_string(inputs.rpc_url),
+        rpc_dialect = ts_string(rpc_dialect(inputs.rpc_url)),
         chain_id = optional_ts_string(common_chain_id(contracts).as_deref()),
         entries = entries,
     )
@@ -535,6 +554,15 @@ const WALLET_TS_BODY: &str = include_str!("generate/web/wallet.ts");
 ///   returns the indexed height, and `secondaryview ["alkanes", <view>,
 ///   "0x<hex>"]` evaluates a metashrew view function over protobuf-encoded
 ///   parameters, returning protobuf bytes as a hex string.
+/// - A hosted provider of the standard Alkanes JSON-RPC (Subfrost) refuses
+///   those two methods. The same views are `metashrew_height []` and
+///   `metashrew_view [<view>, "0x<hex>", "latest"]` there, an address's
+///   outputs are `esplora_address::utxo [<address>]`, and a transaction's
+///   hex is `esplora_tx::hex [<txid>]`, both answered as plain JSON rather
+///   than hex. `gettxout` and `sendrawtransaction` are the same in both.
+///   Subfrost answers a batch with a parse error, so batching is off by
+///   default in that dialect. `RpcConnection` is the only place that knows
+///   which dialect is in use.
 /// - `simulate` takes an `alkanes.MessageContextParcel` whose calldata is
 ///   the LEB128 varint list `[block, tx, opcode, ...args]` (a cellpack) and
 ///   returns an `alkanes.SimulateResponse`. A non-empty `error` is a revert;
@@ -545,9 +573,10 @@ const WALLET_TS_BODY: &str = include_str!("generate/web/wallet.ts");
 ///   per Alkane here, mirroring the CLI's `labcoat balance`.
 const CLIENT_TS_BODY: &str = r#"//
 // Browser client for the Labcoat unified JSON-RPC endpoint (node + Alkanes
-// secondary view): typed contract reads, wallet-signed contract calls,
-// indexed height, and Alkanes balances. It holds no key material: a wallet
-// signs every transaction. Self-contained: no runtime dependencies.
+// secondary view) and for hosted providers of the standard Alkanes JSON-RPC:
+// typed contract reads, wallet-signed contract calls, indexed height, and
+// Alkanes balances. It holds no key material: a wallet signs every
+// transaction. Self-contained: no runtime dependencies.
 //
 //   const labcoat = createClient({ rpc: "/rpc" })
 //   const counter = labcoat.contract("counter")
@@ -843,9 +872,17 @@ export interface WriteOptions {
 }
 
 export interface WaitOptions {
-  /** Give up after this many milliseconds. Defaults to 60,000. */
+  /**
+   * Give up after this many milliseconds. Defaults to 60,000 on a regtest
+   * network, where a block is mined on request, and to 1,800,000 (thirty
+   * minutes) on a public one, where the next block is minutes away.
+   */
   timeoutMs?: number
-  /** Ask the index this often, in milliseconds. Defaults to 500. */
+  /**
+   * Ask the index this often, in milliseconds. Defaults to 500 in the
+   * "labcoat" dialect and to 10,000 in the "alkanes" one, whose hosted
+   * endpoints limit how many requests a minute they answer.
+   */
   pollMs?: number
 }
 
@@ -1202,19 +1239,41 @@ interface Simulation {
   error: string | null
 }
 
+/**
+ * The JSON-RPC dialect an endpoint speaks.
+ *
+ * - "labcoat": a Labcoat or Qubitcoin node. Its indexers are secondary
+ *   views (`secondaryheight`, `secondaryview`), and it answers batches.
+ * - "alkanes": the standard Alkanes JSON-RPC a hosted provider such as
+ *   Subfrost serves (`metashrew_height`, `metashrew_view`, `esplora_*`).
+ *
+ * Node methods (`gettxout`, `sendrawtransaction`) are the same in both.
+ */
+export type RpcDialect = "labcoat" | "alkanes"
+
 /** One endpoint, shared by a client and the pinned clients made from it. */
 class RpcConnection {
   readonly url: string
+  readonly dialect: RpcDialect
   private readonly fetchFn: typeof fetch
   private readonly batch: boolean
+  private readonly headers: Record<string, string>
   private nextId = 0
   private queue: PendingCall[] = []
   private pendingHeight: Promise<number> | null = null
 
-  constructor(url: string, fetchFn: typeof fetch, batch: boolean) {
+  constructor(
+    url: string,
+    fetchFn: typeof fetch,
+    batch: boolean,
+    dialect: RpcDialect,
+    headers: Record<string, string>,
+  ) {
     this.url = url
     this.fetchFn = fetchFn
     this.batch = batch
+    this.dialect = dialect
+    this.headers = headers
   }
 
   /**
@@ -1268,13 +1327,22 @@ class RpcConnection {
     try {
       response = await this.fetchFn(this.url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { ...this.headers, "content-type": "application/json" },
         body: JSON.stringify(body),
       })
     } catch (cause) {
       throw new LabcoatClientError(
         "RPC_UNREACHABLE",
-        `cannot reach ${this.url}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `cannot reach ${this.url}: ${cause instanceof Error ? cause.message : String(cause)}${this.crossOriginHint()}`,
+      )
+    }
+    if (response.status === 429) {
+      const seconds = Number.parseInt(response.headers.get("retry-after") ?? "", 10)
+      throw new LabcoatClientError(
+        "RPC_RATE_LIMITED",
+        `${label} failed: ${this.url} is limiting requests (HTTP 429); ask again ${
+          Number.isFinite(seconds) ? `in ${seconds} s` : "later"
+        }`,
       )
     }
     if (!response.ok) {
@@ -1287,9 +1355,28 @@ class RpcConnection {
     }
   }
 
-  /** A metashrew view over the Alkanes secondary index; protobuf in and out. */
+  /**
+   * A browser reports a response without CORS headers as a failed fetch,
+   * which is what Subfrost's hosted endpoints send a page on another origin.
+   */
+  private crossOriginHint(): string {
+    const page = (globalThis as { location?: { origin?: unknown } }).location?.origin
+    if (typeof page !== "string") return ""
+    try {
+      if (new URL(this.url, page).origin === page) return ""
+    } catch {
+      return ""
+    }
+    return "; if it is running, it may not allow requests from this page's origin: forward a same-origin path such as /rpc to it and create the client with that as rpc"
+  }
+
+  /** A metashrew view over the Alkanes index; protobuf in and out. */
   async view(view: string, request: Uint8Array): Promise<Uint8Array> {
-    const result = await this.request("secondaryview", ["alkanes", view, `0x${bytesToHex(request)}`])
+    const input = `0x${bytesToHex(request)}`
+    const result =
+      this.dialect === "alkanes"
+        ? await this.request("metashrew_view", [view, input, "latest"])
+        : await this.request("secondaryview", ["alkanes", view, input])
     if (typeof result !== "string") {
       throw new LabcoatClientError("RESPONSE_INVALID", `${view} returned a non-string result`)
     }
@@ -1297,7 +1384,10 @@ class RpcConnection {
   }
 
   async indexedHeight(): Promise<number> {
-    const result = await this.request("secondaryheight", ["alkanes"])
+    const result =
+      this.dialect === "alkanes"
+        ? await this.request("metashrew_height", [])
+        : await this.request("secondaryheight", ["alkanes"])
     const height =
       typeof result === "number"
         ? result
@@ -1371,14 +1461,56 @@ class RpcConnection {
     return { data, gasUsed, error }
   }
 
-  /** An Esplora view over the node's ledger; text in, text out. */
-  async esplora(view: string, input: string): Promise<string> {
+  /** An Esplora view over a Labcoat node's ledger; text in, text out. */
+  private async esplora(view: string, input: string): Promise<string> {
     const request = `0x${bytesToHex(new TextEncoder().encode(input))}`
     const result = await this.request("secondaryview", ["esplora", view, request])
     if (typeof result !== "string") {
       throw new LabcoatClientError("RESPONSE_INVALID", `${view} returned a non-string result`)
     }
     return new TextDecoder().decode(hexToBytes(result))
+  }
+
+  /**
+   * The unspent outputs Esplora lists for one address, as it lists them:
+   * `{ txid, vout, value, status }` entries, oldest block first.
+   */
+  async addressOutputs(address: string, script: Uint8Array): Promise<Record<string, unknown>[]> {
+    let listed: unknown
+    if (this.dialect === "alkanes") {
+      listed = await this.request("esplora_address::utxo", [address])
+    } else {
+      try {
+        listed = JSON.parse(await this.esplora("utxosbyscripthash", scriptHash(script)))
+      } catch (error) {
+        if (error instanceof LabcoatClientError) throw error
+        listed = null
+      }
+    }
+    if (!Array.isArray(listed)) {
+      throw new LabcoatClientError("RESPONSE_INVALID", `could not list the outputs of ${address}`)
+    }
+    const outputs = listed as Record<string, unknown>[]
+    if (this.dialect === "alkanes") {
+      // A Labcoat node lists oldest first, and that order decides which
+      // outputs fund a call. Esplora promises no order, so make it one.
+      const height = (entry: Record<string, unknown>): number => {
+        const value = (entry?.["status"] as Record<string, unknown> | undefined)?.["block_height"]
+        return typeof value === "number" ? value : Number.MAX_SAFE_INTEGER
+      }
+      const key = (entry: Record<string, unknown>): string => `${String(entry?.["txid"])}:${String(entry?.["vout"])}`
+      outputs.sort((a, b) => height(a) - height(b) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
+    }
+    return outputs
+  }
+
+  /** A transaction's hex, or null when the endpoint does not know it. */
+  async transactionHex(txid: string): Promise<string | null> {
+    const hex =
+      this.dialect === "alkanes"
+        ? await this.request("esplora_tx::hex", [txid])
+        : await this.esplora("txhex", txid)
+    return typeof hex === "string" && /^[0-9a-f]+$/.test(hex) ? hex : null
   }
 
   /**
@@ -1482,10 +1614,27 @@ export interface LabcoatWebClientOptions {
   /** Fetch implementation (for tests and non-browser runtimes). */
   fetchFn?: typeof fetch
   /**
+   * The JSON-RPC dialect the endpoint speaks. Defaults to the manifest's
+   * `rpcDialect`, which `labcoat generate web` sets from the endpoint the
+   * client was generated for, so it holds when `rpc` is a same-origin path
+   * forwarded there. Name it when `rpc` leads to a different kind of
+   * endpoint: "alkanes" for a hosted provider of the standard Alkanes
+   * JSON-RPC, "labcoat" for a Labcoat or Qubitcoin node.
+   */
+  dialect?: RpcDialect
+  /**
    * Send calls made in the same tick as one JSON-RPC batch request.
-   * Defaults to true; pass false for an endpoint without batch support.
+   * Defaults to true in the "labcoat" dialect and to false in the
+   * "alkanes" one: Subfrost's hosted endpoints do not answer batches.
    */
   batch?: boolean
+  /**
+   * Extra HTTP headers for every request, such as a provider's API key
+   * when the client runs on a server. Never put a key here in code that
+   * ships to a browser: everything in the bundle is public. Add it in the
+   * server route that forwards `rpc` instead.
+   */
+  headers?: Record<string, string>
   /** The wallet `contract.write` calls use when none is passed to them. */
   wallet?: LabcoatWallet
   /** Fee rate in sat/vB for `contract.write` calls that name none. */
@@ -1541,6 +1690,8 @@ export function createClient(options: LabcoatWebClientOptions = {}): LabcoatWebC
 export class LabcoatWebClient {
   /** The JSON-RPC endpoint requests are sent to. */
   readonly rpc: string
+  /** The JSON-RPC dialect spoken to it. */
+  readonly dialect: RpcDialect
   private readonly options: LabcoatWebClientOptions
   private connection: RpcConnection
   private pinnedHeight: number | null = null
@@ -1552,7 +1703,21 @@ export class LabcoatWebClient {
     if (typeof fetchFn !== "function") {
       throw new LabcoatClientError("RPC_UNREACHABLE", "no fetch implementation available")
     }
-    this.connection = new RpcConnection(this.rpc, fetchFn.bind(globalThis), options.batch ?? true)
+    const dialect = options.dialect ?? MANIFEST.rpcDialect
+    if (dialect !== "labcoat" && dialect !== "alkanes") {
+      throw new LabcoatClientError(
+        "ARG_INVALID",
+        `unknown dialect ${JSON.stringify(dialect)}; use "labcoat" or "alkanes"`,
+      )
+    }
+    this.dialect = dialect
+    this.connection = new RpcConnection(
+      this.rpc,
+      fetchFn.bind(globalThis),
+      options.batch ?? dialect === "labcoat",
+      dialect,
+      { ...options.headers },
+    )
   }
 
   /** @deprecated Use `rpc`. */
@@ -1712,7 +1877,7 @@ export class LabcoatWebClient {
         "WALLET_UNAVAILABLE",
         network === "regtest"
           ? "no wallet found: start Labcoat Network with `labcoat up` and open the app at http://localhost:<port>, or install a browser wallet"
-          : "no wallet found: install UniSat, Xverse, OKX Wallet, or Leather, or pass your own wallet to the call",
+          : "no wallet found: install UniSat, Xverse, OKX Wallet, Leather, or Subfrost, or pass your own wallet to the call",
       )
     }
     await wallet.getAccounts()
@@ -1891,20 +2056,11 @@ export class LabcoatWebClient {
     const perAccount = await Promise.all(
       accounts.map(async (account) => {
         const [listed, carried] = await Promise.all([
-          this.connection.esplora("utxosbyscripthash", scriptHash(account.script)),
+          this.connection.addressOutputs(account.address, account.script),
           this.alkanesByOutpoint(account.address),
         ])
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(listed)
-        } catch {
-          parsed = null
-        }
-        if (!Array.isArray(parsed)) {
-          throw new LabcoatClientError("RESPONSE_INVALID", `could not list the outputs of ${account.address}`)
-        }
         const outputs: SpendableOutput[] = []
-        for (const entry of parsed as Record<string, unknown>[]) {
+        for (const entry of listed) {
           const status = entry["status"] as Record<string, unknown> | undefined
           const height = status?.["block_height"]
           if (
@@ -2014,8 +2170,8 @@ export class LabcoatWebClient {
     // A call is traced at a virtual output past the real ones: the first
     // protostone at `outputs + 1`, and the call one later when a protostone
     // ahead of it forwards Alkanes.
-    const hex = await this.connection.esplora("txhex", txid)
-    if (!/^[0-9a-f]+$/.test(hex)) {
+    const hex = await this.connection.transactionHex(txid)
+    if (hex === null) {
       throw new LabcoatClientError("ARG_INVALID", `the node does not know transaction ${txid}`)
     }
     const base = transactionOutputCount(hexToBytes(hex)) + 1
@@ -2025,13 +2181,19 @@ export class LabcoatWebClient {
   }
 
   private async waitForTrace(txid: string, vouts: readonly number[], options: WaitOptions): Promise<TraceExit> {
-    const timeoutMs = options.timeoutMs ?? 60_000
-    const pollMs = options.pollMs ?? 500
+    const timeoutMs = options.timeoutMs ?? (this.network === "regtest" ? 60_000 : 1_800_000)
+    const pollMs = options.pollMs ?? (this.connection.dialect === "alkanes" ? 10_000 : 500)
     const started = Date.now()
     for (;;) {
-      const traces = await Promise.all(vouts.map((vout) => this.connection.trace(txid, vout)))
-      const exit = traces.find((trace) => trace !== null)
-      if (exit != null) return exit
+      try {
+        const traces = await Promise.all(vouts.map((vout) => this.connection.trace(txid, vout)))
+        const exit = traces.find((trace) => trace !== null)
+        if (exit != null) return exit
+      } catch (error) {
+        // An endpoint that is limiting requests is asked again at the next
+        // poll: the transaction is already sent, and its result is still coming.
+        if (!(error instanceof LabcoatClientError && error.code === "RPC_RATE_LIMITED")) throw error
+      }
       if (Date.now() - started >= timeoutMs) {
         throw new LabcoatClientError(
           "TRANSACTION_TIMEOUT",
@@ -2042,7 +2204,7 @@ export class LabcoatWebClient {
     }
   }
 
-  /** Height of the Alkanes secondary index — the state every read reflects. */
+  /** Height of the Alkanes index — the state every read reflects. */
   getIndexedHeight(): Promise<number> {
     return this.connection.indexedHeight()
   }
@@ -2443,6 +2605,36 @@ mod tests {
             )
             .unwrap(),
             wasm_sha256: wasm_sha256.map(String::from),
+        }
+    }
+
+    #[test]
+    fn the_manifest_names_the_dialect_of_its_endpoint() {
+        for (rpc_url, dialect) in [
+            ("http://127.0.0.1:18443", "labcoat"),
+            ("https://node.example/rpc", "labcoat"),
+            ("https://signet.subfrost.io/v4/jsonrpc", "alkanes"),
+            ("https://mainnet.subfrost.io/v4/jsonrpc", "alkanes"),
+        ] {
+            assert_eq!(rpc_dialect(rpc_url), dialect, "{rpc_url}");
+            let lockfile = Lockfile::default();
+            let files = generate_web(&WebInputs {
+                network: "signet",
+                bitcoin_network: "signet",
+                rpc_url,
+                lockfile: &lockfile,
+                abis: &[],
+            })
+            .unwrap();
+            let manifest = &files
+                .iter()
+                .find(|f| f.path == "manifest.ts")
+                .unwrap()
+                .contents;
+            assert!(
+                manifest.contains(&format!("  rpcDialect: \"{dialect}\",\n")),
+                "{rpc_url}"
+            );
         }
     }
 

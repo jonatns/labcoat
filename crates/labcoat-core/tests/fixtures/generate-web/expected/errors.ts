@@ -6,6 +6,7 @@
 export type LabcoatClientErrorCode =
   | "RPC_UNREACHABLE"
   | "RPC_ERROR"
+  | "RPC_RATE_LIMITED"
   | "RESPONSE_INVALID"
   | "CONTRACT_UNKNOWN"
   | "ABI_UNKNOWN"
