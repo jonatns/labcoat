@@ -40,7 +40,7 @@ Every command accepts `--json` and prints exactly one stable envelope on stdout 
 {"ok":false,"command":"deploy","schema":"labcoat/v1/error","error":{"code":"WALLET_MISSING","message":"...","hint":"run `labcoat wallet init` first"}}
 ```
 
-Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `labcoat.toml` → defaults.
+Secrets never ride argv: use `LABCOAT_WALLET_PASSPHRASE`, `LABCOAT_MNEMONIC`, or mnemonic stdin. Configuration precedence is CLI flags → environment → `.env` in the project root → `labcoat.toml` → defaults. `.env` sets `SUBFROST_API_KEY` and the `LABCOAT_*` settings; `LABCOAT_MNEMONIC` is refused there.
 
 ## Commands
 

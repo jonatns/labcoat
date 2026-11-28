@@ -15,6 +15,7 @@ Cargo.toml           Host-side test project
 deploy.rs            Deployment script for plan and deploy
 deployments/         Per-network run files, created on deploy
 labcoat.toml         Public project configuration
+.env.example         Names of the secrets .env may hold; copy it to .env
 labcoat.lock         Per-network address book, created on deploy
 rust-toolchain.toml  Pinned Rust toolchain and WebAssembly targets
 AGENTS.md            Concise instructions for coding agents
@@ -35,7 +36,7 @@ target, which is how `labcoat plan` and `labcoat deploy` run it.
 Settings resolve in this order:
 
 ```text
-CLI flags → LABCOAT_* environment variables → labcoat.toml → defaults
+CLI flags → environment variables → .env → labcoat.toml → defaults
 ```
 
 `labcoat.toml` supports `network`, `rpc_url`, `wallet_file`, `fee_rate`,
@@ -61,6 +62,46 @@ If `labcoat.toml` cannot be parsed, commands stop with `CONFIG_INVALID`.
 `labcoat doctor` and `labcoat docs` still run: `doctor` reports the problem
 as its `project config` check, beside the toolchain and runtime checks.
 
+## The .env file
+
+Labcoat reads a file named `.env` in the project root, beside
+`labcoat.toml`, before it resolves any setting. It is where a Subfrost API
+key goes:
+
+```bash
+SUBFROST_API_KEY=your-key
+```
+
+A variable already set in the environment wins over the file, including one
+set to nothing, so `SUBFROST_API_KEY= labcoat plan` runs one command without
+the key. The file is found from any directory inside the project. `.env` is
+the only file read: there is no `.env.local` and no per-network file.
+
+| `.env` may set | |
+|---|---|
+| `SUBFROST_API_KEY` | Sent to `subfrost.io` endpoints |
+| `LABCOAT_NETWORK`, `LABCOAT_RPC_URL`, `LABCOAT_WALLET_FILE`, `LABCOAT_FEE_RATE`, `LABCOAT_SIGNER`, `LABCOAT_ENVIRONMENT` | The settings above. A relative `LABCOAT_WALLET_FILE` is relative to the working directory, as it is in the environment; `wallet_file` in `labcoat.toml` is the one relative to the project |
+| `LABCOAT_PSBT_TIMEOUT_SECS` | How long `--signer psbt-file:<dir>` waits |
+| `LABCOAT_WALLET_PASSPHRASE` | Loaded; on mainnet each command that reads it from `.env` prints a warning |
+
+Everything else is left alone, so the file can be shared with other tools.
+Another `LABCOAT_*` name, such as `LABCOAT_DATA_HOME` or `LABCOAT_RPC_PORT`,
+is not set from `.env`, and Labcoat says so in a warning.
+`LABCOAT_MNEMONIC` is refused: while `.env` sets it, commands stop with
+`CONFIG_INVALID`. A seed phrase is needed once, by `wallet init`, and the
+keystore holds it encrypted from then on.
+
+Lines are `NAME=value`. `export NAME=value`, `#` comments, and single- or
+double-quoted values are accepted. A line that is not an assignment is
+skipped with a warning that gives its line number and never its contents.
+
+Keep `.env` out of git. `labcoat init` writes a `.gitignore` that excludes
+it and a `.env.example` to commit in its place; in an older project add
+`/.env` to `.gitignore`. `labcoat doctor` warns when `.env` exists and git
+does not ignore it, and reports whether an API key is set and whether it
+came from `.env` or the environment. No command prints the key, with
+`--verbose` or `--json` or otherwise.
+
 ## Signet and mainnet through Subfrost
 
 `--network signet` and `--network mainnet` use [Subfrost](https://subfrost.io)'s
@@ -77,15 +118,18 @@ labcoat --network signet plan
 | `mainnet` | `https://mainnet.subfrost.io/v4/jsonrpc` |
 
 `rpc_url = "subfrost"` (or `--rpc-url subfrost`) names the same endpoints, and
-Subfrost's hosted regtest with `--network regtest`. Set `SUBFROST_API_KEY` to
-send an API key. The public endpoints answer without one but allow only 20
-requests a minute, which a deploy exceeds; past that Labcoat reports
-`RPC_REJECTED`. An `rpc_url` in `labcoat.toml` applies only to the network that file
+Subfrost's hosted regtest with `--network regtest`. Set `SUBFROST_API_KEY`,
+in [the .env file](#the-env-file) or the environment, to send an API key from
+[api.subfrost.io](https://api.subfrost.io). The public endpoints answer
+without one but allow only 20 requests a minute, which a deploy exceeds; past
+that Labcoat reports `RPC_REJECTED`. An `rpc_url` in `labcoat.toml` applies only to the network that file
 names, so a local endpoint never follows `--network signet`.
 
-Reads and `labcoat plan` work today. Signing on a public network needs a
-wallet for it (`labcoat --network signet wallet init`) and has not been
-proven end to end; mainnet deployment controls are not production-ready.
+[Deploy to signet](/docs/deploy-to-signet/) goes from a new wallet to a
+deployed contract, step by step. Signing on a public network needs a wallet
+for it (`labcoat --network signet wallet init`). A signet deploy has been
+run by hand and no automated test broadcasts there; mainnet deployment
+controls are not production-ready.
 
 `labcoat` selects Labcoat Network, Labcoat's local/private environment. It uses
 Bitcoin regtest protocol rules underneath but is not Signet. The separate
@@ -119,8 +163,12 @@ remove that line to use the defaults.
 
 Never put a mnemonic or passphrase in `labcoat.toml` or on the command line.
 
-- Set `LABCOAT_WALLET_PASSPHRASE` for the keystore passphrase.
-- Set `LABCOAT_MNEMONIC` or use `wallet init --mnemonic-stdin` for recovery.
+- Put `SUBFROST_API_KEY` in [the .env file](#the-env-file).
+- Answer the prompt for the keystore passphrase, or set
+  `LABCOAT_WALLET_PASSPHRASE` where there is no terminal.
+- Set `LABCOAT_MNEMONIC` in the environment or use
+  `wallet init --mnemonic-stdin` for recovery, never `.env`. See
+  [Restore a wallet from a seed phrase](/docs/deploy-to-signet/#restore-a-wallet-from-a-seed-phrase).
 - Mainnet, signet, and testnet refuse keystore signing without an explicit passphrase.
 
 ## Deployment lockfile
