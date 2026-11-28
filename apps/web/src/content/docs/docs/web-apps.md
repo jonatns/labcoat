@@ -539,13 +539,6 @@ manifest name), `method`, `fee`, `recipient`, `alkanes`, `payments`, and
 The client is generated for one network (`labcoat generate web --network
 signet`), and refuses an address or a wallet of another.
 
-The client speaks Labcoat Network's JSON-RPC: it queries the indexes with
-`secondaryview` and `secondaryheight`. Subfrost's public endpoints, the
-default for `--network signet` and `--network mainnet`, refuse those methods
-(`-32601`, "method not permitted on the public endpoint"), so a client
-generated for them cannot read or write through the default endpoint yet.
-Point `rpc` at an endpoint that serves those methods.
-
 The dev wallet exists only on Labcoat Network. Its coins are worthless and its
 key signs for any page this machine serves, so never send value to its
 addresses on another network.

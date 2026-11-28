@@ -528,31 +528,31 @@ The `catch` above covers both.
 
 ## Beyond Labcoat Network
 
-The page has no code that only works locally, but three things change on a
+The page has no code that only works locally, but four things change on a
 public network such as signet.
 
 **The client is generated for one network.** Deploy there, then run
 `labcoat generate web --network signet`. The client refuses a wallet or an
-address of another network, and `/rpc` has to lead to that network's
-endpoint: the rewrite follows `MANIFEST.rpcUrl`, which regenerating updates.
+address of another network.
 
-That endpoint has to speak the JSON-RPC Labcoat Network speaks. The default
-signet and mainnet endpoints, Subfrost's, do not: they refuse the client's
-index queries (`secondaryview`, `secondaryheight`) with "method not
-permitted". Until the client supports them, a page on signet needs an
-endpoint of your own that serves those methods.
+**`/rpc` leads to a hosted endpoint.** Signet's default is Subfrost's, which
+a page cannot call directly either, and which allows 20 requests a minute
+without an API key. The rewrite above still forwards to `MANIFEST.rpcUrl`,
+but to send a key without shipping it to the browser you need a route of
+your own in its place:
+[Reach Subfrost from a browser](/docs/web-apps/#reach-subfrost-from-a-browser)
+has one.
 
 **`connect()` returns a browser wallet.** There is no dev wallet off Labcoat
 Network. `connect()` returns the first installed wallet of UniSat, Xverse,
-OKX Wallet, and Leather, and the wallet asks the person to connect. Pass
+OKX Wallet, Leather, and Subfrost, and the wallet asks the person to connect. Pass
 `{ wallet: 'xverse' }` to choose one; `labcoat.availableWallets()` lists what
 the page can connect to. The wallet shows its own approval window, so
 `approve: true` no longer applies.
 
 **Transactions cost money and take time.** A write needs a `feeRate`; only
 Labcoat Network has a default. Nobody mines a block for you, so `tx.wait()`
-resolves after the network's next block. It gives up after 60 seconds unless
-you pass `timeoutMs`, and a block can take longer than that.
+resolves after the network's next block, and waits up to 30 minutes for it.
 
 Know the limits before you rely on it:
 
@@ -560,7 +560,8 @@ Know the limits before you rely on it:
   nested SegWit ones, which Xverse uses for payments by default: with such a
   wallet, the bitcoin for fees has to be at its taproot address.
 - Labcoat's own tests exercise the browser wallets through stand-ins, not the
-  real extensions. Before you support a wallet, run the
+  real extensions, and only UniSat has been tried by hand on signet. Before
+  you support a wallet, run the
   [signet checklist](/docs/web-apps/#check-a-browser-wallet-on-signet) with
   it once.
 - The dev wallet's key signs for any page your machine serves. Never send
