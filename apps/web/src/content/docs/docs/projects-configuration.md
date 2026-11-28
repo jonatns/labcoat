@@ -145,11 +145,13 @@ came from `.env` or the environment. No command prints the key, with
 ## Signet and mainnet through Subfrost
 
 `--network signet` and `--network mainnet` use [Subfrost](https://subfrost.io)'s
-hosted Alkanes JSON-RPC unless you set another endpoint:
+hosted Alkanes JSON-RPC by default. Use `--network` to choose the chain
+for a command.
 
 ```bash
-labcoat --network signet simulate 2:0 99
+labcoat --network labcoat plan
 labcoat --network signet plan
+labcoat --network mainnet plan
 ```
 
 | Network | Default endpoint |
@@ -162,8 +164,9 @@ Subfrost's hosted regtest with `--network regtest`. Set `SUBFROST_API_KEY`,
 in [the .env file](#the-env-file) or the environment, to send an API key from
 [api.subfrost.io](https://api.subfrost.io). The public endpoints answer
 without one but allow only 20 requests a minute, which a deploy exceeds; past
-that Labcoat reports `RPC_REJECTED`. An `rpc_url` in `labcoat.toml` applies only to the network that file
-names, so a local endpoint never follows `--network signet`.
+that Labcoat reports `RPC_REJECTED`. An `rpc_url` in `labcoat.toml` applies
+only to the network that file names. Use `--rpc-url` for a one-command
+override. A global `LABCOAT_RPC_URL` applies to every selected network.
 
 [Deploy to signet](/docs/deploy-to-signet/) goes from a new wallet to a
 deployed contract, step by step. Signing on a public network needs a wallet
@@ -175,20 +178,6 @@ controls are not production-ready.
 Bitcoin regtest protocol rules underneath but is not Signet. The separate
 `regtest` selector is reserved for custom regtest RPC endpoints and is rejected
 with the default Labcoat endpoint.
-
-When you work across chains, keep a separate [deployment environment](/docs/deployment-state/#environments)
-for each:
-
-```bash
-labcoat --network labcoat --environment local plan
-labcoat --network signet --environment staging plan
-labcoat --network mainnet --environment production plan
-```
-
-Signet and mainnet select their own Subfrost endpoint by default. Use
-`--rpc-url` on a command with a different provider. A global `LABCOAT_RPC_URL`
-applies to every selected network, so leave it unset when switching between
-the default endpoints.
 
 ## Wallets
 
