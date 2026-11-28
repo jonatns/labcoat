@@ -225,7 +225,7 @@ pub(crate) async fn deploy_with_broadcast(
         observe,
     )
     .await?;
-    let outcome = execution_outcome(&provider, result, true).await;
+    let outcome = execution_outcome(&provider, config, result, true).await;
 
     if let (Some(id), Some(name)) = (&outcome.alkanes_id, &contract_name) {
         use sha2::Digest;
@@ -284,22 +284,76 @@ pub(crate) async fn resume_deploy(
         &crate::state::observed_chain(config, chain_id),
     )?;
     let result = crate::execute::resume_reveal(&mut provider, config, reveal, observe).await?;
-    Ok(execution_outcome(&provider, result, true).await)
+    Ok(execution_outcome(&provider, config, result, true).await)
+}
+
+/// Wait for a broadcast transaction's trace on a public network, where
+/// that means waiting for a block: paced for a hosted endpoint, for as long
+/// as the configuration allows, and reported as progress. `None` when the
+/// wait ends with the transaction still unconfirmed.
+async fn confirmed_trace(
+    provider: &ConcreteProvider,
+    config: &ToolkitConfig,
+    txid: &str,
+    tx_hex: Option<&str>,
+) -> Option<Vec<serde_json::Value>> {
+    use crate::progress::{report, Event};
+    let (stop_waiting, stopped) = tokio::sync::oneshot::channel();
+    report(config, Event::Waiting { txid, stop_waiting });
+    let traces = tokio::select! {
+        result = trace_mod::wait_for_trace_every(
+            provider,
+            txid,
+            tx_hex,
+            config.confirm_timeout(),
+            trace_mod::PUBLIC_POLL,
+        ) => result.ok(),
+        Ok(()) = stopped => None,
+    };
+    report(
+        config,
+        Event::WaitEnded {
+            txid,
+            confirmed: traces.is_some(),
+        },
+    );
+    traces
+}
+
+/// Wait for a transaction an earlier deploy sent to a public network.
+/// `false` when it is still unconfirmed after the configured wait.
+pub(crate) async fn await_confirmation(config: &ToolkitConfig, txid: &str) -> Result<bool> {
+    let provider = system::connect(config, None, false).await?;
+    Ok(confirmed_trace(&provider, config, txid, None)
+        .await
+        .is_some())
 }
 
 async fn execution_outcome(
     provider: &ConcreteProvider,
+    config: &ToolkitConfig,
     result: EnhancedExecuteResult,
     deploy: bool,
 ) -> ExecuteOutcome {
+    let public = !config.network.uses_regtest();
     let traces = match result.traces {
         Some(traces) if !traces.is_empty() => Some(traces),
+        _ if public => {
+            confirmed_trace(
+                provider,
+                config,
+                &result.reveal_txid,
+                result.reveal_tx_hex.as_deref(),
+            )
+            .await
+        }
         _ => trace_mod::wait_for_trace(provider, &result.reveal_txid, TRACE_TIMEOUT)
             .await
             .ok(),
     };
     let (status, revert_reason) = find_return_status(&traces);
     ExecuteOutcome {
+        confirmation: (public && traces.is_none()).then_some("pending"),
         commit_txid: result.commit_txid,
         txid: result.reveal_txid,
         commit_fee: result.commit_fee,
@@ -396,7 +450,7 @@ pub(crate) async fn call_with_broadcast(
         observe,
     )
     .await?;
-    let mut outcome = execution_outcome(&provider, result, false).await;
+    let mut outcome = execution_outcome(&provider, config, result, false).await;
     outcome.payments = payments;
     Ok(outcome)
 }
@@ -436,7 +490,18 @@ pub async fn trace(
     wait: bool,
 ) -> Result<Option<Vec<serde_json::Value>>> {
     let provider = system::connect(config, None, false).await?;
-    if wait {
+    if wait && !config.network.uses_regtest() {
+        // The transaction may still be waiting for a block.
+        trace_mod::wait_for_trace_every(
+            &provider,
+            txid,
+            None,
+            config.confirm_timeout(),
+            trace_mod::PUBLIC_POLL,
+        )
+        .await
+        .map(Some)
+    } else if wait {
         trace_mod::wait_for_trace(&provider, txid, TRACE_TIMEOUT)
             .await
             .map(Some)
@@ -501,6 +566,132 @@ pub fn parse_alkanes_id(id: &str) -> Result<(u128, u128)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A wallet-less provider for an endpoint nothing listens on: the
+    /// transaction below carries no protostone, so no request is made.
+    async fn offline(network: crate::NetworkTarget) -> (ToolkitConfig, ConcreteProvider) {
+        let config = ToolkitConfig {
+            network,
+            rpc_url: "http://127.0.0.1:9".to_string(),
+            wallet_file: std::env::temp_dir().join(format!(
+                "labcoat-toolkit-wait-{}/wallet.json",
+                std::process::id()
+            )),
+            confirm_timeout: Some(std::time::Duration::from_millis(25)),
+            ..ToolkitConfig::default()
+        };
+        let provider = system::connect(&config, None, false).await.unwrap();
+        (config, provider)
+    }
+
+    fn broadcast_result() -> EnhancedExecuteResult {
+        let tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![bitcoin::TxIn::default()],
+            output: vec![bitcoin::TxOut {
+                value: bitcoin::Amount::from_sat(546),
+                script_pubkey: bitcoin::ScriptBuf::new(),
+            }],
+        };
+        EnhancedExecuteResult {
+            commit_txid: None,
+            commit_fee: None,
+            reveal_txid: tx.compute_txid().to_string(),
+            reveal_fee: 300,
+            inputs_used: Vec::new(),
+            outputs_created: Vec::new(),
+            traces: None,
+            split_txid: None,
+            split_fee: None,
+            wrap_txid: None,
+            wrap_fee: None,
+            reveal_tx_hex: Some(bitcoin::consensus::encode::serialize_hex(&tx)),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_public_network_wait_that_runs_out_is_a_pending_outcome() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        static EVENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+        static INTERRUPT: AtomicBool = AtomicBool::new(false);
+        crate::progress::set_reporter(|event| {
+            EVENTS.lock().unwrap().push(match event {
+                crate::progress::Event::Broadcast { kind, .. } => format!("broadcast {kind}"),
+                crate::progress::Event::Waiting { stop_waiting, .. } => {
+                    if INTERRUPT.load(Ordering::Relaxed) {
+                        stop_waiting.send(()).unwrap();
+                    }
+                    "waiting".to_string()
+                }
+                crate::progress::Event::WaitEnded { confirmed, .. } => {
+                    format!("ended confirmed={confirmed}")
+                }
+            });
+        });
+
+        let (mut config, provider) = offline(crate::NetworkTarget::Signet).await;
+        let result = broadcast_result();
+        let txid = result.reveal_txid.clone();
+        let quickly = std::time::Duration::from_secs(1);
+        let outcome = tokio::time::timeout(
+            quickly,
+            execution_outcome(&provider, &config, result, false),
+        )
+        .await
+        .expect("the configured timeout is shorter than the poll interval");
+        // Sent, not confirmed, and not a failure: the transaction id is
+        // kept and the state is named.
+        assert_eq!(outcome.txid, txid);
+        assert_eq!(outcome.confirmation, Some("pending"));
+        assert_ne!(outcome.status, "success");
+        assert_ne!(outcome.status, "revert");
+        assert!(outcome.traces.is_none());
+        let json = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(json["confirmation"], "pending");
+        // The wait is announced and its end reported, in that order.
+        assert_eq!(
+            *EVENTS.lock().unwrap(),
+            ["waiting", "ended confirmed=false"]
+        );
+
+        // Nothing is reported for a regtest target, whatever it does.
+        let local = ToolkitConfig::default();
+        crate::progress::report(
+            &local,
+            crate::progress::Event::Broadcast {
+                kind: "transaction",
+                txid: &txid,
+            },
+        );
+        assert_eq!(EVENTS.lock().unwrap().len(), 2);
+        // On a public network a broadcast is.
+        crate::progress::report(
+            &config,
+            crate::progress::Event::Broadcast {
+                kind: "commit",
+                txid: &txid,
+            },
+        );
+        assert_eq!(EVENTS.lock().unwrap().last().unwrap(), "broadcast commit");
+
+        INTERRUPT.store(true, Ordering::Relaxed);
+        config.confirm_timeout = Some(trace_mod::PUBLIC_POLL);
+        let result = broadcast_result();
+        let interrupted = tokio::time::timeout(
+            quickly,
+            execution_outcome(&provider, &config, result, false),
+        )
+        .await
+        .expect("the interrupt stops waiting before the timeout");
+        assert_eq!(interrupted.confirmation, Some("pending"));
+        assert_eq!(interrupted.txid, txid);
+        assert!(EVENTS
+            .lock()
+            .unwrap()
+            .ends_with(&["waiting".to_string(), "ended confirmed=false".to_string(),]));
+    }
 
     #[test]
     fn deploy_spec_keeps_the_bare_historical_new_form() {

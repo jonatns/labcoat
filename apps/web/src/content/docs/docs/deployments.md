@@ -514,5 +514,9 @@ as described in
 [Atomic exchanges](/docs/exchanges/#sign-with-an-external-wallet). The wallet
 that deploys an upgrade must hold the contract's auth token.
 
+[Deploy to signet](/docs/deploy-to-signet/) walks through a first public
+deployment: the wallet, funding, the Subfrost API key, and what `deploy`
+asks and waits for.
+
 Mainnet deployment controls are not production-ready; see
 [Stability and releases](/docs/reference/stability/).

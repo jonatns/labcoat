@@ -1232,8 +1232,8 @@
       },
       {
         "code": "RPC_REJECTED",
-        "meaning": "the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit",
-        "recovery": "set `SUBFROST_API_KEY` for Subfrost, or wait and retry"
+        "meaning": "the RPC endpoint refused the request without a JSON-RPC error, typically a hosted endpoint's rate limit; also reported when wallet outputs were left out of a transaction because the endpoint did not answer their Alkanes balance check",
+        "recovery": "set `SUBFROST_API_KEY` for Subfrost, or wait a minute and retry"
       },
       {
         "code": "TOOLKIT_ERROR",

@@ -15,6 +15,7 @@ pub mod error;
 pub mod execute;
 pub mod generate;
 pub mod lockfile;
+pub mod progress;
 pub mod records;
 pub mod runfile;
 pub mod signer;

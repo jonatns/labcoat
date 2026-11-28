@@ -117,6 +117,14 @@ pub fn load_build_abis(build_dir: &Path) -> Result<Vec<BuildAbi>> {
 /// Generate the web artifact tree. Deterministic: identical inputs produce
 /// byte-identical output (no timestamps, versions, or map ordering).
 pub fn generate_web(inputs: &WebInputs<'_>) -> Result<Vec<GeneratedFile>> {
+    generate_web_with_browser_rpc(inputs, inputs.rpc_url)
+}
+
+/// Publish the browser's proxy URL while deriving its RPC dialect from the upstream.
+pub fn generate_web_with_browser_rpc(
+    inputs: &WebInputs<'_>,
+    browser_rpc_url: &str,
+) -> Result<Vec<GeneratedFile>> {
     let contracts = inputs
         .lockfile
         .networks
@@ -127,7 +135,7 @@ pub fn generate_web(inputs: &WebInputs<'_>) -> Result<Vec<GeneratedFile>> {
     let mut files = vec![
         GeneratedFile {
             path: "manifest.ts".to_string(),
-            contents: manifest_ts(inputs, &contracts),
+            contents: manifest_ts(inputs, browser_rpc_url, &contracts),
         },
         GeneratedFile {
             path: "abi/document.ts".to_string(),
@@ -307,6 +315,7 @@ fn rpc_dialect(rpc_url: &str) -> &'static str {
 
 fn manifest_ts(
     inputs: &WebInputs<'_>,
+    browser_rpc_url: &str,
     contracts: &BTreeMap<String, crate::lockfile::Deployment>,
 ) -> String {
     let mut entries = String::new();
@@ -394,7 +403,7 @@ export const MANIFEST: WebManifest = {{
         network_comment = ts_string(inputs.network),
         network = ts_string(inputs.network),
         bitcoin_network = ts_string(inputs.bitcoin_network),
-        rpc_url = ts_string(inputs.rpc_url),
+        rpc_url = ts_string(browser_rpc_url),
         rpc_dialect = ts_string(rpc_dialect(inputs.rpc_url)),
         chain_id = optional_ts_string(common_chain_id(contracts).as_deref()),
         entries = entries,

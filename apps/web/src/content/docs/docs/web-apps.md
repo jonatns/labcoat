@@ -839,7 +839,7 @@ endpoint and the extensions in your browser.
 Before relying on a wallet, run this once on signet with the `LabcoatWallet`
 your app passes:
 
-1. Deploy to signet, run `labcoat generate web --network signet`, and serve
+1. [Deploy to signet](/docs/deploy-to-signet/), run `labcoat generate web --network signet`, and serve
    the app. The manifest's `rpcDialect` is `'alkanes'`. Forward a
    same-origin path to the endpoint and pass it as `rpc`, as under
    [Reach Subfrost from a browser](#reach-subfrost-from-a-browser).

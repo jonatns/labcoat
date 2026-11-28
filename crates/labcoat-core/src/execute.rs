@@ -38,6 +38,11 @@ pub struct ExecuteOutcome {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub payments: Vec<PaymentOutput>,
     pub traces: Option<Vec<serde_json::Value>>,
+    /// `pending` when a public network had not confirmed the transaction
+    /// by the time the wait ended: it is sent, nothing failed, and its
+    /// result is not known yet. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<&'static str>,
 }
 
 /// Transaction-shaping options shared by call and deploy. The defaults
@@ -689,7 +694,7 @@ pub(crate) async fn run_with_broadcast(
                     &wallet_fingerprint,
                     &preview("transaction", &tx.psbt, tx.fee, config, &wallet_fingerprint),
                 )?;
-                match observe.as_deref_mut() {
+                let result = match observe.as_deref_mut() {
                     Some(observe) => {
                         broadcast_signed(provider, tx.psbt, tx.fee, None, observe).await?
                     }
@@ -697,7 +702,9 @@ pub(crate) async fn run_with_broadcast(
                         .resume_execution(tx, &params)
                         .await
                         .map_err(|e| LabcoatError::classify(e.into()))?,
-                }
+                };
+                report_broadcast(config, "transaction", &result.reveal_txid);
+                result
             }
             ExecutionState::ReadyToSignCommit(mut commit) => {
                 prefund_reveal_from_commit_change(&mut commit);
@@ -729,6 +736,7 @@ pub(crate) async fn run_with_broadcast(
                         "report this as a Labcoat bug",
                     ));
                 };
+                report_broadcast(config, "commit", &reveal.commit_txid);
                 // Keep the prepared reveal until broadcast. A separate deploy
                 // can approve and send it if the previous one stopped here.
                 let pending = persist_pending_reveal(config, &reveal);
@@ -752,6 +760,7 @@ pub(crate) async fn run_with_broadcast(
                 if let Some(pending) = pending {
                     std::fs::remove_file(pending).ok();
                 }
+                report_broadcast(config, "reveal", &result.reveal_txid);
                 result
             }
             ExecutionState::ReadyToSignReveal(_) => unreachable!("execute builds the commit first"),
@@ -951,8 +960,13 @@ pub(crate) async fn resume_reveal(
     )
     .await?;
     std::fs::remove_file(path).ok();
+    report_broadcast(config, "reveal", &result.reveal_txid);
     confirm_regtest(provider, config).await?;
     Ok(result)
+}
+
+fn report_broadcast(config: &ToolkitConfig, kind: &'static str, txid: &str) {
+    crate::progress::report(config, crate::progress::Event::Broadcast { kind, txid });
 }
 
 /// Mirrors the constant baked into upstream build_reveal_psbt
